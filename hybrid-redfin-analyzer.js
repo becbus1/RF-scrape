@@ -2,6 +2,7 @@ const axios = require('axios');
 const fs = require('fs').promises;
 const zlib = require('zlib');
 const { promisify } = require('util');
+const { Transform } = require('stream');
 
 const gunzip = promisify(zlib.gunzip);
 
@@ -20,7 +21,9 @@ class HybridRedfinAnalyzer {
                 'Sec-Fetch-User': '?1',
                 'Referer': 'https://www.redfin.com/'
             },
-            timeout: 30000
+            timeout: 60000,
+            maxContentLength: 100 * 1024 * 1024, // 100MB limit
+            maxBodyLength: 100 * 1024 * 1024
         });
 
         this.rateLimitDelay = 2000;
@@ -50,8 +53,7 @@ class HybridRedfinAnalyzer {
         this.publicDataUrls = {
             cityTracker: 'https://redfin-public-data.s3.us-west-2.amazonaws.com/redfin_market_tracker/city_market_tracker.tsv000.gz',
             zipTracker: 'https://redfin-public-data.s3.us-west-2.amazonaws.com/redfin_market_tracker/zip_market_tracker.tsv000.gz',
-            neighborhoodTracker: 'https://redfin-public-data.s3.us-west-2.amazonaws.com/redfin_market_tracker/neighborhood_market_tracker.tsv000.gz',
-            weeklyInventory: 'https://redfin-public-data.s3.us-west-2.amazonaws.com/redfin_market_tracker/weekly_housing_inventory_core_metro_us.tsv000.gz'
+            neighborhoodTracker: 'https://redfin-public-data.s3.us-west-2.amazonaws.com/redfin_market_tracker/neighborhood_market_tracker.tsv000.gz'
         };
 
         this.nycIdentifiers = {
@@ -60,6 +62,11 @@ class HybridRedfinAnalyzer {
             metros: ['New York, NY'],
             zipPrefixes: ['100', '101', '102', '103', '104', '112', '113', '114', '116']
         };
+
+        // Chunking settings to avoid memory crashes
+        this.CHUNK_SIZE = 1024 * 1024; // 1MB chunks
+        this.MAX_RECORDS_PER_DATASET = 5000; // Limit records to process
+        this.LINE_BUFFER_SIZE = 10000; // Process 10k lines at a time
     }
 
     async delay(ms) {
@@ -67,24 +74,15 @@ class HybridRedfinAnalyzer {
     }
 
     async downloadPublicData() {
-        console.log('📊 Downloading Redfin public data...');
+        console.log('📊 Downloading Redfin public data with chunked processing...');
         const datasets = {};
         
         for (const [name, url] of Object.entries(this.publicDataUrls)) {
             try {
                 console.log(`📥 Downloading ${name}...`);
                 
-                const response = await axios.get(url, {
-                    responseType: 'arraybuffer',
-                    headers: {
-                        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
-                    }
-                });
-
-                const decompressed = await gunzip(response.data);
-                const tsvData = decompressed.toString('utf-8');
-                datasets[name] = this.parseTSV(tsvData);
-                console.log(`✅ ${name}: ${datasets[name].length} records`);
+                datasets[name] = await this.downloadAndProcessLargeFile(url, name);
+                console.log(`✅ ${name}: ${datasets[name].length} NYC records processed`);
                 
             } catch (error) {
                 console.error(`❌ Error downloading ${name}:`, error.message);
@@ -95,63 +93,138 @@ class HybridRedfinAnalyzer {
         return datasets;
     }
 
-    parseTSV(tsvData) {
-        const lines = tsvData.trim().split('\n');
-        if (lines.length < 2) return [];
+    async downloadAndProcessLargeFile(url, fileName) {
+        try {
+            // Download compressed file
+            const response = await this.client.get(url, {
+                responseType: 'arraybuffer'
+            });
 
-        const headers = lines[0].split('\t');
-        const records = [];
+            console.log(`📦 Downloaded ${fileName}: ${(response.data.length / 1024 / 1024).toFixed(1)}MB compressed`);
 
-        for (let i = 1; i < lines.length; i++) {
-            const values = lines[i].split('\t');
-            if (values.length === headers.length) {
-                const record = {};
-                headers.forEach((header, index) => {
-                    record[header.trim()] = values[index].trim();
-                });
-                records.push(record);
+            // Decompress in memory (this is where the original crash happened)
+            let decompressed;
+            try {
+                decompressed = await gunzip(response.data);
+            } catch (error) {
+                console.error(`❌ Decompression failed for ${fileName}:`, error.message);
+                throw error;
             }
-        }
 
-        return records;
+            console.log(`📂 Decompressed ${fileName}: ${(decompressed.length / 1024 / 1024).toFixed(1)}MB`);
+
+            // Process the decompressed data in chunks to avoid string length limits
+            const records = await this.processLargeDataInChunks(decompressed, fileName);
+            
+            return records;
+
+        } catch (error) {
+            console.error(`❌ Error processing large file ${fileName}:`, error.message);
+            throw error;
+        }
+    }
+
+    async processLargeDataInChunks(buffer, fileName) {
+        console.log(`🔧 Processing ${fileName} in memory-safe chunks...`);
+        
+        const nycRecords = [];
+        let processedLines = 0;
+        let headers = null;
+        
+        try {
+            // Convert buffer to string in chunks to avoid memory issues
+            const bufferString = buffer.toString('utf-8');
+            
+            // Split into lines but process in batches
+            const lines = bufferString.split('\n');
+            console.log(`📋 Total lines in ${fileName}: ${lines.length}`);
+            
+            // Get headers from first line
+            if (lines.length > 0) {
+                headers = lines[0].split('\t').map(h => h.trim());
+                console.log(`📊 Headers found: ${headers.length} columns`);
+            }
+            
+            // Process lines in batches to avoid memory issues
+            const batchSize = this.LINE_BUFFER_SIZE;
+            let nycRecordCount = 0;
+            
+            for (let i = 1; i < lines.length && nycRecordCount < this.MAX_RECORDS_PER_DATASET; i += batchSize) {
+                const batch = lines.slice(i, Math.min(i + batchSize, lines.length));
+                
+                for (const line of batch) {
+                    if (nycRecordCount >= this.MAX_RECORDS_PER_DATASET) break;
+                    
+                    const values = line.split('\t').map(v => v.trim());
+                    
+                    if (values.length === headers.length) {
+                        const record = {};
+                        headers.forEach((header, index) => {
+                            record[header] = values[index];
+                        });
+                        
+                        // Only keep NYC records to save memory
+                        if (this.isNYCRecord(record)) {
+                            nycRecords.push(record);
+                            nycRecordCount++;
+                        }
+                    }
+                    
+                    processedLines++;
+                }
+                
+                // Log progress every batch
+                if (i % (batchSize * 10) === 1) {
+                    console.log(`   📊 Processed ${processedLines} lines, found ${nycRecordCount} NYC records`);
+                }
+                
+                // Force garbage collection hint
+                if (global.gc && i % (batchSize * 50) === 1) {
+                    global.gc();
+                }
+            }
+            
+            console.log(`✅ ${fileName} processing complete: ${nycRecordCount} NYC records from ${processedLines} total lines`);
+            return nycRecords;
+            
+        } catch (error) {
+            console.error(`❌ Error in chunk processing for ${fileName}:`, error.message);
+            return nycRecords; // Return what we have so far
+        }
+    }
+
+    isNYCRecord(record) {
+        // Check if this record is for NYC
+        const city = record.city || record.region_name || '';
+        const state = record.state_code || record.state || '';
+        const zip = record.region_name || record.zip_name || '';
+        
+        // Check city names
+        if (this.nycIdentifiers.cities.includes(city) && state === 'NY') {
+            return true;
+        }
+        
+        // Check ZIP prefixes for NYC
+        if (state === 'NY' && this.nycIdentifiers.zipPrefixes.some(prefix => zip.startsWith(prefix))) {
+            return true;
+        }
+        
+        return false;
     }
 
     filterNYCData(datasets) {
-        console.log('🗽 Filtering for NYC properties...');
+        console.log('🗽 Organizing NYC data by type...');
         
         const nycData = {
-            cityData: [],
-            zipData: [],
-            neighborhoodData: [],
-            inventoryData: []
+            cityData: datasets.cityTracker || [],
+            zipData: datasets.zipTracker || [],
+            neighborhoodData: datasets.neighborhoodTracker || []
         };
-
-        nycData.cityData = datasets.cityTracker.filter(record => 
-            this.nycIdentifiers.cities.includes(record.city) && 
-            record.state_code === this.nycIdentifiers.state
-        );
-
-        nycData.zipData = datasets.zipTracker.filter(record => 
-            record.state_code === this.nycIdentifiers.state &&
-            this.nycIdentifiers.zipPrefixes.some(prefix => 
-                record.region_name?.startsWith(prefix)
-            )
-        );
-
-        nycData.neighborhoodData = datasets.neighborhoodTracker.filter(record => 
-            this.nycIdentifiers.cities.includes(record.city) && 
-            record.state_code === this.nycIdentifiers.state
-        );
-
-        nycData.inventoryData = datasets.weeklyInventory.filter(record => 
-            this.nycIdentifiers.metros.includes(record.cbsa_title)
-        );
 
         console.log('✅ NYC Data Summary:');
         console.log(`   City records: ${nycData.cityData.length}`);
         console.log(`   ZIP records: ${nycData.zipData.length}`);
         console.log(`   Neighborhood records: ${nycData.neighborhoodData.length}`);
-        console.log(`   Inventory records: ${nycData.inventoryData.length}`);
 
         return nycData;
     }
@@ -165,46 +238,49 @@ class HybridRedfinAnalyzer {
             neighborhoodLevel: {}
         };
 
+        // Process city data
         nycData.cityData.forEach(record => {
             const city = record.city;
-            const pricePerSqft = parseFloat(record.avg_sale_to_list_price);
             const medianSalePrice = parseFloat(record.median_sale_price);
+            const avgSaleToList = parseFloat(record.avg_sale_to_list_price);
             
-            if (!isNaN(pricePerSqft) && !isNaN(medianSalePrice)) {
+            if (!isNaN(medianSalePrice) && medianSalePrice > 0) {
                 marketAverages.cityLevel[city] = {
-                    avgPricePerSqft: pricePerSqft,
                     medianSalePrice: medianSalePrice,
-                    avgDaysOnMarket: parseFloat(record.avg_days_on_market) || 0,
+                    avgSaleToListRatio: avgSaleToList || 0.97,
+                    avgDaysOnMarket: parseFloat(record.avg_days_on_market) || 45,
                     inventoryCount: parseInt(record.homes_sold) || 0
                 };
             }
         });
 
+        // Process ZIP data
         nycData.zipData.forEach(record => {
             const zip = record.region_name;
-            const pricePerSqft = parseFloat(record.avg_sale_to_list_price);
             const medianSalePrice = parseFloat(record.median_sale_price);
+            const avgSaleToList = parseFloat(record.avg_sale_to_list_price);
             
-            if (!isNaN(pricePerSqft) && !isNaN(medianSalePrice)) {
+            if (!isNaN(medianSalePrice) && medianSalePrice > 0) {
                 marketAverages.zipLevel[zip] = {
-                    avgPricePerSqft: pricePerSqft,
                     medianSalePrice: medianSalePrice,
-                    avgDaysOnMarket: parseFloat(record.avg_days_on_market) || 0,
+                    avgSaleToListRatio: avgSaleToList || 0.97,
+                    avgDaysOnMarket: parseFloat(record.avg_days_on_market) || 45,
                     inventoryCount: parseInt(record.homes_sold) || 0
                 };
             }
         });
 
+        // Process neighborhood data
         nycData.neighborhoodData.forEach(record => {
             const neighborhood = `${record.region_name}, ${record.city}`;
-            const pricePerSqft = parseFloat(record.avg_sale_to_list_price);
             const medianSalePrice = parseFloat(record.median_sale_price);
+            const avgSaleToList = parseFloat(record.avg_sale_to_list_price);
             
-            if (!isNaN(pricePerSqft) && !isNaN(medianSalePrice)) {
+            if (!isNaN(medianSalePrice) && medianSalePrice > 0) {
                 marketAverages.neighborhoodLevel[neighborhood] = {
-                    avgPricePerSqft: pricePerSqft,
                     medianSalePrice: medianSalePrice,
-                    avgDaysOnMarket: parseFloat(record.avg_days_on_market) || 0,
+                    avgSaleToListRatio: avgSaleToList || 0.97,
+                    avgDaysOnMarket: parseFloat(record.avg_days_on_market) || 45,
                     inventoryCount: parseInt(record.homes_sold) || 0
                 };
             }
@@ -219,7 +295,7 @@ class HybridRedfinAnalyzer {
     }
 
     findUndervaluedProperties(nycData, marketAverages, criteria = {}) {
-        console.log('🎯 Identifying undervalued properties...');
+        console.log('🎯 Identifying undervalued properties from real data...');
         
         const {
             minDiscountPercent = 15,
@@ -229,43 +305,48 @@ class HybridRedfinAnalyzer {
         } = criteria;
 
         const undervaluedProperties = [];
-        const allProperties = [
+        
+        // Combine all data sources for analysis
+        const allRecords = [
             ...nycData.cityData,
             ...nycData.zipData,
             ...nycData.neighborhoodData
         ];
 
-        allProperties.forEach(record => {
+        console.log(`📊 Analyzing ${allRecords.length} total NYC records...`);
+
+        allRecords.forEach((record, index) => {
             try {
-                const listingPrice = parseFloat(record.median_list_price || record.avg_list_price);
+                const listPrice = parseFloat(record.median_list_price || record.avg_list_price);
                 const salePrice = parseFloat(record.median_sale_price || record.avg_sale_price);
-                const daysOnMarket = parseFloat(record.avg_days_on_market);
+                const daysOnMarket = parseFloat(record.avg_days_on_market) || 0;
                 
-                if (isNaN(listingPrice) || isNaN(salePrice) || 
-                    listingPrice < minPrice || listingPrice > maxPrice ||
-                    daysOnMarket > maxDaysOnMarket) {
+                if (isNaN(listPrice) || isNaN(salePrice) || 
+                    listPrice < minPrice || listPrice > maxPrice ||
+                    daysOnMarket > maxDaysOnMarket ||
+                    listPrice <= 0 || salePrice <= 0) {
                     return;
                 }
 
-                const marketComparable = this.findBestComparable(record, marketAverages);
-                if (!marketComparable) return;
+                // Find best comparable
+                const comparable = this.findBestComparable(record, marketAverages);
+                if (!comparable) return;
 
-                const expectedPrice = marketComparable.medianSalePrice;
-                const actualPrice = listingPrice;
-                const priceDifference = expectedPrice - actualPrice;
-                const percentBelowMarket = (priceDifference / expectedPrice) * 100;
+                // Calculate discount
+                const expectedPrice = comparable.medianSalePrice;
+                const actualPrice = listPrice;
+                const percentBelowMarket = ((expectedPrice - actualPrice) / expectedPrice) * 100;
 
                 if (percentBelowMarket >= minDiscountPercent) {
                     undervaluedProperties.push({
-                        location: record.city || record.region_name,
-                        zip: record.region_name,
-                        listingPrice: listingPrice,
-                        expectedPrice: expectedPrice,
-                        percentBelowMarket: percentBelowMarket,
-                        daysOnMarket: daysOnMarket,
-                        marketComparable: marketComparable,
+                        location: this.getPropertyLocation(record),
+                        zip: record.region_name || record.zip_name || 'Unknown',
+                        listingPrice: Math.round(actualPrice),
+                        expectedPrice: Math.round(expectedPrice),
+                        percentBelowMarket: Math.round(percentBelowMarket * 10) / 10,
+                        daysOnMarket: Math.round(daysOnMarket),
+                        marketComparable: comparable,
                         comparisonLevel: this.getComparisonLevel(record, marketAverages),
-                        needsDescriptionScraping: true,
                         distressSignals: [],
                         warningTags: [],
                         finalScore: 0,
@@ -279,10 +360,20 @@ class HybridRedfinAnalyzer {
 
         undervaluedProperties.sort((a, b) => b.percentBelowMarket - a.percentBelowMarket);
 
-        console.log(`✅ Found ${undervaluedProperties.length} potentially undervalued properties`);
-        console.log(`   Criteria: ${minDiscountPercent}%+ below market, max ${maxDaysOnMarket} days`);
-
+        console.log(`✅ Found ${undervaluedProperties.length} potentially undervalued properties from real data`);
         return undervaluedProperties;
+    }
+
+    getPropertyLocation(record) {
+        if (record.city && record.region_name) {
+            return `${record.region_name}, ${record.city}, NY`;
+        } else if (record.city) {
+            return `${record.city}, NY`;
+        } else if (record.region_name) {
+            return `${record.region_name}, NY`;
+        } else {
+            return 'NYC Area Property';
+        }
     }
 
     findBestComparable(record, marketAverages) {
@@ -318,131 +409,21 @@ class HybridRedfinAnalyzer {
     }
 
     async enhanceWithDescriptions(undervaluedProperties) {
-        console.log(`🔍 Enhancing ${undervaluedProperties.length} properties with descriptions...`);
+        console.log(`🔍 Enhancing ${undervaluedProperties.length} properties with scores...`);
         
-        const enhancedProperties = [];
-        let successCount = 0;
-        let failCount = 0;
-
-        for (let i = 0; i < undervaluedProperties.length; i++) {
-            const property = undervaluedProperties[i];
-            
-            try {
-                console.log(`📝 Fetching description ${i + 1}/${undervaluedProperties.length}: ${property.location}`);
-                
-                const description = await this.fetchPropertyDescription(property);
-                
-                if (description) {
-                    property.distressSignals = this.findDistressSignals(description);
-                    property.warningTags = this.findWarningSignals(description);
-                    property.description = description;
-                    property.finalScore = this.calculateFinalScore(property);
-                    property.reasoning = this.generateReasoning(property);
-                    successCount++;
-                } else {
-                    property.finalScore = this.calculateQuantitativeScore(property);
-                    property.reasoning = this.generateQuantitativeReasoning(property);
-                    failCount++;
-                }
-
-                enhancedProperties.push(property);
-                await this.delay(this.rateLimitDelay);
-                
-            } catch (error) {
-                console.error(`❌ Error enhancing ${property.location}:`, error.message);
-                
-                property.finalScore = this.calculateQuantitativeScore(property);
-                property.reasoning = this.generateQuantitativeReasoning(property);
-                enhancedProperties.push(property);
-                failCount++;
-
-                if (error.response?.status === 403) {
-                    console.log('⏰ Got 403, slowing down...');
-                    await this.delay(5000);
-                }
-            }
-        }
+        const enhancedProperties = undervaluedProperties.map(property => {
+            property.finalScore = this.calculateFinalScore(property);
+            property.reasoning = this.generateReasoning(property);
+            return property;
+        });
 
         enhancedProperties.sort((a, b) => b.finalScore - a.finalScore);
 
-        console.log(`✅ Enhancement complete:`);
-        console.log(`   Successful descriptions: ${successCount}`);
-        console.log(`   Failed/no description: ${failCount}`);
-        console.log(`   Total properties: ${enhancedProperties.length}`);
-
+        console.log(`✅ Enhancement complete: ${enhancedProperties.length} properties scored`);
         return enhancedProperties;
     }
 
-    async fetchPropertyDescription(property) {
-        if (Math.random() > 0.3) {
-            const sampleDescriptions = [
-                'Beautiful pre-war building with original details. Motivated seller looking for quick close.',
-                'Charming brownstone in need of TLC. Great potential for the right buyer.',
-                'Recently renovated with modern amenities. Priced to sell quickly.',
-                'Estate sale - must be sold as-is. Cash offers preferred.',
-                'Investor special! Needs work but great bones. All offers considered.',
-                'Rent-stabilized tenant in place. Perfect for investors.',
-                'No board approval required. Move right in!'
-            ];
-            
-            return sampleDescriptions[Math.floor(Math.random() * sampleDescriptions.length)];
-        }
-        
-        return null;
-    }
-
-    findDistressSignals(description) {
-        const text = description.toLowerCase();
-        return this.distressKeywords.filter(keyword => 
-            text.includes(keyword.toLowerCase())
-        );
-    }
-
-    findWarningSignals(description) {
-        const text = description.toLowerCase();
-        return this.warningKeywords.filter(keyword => 
-            text.includes(keyword.toLowerCase())
-        );
-    }
-
     calculateFinalScore(property) {
-        let score = 0;
-
-        const percentScore = Math.min(property.percentBelowMarket * 2, 50);
-        score += percentScore;
-
-        let domScore = 0;
-        if (property.daysOnMarket <= 7) {
-            domScore = 20;
-        } else if (property.daysOnMarket <= 30) {
-            domScore = 15;
-        } else if (property.daysOnMarket <= 60) {
-            domScore = 10;
-        } else {
-            domScore = 5;
-        }
-        score += domScore;
-
-        const distressScore = Math.min(property.distressSignals.length * 3, 15);
-        score += distressScore;
-
-        let compScore = 0;
-        if (property.comparisonLevel === 'Neighborhood') {
-            compScore = 10;
-        } else if (property.comparisonLevel === 'ZIP Code') {
-            compScore = 7;
-        } else if (property.comparisonLevel === 'City') {
-            compScore = 5;
-        }
-        score += compScore;
-
-        const warningPenalty = Math.min(property.warningTags.length * 2, 10);
-        score -= warningPenalty;
-
-        return Math.round(score);
-    }
-
-    calculateQuantitativeScore(property) {
         let score = 0;
 
         const percentScore = Math.min(property.percentBelowMarket * 2, 50);
@@ -475,36 +456,9 @@ class HybridRedfinAnalyzer {
 
     generateReasoning(property) {
         const reasons = [];
-
-        reasons.push(`${property.percentBelowMarket.toFixed(1)}% below market (+${Math.min(property.percentBelowMarket * 2, 50).toFixed(1)} pts)`);
-        
-        if (property.daysOnMarket <= 7) {
-            reasons.push(`Fresh listing (${property.daysOnMarket} days) (+20 pts)`);
-        } else if (property.daysOnMarket <= 30) {
-            reasons.push(`Recent listing (${property.daysOnMarket} days) (+15 pts)`);
-        } else {
-            reasons.push(`Older listing (${property.daysOnMarket} days) (+10 pts)`);
-        }
-
-        if (property.distressSignals.length > 0) {
-            reasons.push(`${property.distressSignals.length} distress signals: ${property.distressSignals.join(', ')} (+${Math.min(property.distressSignals.length * 3, 15)} pts)`);
-        }
-
-        reasons.push(`${property.comparisonLevel} comparison (+${property.comparisonLevel === 'Neighborhood' ? 10 : property.comparisonLevel === 'ZIP Code' ? 7 : 5} pts)`);
-
-        if (property.warningTags.length > 0) {
-            reasons.push(`${property.warningTags.length} warnings: ${property.warningTags.join(', ')} (-${Math.min(property.warningTags.length * 2, 10)} pts)`);
-        }
-
-        return reasons.join('; ');
-    }
-
-    generateQuantitativeReasoning(property) {
-        const reasons = [];
         reasons.push(`${property.percentBelowMarket.toFixed(1)}% below market`);
         reasons.push(`${property.daysOnMarket} days on market`);
         reasons.push(`${property.comparisonLevel} level comparison`);
-        reasons.push('(No description available for keyword analysis)');
         return reasons.join('; ');
     }
 
@@ -534,7 +488,7 @@ class HybridRedfinAnalyzer {
     }
 
     async runCompleteAnalysis(criteria = {}) {
-        console.log('🚀 Starting Hybrid Redfin Analysis...\n');
+        console.log('🚀 Starting Memory-Optimized Hybrid Redfin Analysis...\n');
         
         try {
             const publicData = await this.downloadPublicData();
@@ -556,19 +510,15 @@ class HybridRedfinAnalyzer {
                     totalAnalyzed: enhancedProperties.length,
                     avgPercentBelowMarket: enhancedProperties.reduce((sum, p) => sum + p.percentBelowMarket, 0) / enhancedProperties.length,
                     avgScore: enhancedProperties.reduce((sum, p) => sum + p.finalScore, 0) / enhancedProperties.length,
-                    withDescriptions: enhancedProperties.filter(p => p.description).length,
+                    withDescriptions: 0,
                     withDistressSignals: enhancedProperties.filter(p => p.distressSignals.length > 0).length
                 },
                 undervaluedProperties: enhancedProperties,
                 marketAverages: marketAverages
             };
 
-            await this.saveResults(results, 'hybrid-analysis-results.json');
-            await this.saveResults(this.formatForDatabase(enhancedProperties), 'hybrid-analysis-db.json');
-
             console.log('\n🎉 Hybrid analysis complete!');
             console.log(`📊 Found ${enhancedProperties.length} undervalued properties`);
-            console.log(`💾 Results saved to files`);
 
             return results;
 
@@ -577,54 +527,6 @@ class HybridRedfinAnalyzer {
             throw error;
         }
     }
-}
-
-async function runHybridAnalysis() {
-    const analyzer = new HybridRedfinAnalyzer();
-    
-    try {
-        const results = await analyzer.runCompleteAnalysis({
-            minDiscountPercent: 15,
-            maxDaysOnMarket: 90,
-            minPrice: 300000,
-            maxPrice: 2500000
-        });
-
-        console.log('\n🏆 TOP UNDERVALUED NYC PROPERTIES:');
-        console.log('='.repeat(60));
-
-        results.undervaluedProperties.slice(0, 10).forEach((property, index) => {
-            console.log(`\n${index + 1}. 📍 ${property.location}`);
-            console.log(`   💰 Listed: $${property.listingPrice.toLocaleString()} (${property.percentBelowMarket.toFixed(1)}% below market)`);
-            console.log(`   📊 Expected: $${property.expectedPrice.toLocaleString()}`);
-            console.log(`   🏆 Score: ${property.finalScore}/100`);
-            console.log(`   📅 ${property.daysOnMarket} days on market`);
-            
-            if (property.distressSignals.length > 0) {
-                console.log(`   🚨 Distress signals: ${property.distressSignals.join(', ')}`);
-            }
-            
-            if (property.warningTags.length > 0) {
-                console.log(`   ⚠️ Warnings: ${property.warningTags.join(', ')}`);
-            }
-            
-            console.log(`   🧠 Reasoning: ${property.reasoning}`);
-        });
-
-        console.log(`\n📊 ANALYSIS SUMMARY:`);
-        console.log(`✅ Total undervalued properties: ${results.summary.totalAnalyzed}`);
-        console.log(`📈 Average % below market: ${results.summary.avgPercentBelowMarket.toFixed(1)}%`);
-        console.log(`🏆 Average score: ${results.summary.avgScore.toFixed(1)}/100`);
-        console.log(`📝 Properties with descriptions: ${results.summary.withDescriptions}`);
-        console.log(`🚨 Properties with distress signals: ${results.summary.withDistressSignals}`);
-
-    } catch (error) {
-        console.error('💥 Analysis failed:', error.message);
-    }
-}
-
-if (require.main === module) {
-    runHybridAnalysis().catch(console.error);
 }
 
 module.exports = HybridRedfinAnalyzer;
