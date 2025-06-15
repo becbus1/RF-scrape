@@ -235,6 +235,19 @@ async function main() {
 
     // Start the scheduler
     scheduler.startHybridScheduler();
+    
+    // Add immediate test run after 2 minutes of startup
+    console.log('\n🧪 Immediate test scrape will run in 2 minutes...');
+    setTimeout(async () => {
+        console.log('\n🚀 Starting immediate test scrape...');
+        try {
+            await scheduler.runScheduledAnalysis('Immediate Test Analysis');
+            console.log('✅ Test scrape completed successfully!');
+            console.log('📊 Check your Supabase table for new data!');
+        } catch (error) {
+            console.error('❌ Test scrape failed:', error.message);
+        }
+    }, 120000); // Wait 2 minutes after startup
 }
 
 // Run if executed directly
