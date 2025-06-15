@@ -19,4 +19,66 @@
     "cleanup": "node supabase-integration.js --cleanup",
     "stats": "node supabase-integration.js --stats",
     "zip": "node supabase-integration.js --zip",
-    "cron":
+    "cron": "node cron-scheduler.js",
+    "lint": "eslint *.js || echo 'ESLint not configured - install with: npm install --save-dev eslint'"
+  },
+  "keywords": [
+    "nyc",
+    "new-york-city",
+    "manhattan",
+    "brooklyn", 
+    "queens",
+    "bronx",
+    "staten-island",
+    "redfin",
+    "real-estate",
+    "undervalued-properties",
+    "property-investment",
+    "market-analysis",
+    "scraping",
+    "api",
+    "supabase",
+    "ai-scoring",
+    "deal-finder",
+    "below-market",
+    "distressed-properties"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.6.0",
+    "@supabase/supabase-js": "^2.38.0",
+    "dotenv": "^16.3.1",
+    "node-cron": "^3.0.3"
+  },
+  "devDependencies": {
+    "eslint": "^8.0.0"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/nyc-redfin-undervalued-property-finder.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/nyc-redfin-undervalued-property-finder/issues"
+  },
+  "homepage": "https://github.com/yourusername/nyc-redfin-undervalued-property-finder#readme",
+  "config": {
+    "nyc_boroughs": [
+      "Manhattan, NY",
+      "Brooklyn, NY", 
+      "Queens, NY",
+      "Bronx, NY",
+      "Staten Island, NY"
+    ],
+    "default_max_prices": {
+      "Manhattan": 2500000,
+      "Brooklyn": 1500000,
+      "Queens": 1200000,
+      "Bronx": 800000,
+      "Staten Island": 900000
+    }
+  }
+}
