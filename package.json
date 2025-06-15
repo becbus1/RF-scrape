@@ -1,0 +1,58 @@
+{
+  "name": "redfin-undervalued-property-finder",
+  "version": "1.0.0",
+  "description": "AI-powered tool to find undervalued properties on Redfin using hidden API endpoints and market analysis",
+  "main": "undervalued-property-finder.js",
+  "scripts": {
+    "start": "node undervalued-property-finder.js",
+    "test": "node test-scraper.js --test-only",
+    "demo": "node test-scraper.js --demo-only",
+    "find-deals": "node undervalued-property-finder.js",
+    "daily-scrape": "node supabase-integration.js",
+    "setup-db": "node supabase-integration.js --setup",
+    "latest": "node supabase-integration.js --latest",
+    "cleanup": "node supabase-integration.js --cleanup",
+    "stats": "node supabase-integration.js --stats",
+    "basic": "node examples/basic-search.js",
+    "analysis": "node examples/price-analysis.js",
+    "alerts": "node examples/property-alerts.js",
+    "webhook": "node examples/property-alerts.js --webhook",
+    "cron": "node cron-scheduler.js",
+    "search": "node -e \"const RedfinAPIScraper = require('./redfin-scraper.js'); const s = new RedfinAPIScraper(); s.searchProperties(process.argv[1] || 'Boston, MA', {limit: 10}).then(r => console.log(JSON.stringify(r, null, 2)))\"",
+    "lint": "eslint *.js || echo 'ESLint not configured - install with: npm install --save-dev eslint'"
+  },
+  "keywords": [
+    "redfin",
+    "real-estate", 
+    "undervalued-properties",
+    "property-investment",
+    "market-analysis",
+    "scraping",
+    "api",
+    "supabase",
+    "ai-scoring",
+    "deal-finder"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.6.0",
+    "@supabase/supabase-js": "^2.38.0",
+    "dotenv": "^16.3.1",
+    "node-cron": "^3.0.3"
+  },
+  "devDependencies": {
+    "eslint": "^8.0.0"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/redfin-undervalued-property-finder.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/redfin-undervalued-property-finder/issues"
+  },
+  "homepage": "https://github.com/yourusername/redfin-undervalued-property-finder#readme"
+}
