@@ -125,7 +125,7 @@ class OptimalWeeklyStreetEasy {
                 'https://streeteasy-api.p.rapidapi.com/properties/search',
                 {
                     params: {
-                        areas: neighborhood,
+                            areas: neighborhood.toLowerCase().replace(/\s+/g, '-'),
                         limit: 500, // Max per call
                         minPrice: 200000, // Reasonable minimum for NYC
                         maxPrice: 5000000, // Reasonable maximum
