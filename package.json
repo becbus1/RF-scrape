@@ -1,47 +1,45 @@
 {
-  "name": "nyc-redfin-undervalued-property-finder",
-  "version": "1.0.0",
-  "description": "AI-powered tool to find undervalued properties in NYC using Redfin's hidden API endpoints and market analysis",
-  "main": "undervalued-property-finder.js",
+  "name": "nyc-hybrid-property-finder",
+  "version": "2.0.0",
+  "description": "Hybrid system using Redfin's public data + targeted scraping to find undervalued NYC properties",
+  "main": "hybrid-redfin-analyzer.js",
   "scripts": {
-    "start": "node undervalued-property-finder.js",
+    "start": "node hybrid-redfin-analyzer.js",
     "test": "node test-scraper.js --test-only",
     "demo": "node test-scraper.js --demo-only",
-    "find-deals": "node undervalued-property-finder.js",
-    "find-manhattan": "node -e \"const finder = require('./undervalued-property-finder.js'); const f = new finder(); f.findUndervaluedProperties('Manhattan, NY', {maxPrice: 2500000}).then(r => console.log('Found', r.undervaluedCount, 'deals'))\"",
-    "find-brooklyn": "node -e \"const finder = require('./undervalued-property-finder.js'); const f = new finder(); f.findUndervaluedProperties('Brooklyn, NY', {maxPrice: 1500000}).then(r => console.log('Found', r.undervaluedCount, 'deals'))\"",
-    "find-queens": "node -e \"const finder = require('./undervalued-property-finder.js'); const f = new finder(); f.findUndervaluedProperties('Queens, NY', {maxPrice: 1200000}).then(r => console.log('Found', r.undervaluedCount, 'deals'))\"",
-    "scan-all-nyc": "node undervalued-property-finder.js --all-boroughs",
-    "daily-scrape": "node supabase-integration.js",
-    "setup-db": "node supabase-integration.js --setup",
-    "latest": "node supabase-integration.js --latest",
-    "top-deals": "node supabase-integration.js --top-deals",
-    "cleanup": "node supabase-integration.js --cleanup",
-    "stats": "node supabase-integration.js --stats",
-    "zip": "node supabase-integration.js --zip",
-    "cron": "node cron-scheduler.js",
-    "lint": "eslint *.js || echo 'ESLint not configured - install with: npm install --save-dev eslint'"
+    
+    "analyze": "node hybrid-redfin-analyzer.js",
+    "weekly-analysis": "node hybrid-supabase-integration.js",
+    
+    "setup-db": "node hybrid-supabase-integration.js --setup",
+    "latest": "node hybrid-supabase-integration.js --latest",
+    "distress": "node hybrid-supabase-integration.js --distress",
+    "trends": "node hybrid-supabase-integration.js --trends", 
+    "metrics": "node hybrid-supabase-integration.js --metrics",
+    "cleanup": "node hybrid-supabase-integration.js --cleanup",
+    
+    "schedule": "node hybrid-scheduler.js",
+    
+    "legacy-find-deals": "node undervalued-property-finder.js",
+    "legacy-daily": "node supabase-integration.js",
+    "legacy-cron": "node cron-scheduler.js",
+    
+    "lint": "eslint *.js || echo 'ESLint not configured'"
   },
   "keywords": [
     "nyc",
     "new-york-city",
-    "manhattan",
-    "brooklyn", 
-    "queens",
-    "bronx",
-    "staten-island",
     "redfin",
     "real-estate",
     "undervalued-properties",
-    "property-investment",
+    "hybrid-analysis",
+    "public-data",
+    "targeted-scraping",
     "market-analysis",
-    "scraping",
-    "api",
-    "supabase",
-    "ai-scoring",
-    "deal-finder",
+    "property-investment",
+    "distress-signals",
     "below-market",
-    "distressed-properties"
+    "weekly-analysis"
   ],
   "author": "Your Name",
   "license": "MIT",
@@ -59,26 +57,22 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/nyc-redfin-undervalued-property-finder.git"
+    "url": "https://github.com/yourusername/nyc-hybrid-property-finder.git"
   },
-  "bugs": {
-    "url": "https://github.com/yourusername/nyc-redfin-undervalued-property-finder/issues"
-  },
-  "homepage": "https://github.com/yourusername/nyc-redfin-undervalued-property-finder#readme",
   "config": {
-    "nyc_boroughs": [
-      "Manhattan, NY",
-      "Brooklyn, NY", 
-      "Queens, NY",
-      "Bronx, NY",
-      "Staten Island, NY"
-    ],
-    "default_max_prices": {
-      "Manhattan": 2500000,
-      "Brooklyn": 1500000,
-      "Queens": 1200000,
-      "Bronx": 800000,
-      "Staten Island": 900000
-    }
+    "analysis_schedule": "weekly",
+    "min_discount_percent": 15,
+    "max_days_on_market": 90,
+    "nyc_price_range": {
+      "min": 300000,
+      "max": 2500000
+    },
+    "description_enhancement": true,
+    "public_data_sources": [
+      "city_market_tracker",
+      "zip_market_tracker", 
+      "neighborhood_market_tracker",
+      "weekly_housing_inventory"
+    ]
   }
 }
