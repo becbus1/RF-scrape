@@ -5,8 +5,8 @@ const { createClient } = require('@supabase/supabase-js');
 const UndervaluedPropertyFinder = require('./undervalued-property-finder.js');
 
 class NYCPropertyTracker {
-    constructor(supabaseUrl, supabaseKey) {
-        this.supabase = createClient(supabaseUrl, supabaseKey);
+    constructor(https://rskcssgjpbshagjocdre.supabase.co, eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJza2Nzc2dqcGJzaGFnam9jZHJlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDk5MzU3ODUsImV4cCI6MjA2NTUxMTc4NX0.dgRp-eXWdIPXsL5R_lCCNfbhjOwM8KpYXixC4sHBf30) {
+        this.supabase = createClient(https://rskcssgjpbshagjocdre.supabase.co, eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJza2Nzc2dqcGJzaGFnam9jZHJlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDk5MzU3ODUsImV4cCI6MjA2NTUxMTc4NX0.dgRp-eXWdIPXsL5R_lCCNfbhjOwM8KpYXixC4sHBf30);
         this.finder = new UndervaluedPropertyFinder();
         
         // NYC-focused search locations
