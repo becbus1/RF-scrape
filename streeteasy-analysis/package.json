@@ -1,2 +1,13 @@
-npm init -y
-npm install axios dotenv
+{
+  "name": "streeteasy-analysis",
+  "version": "1.0.0",
+  "description": "StreetEasy undervalued property finder",
+  "main": "undervalued-finder.js",
+  "scripts": {
+    "start": "node undervalued-finder.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "dotenv": "^16.3.1"
+  }
+}
