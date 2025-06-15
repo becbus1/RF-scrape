@@ -2,9 +2,9 @@
   "name": "nyc-hybrid-property-finder",
   "version": "2.0.0",
   "description": "Hybrid system using Redfin's public data + targeted scraping to find undervalued NYC properties",
-  "main": "hybrid-redfin-analyzer.js",
+  "main": "hybrid-scheduler.js",
   "scripts": {
-    "start": "node hybrid-redfin-analyzer.js",
+    "start": "node hybrid-scheduler.js",
     "test": "node test-scraper.js --test-only",
     "demo": "node test-scraper.js --demo-only",
     
