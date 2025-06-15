@@ -93,3 +93,156 @@ class HybridPropertyScheduler {
 
             // Log comprehensive results
             console.log(`\n✅ ${jobName} completed successfully!`);
+            console.log(`⏱️ Duration: ${Math.round(duration / 1000 / 60)} minutes`);
+            console.log(`📊 Properties analyzed: ${results.summary.totalPropertiesAnalyzed}`);
+            console.log(`🎯 Undervalued found: ${results.summary.undervaluedFound}`);
+            console.log(`💾 New listings added: ${results.summary.newListingsAdded}`);
+            console.log(`📝 Descriptions enhanced: ${results.summary.descriptionsEnhanced}`);
+
+            // Send notification if significant results
+            if (results.summary.newListingsAdded > 5) {
+                await this.sendNotification(`🗽 Found ${results.summary.newListingsAdded} new undervalued NYC properties!`);
+            }
+
+        } catch (error) {
+            console.error(`❌ ${jobName} failed:`, error.message);
+            await this.sendNotification(`🚨 Weekly analysis failed: ${error.message}`);
+        } finally {
+            this.isRunning = false;
+        }
+    }
+
+    /**
+     * Run distress signal check
+     */
+    async runDistressSignalCheck() {
+        console.log('\n🚨 Running daily distress signal check...');
+        
+        try {
+            const properties = await this.tracker.getPropertiesWithDistressSignals(10);
+            
+            if (properties.length > 0) {
+                console.log(`✅ Found ${properties.length} properties with distress signals`);
+                
+                // Log top properties with distress signals
+                properties.slice(0, 3).forEach((prop, i) => {
+                    console.log(`${i + 1}. ${prop.address} - ${prop.price} (Score: ${prop.score})`);
+                    console.log(`   Signals: ${prop.distress_signals.join(', ')}`);
+                });
+            } else {
+                console.log('📊 No new properties with distress signals found');
+            }
+        } catch (error) {
+            console.error('❌ Distress signal check failed:', error.message);
+        }
+    }
+
+    /**
+     * Run monthly cleanup
+     */
+    async runMonthlyCleanup() {
+        console.log('\n🧹 Running monthly cleanup...');
+        
+        try {
+            const deletedCount = await this.tracker.cleanupOldData(60);
+            console.log(`✅ Monthly cleanup completed: ${deletedCount} old records removed`);
+            
+            // Get current metrics
+            const metrics = await this.tracker.getAnalysisMetrics();
+            if (metrics) {
+                console.log(`📊 Current database: ${metrics.totalProperties} properties`);
+                console.log(`🏆 Excellent deals: ${metrics.scoreDistribution.excellent}`);
+            }
+        } catch (error) {
+            console.error('❌ Monthly cleanup failed:', error.message);
+        }
+    }
+
+    /**
+     * Log health status
+     */
+    logHealthStatus() {
+        const now = new Date();
+        const uptime = process.uptime();
+        const memUsage = process.memoryUsage();
+        
+        console.log(`💓 Health Check: ${now.toISOString()}`);
+        console.log(`   Uptime: ${Math.round(uptime / 3600)}h ${Math.round((uptime % 3600) / 60)}m`);
+        console.log(`   Memory: ${Math.round(memUsage.rss / 1024 / 1024)}MB`);
+        console.log(`   Last run: ${this.lastRunTime || 'Never'}`);
+        console.log(`   Total runs: ${this.runCount}`);
+        console.log(`   Status: ${this.isRunning ? 'Running Analysis' : 'Idle'}`);
+    }
+
+    /**
+     * Send notification
+     */
+    async sendNotification(message) {
+        console.log(`🔔 NOTIFICATION: ${message}`);
+        
+        // Optional: Send to webhook if configured
+        const webhookUrl = process.env.WEBHOOK_URL;
+        if (webhookUrl) {
+            try {
+                const axios = require('axios');
+                await axios.post(webhookUrl, {
+                    text: `🗽 NYC Property Analyzer: ${message}`,
+                    timestamp: new Date().toISOString()
+                });
+                console.log('📤 Notification sent to webhook');
+            } catch (error) {
+                console.error('❌ Failed to send webhook notification:', error.message);
+            }
+        }
+    }
+}
+
+// Main execution
+async function main() {
+    const args = process.argv.slice(2);
+
+    // Check environment variables
+    if (!process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) {
+        console.error('❌ Missing required environment variables!');
+        console.error('\n📋 Required environment variables:');
+        console.error('   SUPABASE_URL=your_supabase_project_url');
+        console.error('   SUPABASE_ANON_KEY=your_supabase_anon_key');
+        console.error('\n💡 Set these in Railway Dashboard → Variables');
+        process.exit(1);
+    }
+
+    if (args.includes('--test')) {
+        console.log('🧪 Testing scheduler setup...');
+        const scheduler = new HybridPropertyScheduler();
+        scheduler.logHealthStatus();
+        console.log('✅ Scheduler test completed');
+        return;
+    }
+
+    // Start the hybrid scheduler
+    const scheduler = new HybridPropertyScheduler();
+    
+    // Handle graceful shutdown
+    process.on('SIGINT', () => {
+        console.log('\n📥 Received shutdown signal...');
+        process.exit(0);
+    });
+
+    process.on('SIGTERM', () => {
+        console.log('\n📥 Received termination signal...');
+        process.exit(0);
+    });
+
+    // Start the scheduler
+    scheduler.startHybridScheduler();
+}
+
+// Run if executed directly
+if (require.main === module) {
+    main().catch(error => {
+        console.error('💥 Scheduler crashed:', error);
+        process.exit(1);
+    });
+}
+
+module.exports = HybridPropertyScheduler;
