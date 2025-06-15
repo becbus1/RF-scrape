@@ -444,11 +444,12 @@ class OptimalWeeklyStreetEasy {
             console.warn(`⚠️ Skipping unsupported neighborhood: ${neighborhood} → ${slug}`);
             return [];
         }
-            const response = await axios.get(
+        const response = await axios.get(
+            'https://streeteasy-api.p.rapidapi.com/sales/active',
                 'https://streeteasy-api.p.rapidapi.com/properties/search',
                 {
                     params: {
-                        areas: slug,
+                        location: slug,
                         limit: 500, // Max per call
                         minPrice: 200000, // Reasonable minimum for NYC
                         maxPrice: 5000000, // Reasonable maximum
