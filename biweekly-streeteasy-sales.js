@@ -601,7 +601,7 @@ const todaysNeighborhoods = ['park-slope']; // Test with single neighborhood
     async fetchSaleDetails(saleId) {
         try {
             const response = await axios.get(
-                `https://streeteasy-api.p.rapidapi.com/sale/${saleId}`,
+                `https://streeteasy-api.p.rapidapi.com/sales/${saleId}`,
                 {
                     headers: {
                         'X-RapidAPI-Key': this.rapidApiKey,
