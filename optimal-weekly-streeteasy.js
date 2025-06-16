@@ -1,5 +1,5 @@
 // optimal-weekly-streeteasy.js
-// FINAL VERSION: Rate-limited with duplicate prevention
+// FIXED VERSION: Correct API endpoints and parameters
 
 require('dotenv').config();
 const axios = require('axios');
@@ -48,8 +48,9 @@ class OptimalWeeklyStreetEasy {
      * Main weekly refresh with aggressive rate limiting and duplicate prevention
      */
     async runWeeklyUndervaluedRefresh() {
-        console.log('\n🗽 Starting OPTIMAL Weekly StreetEasy Analysis');
-        console.log('⏱️ Using 15+ second delays between API calls to avoid 429 errors');
+        console.log('\n🗽 Starting FIXED Weekly StreetEasy Analysis');
+        console.log('⏱️ Using correct API endpoints with 15+ second delays');
+        console.log('🔧 Fixed: /sales/search endpoint with areas parameter');
         console.log('🔒 Duplicate prevention enabled');
         console.log('='.repeat(60));
 
@@ -113,6 +114,8 @@ class OptimalWeeklyStreetEasy {
 
                 } catch (error) {
                     const isRateLimit = error.response?.status === 429;
+                    const is404 = error.response?.status === 404;
+                    
                     if (isRateLimit) {
                         summary.rateLimitHits++;
                         console.error(`   ❌ RATE LIMITED on ${neighborhood} - increasing delays`);
@@ -123,6 +126,8 @@ class OptimalWeeklyStreetEasy {
                         
                         // Wait extra long after rate limit
                         await this.delay(this.baseDelay * 2);
+                    } else if (is404) {
+                        console.error(`   ❌ 404 ERROR on ${neighborhood} - endpoint/parameter issue`);
                     } else {
                         console.error(`   ❌ Error with ${neighborhood}: ${error.message}`);
                     }
@@ -130,7 +135,8 @@ class OptimalWeeklyStreetEasy {
                     summary.errors.push({ 
                         neighborhood, 
                         error: error.message,
-                        isRateLimit 
+                        isRateLimit,
+                        is404 
                     });
                 }
 
@@ -138,7 +144,7 @@ class OptimalWeeklyStreetEasy {
                 if ((i + 1) % 5 === 0) {
                     const elapsed = (Date.now() - summary.startTime) / 1000 / 60;
                     console.log(`\n📊 Progress: ${i + 1}/${validNeighborhoods.length} neighborhoods (${elapsed.toFixed(1)}min elapsed)`);
-                    console.log(`📊 Stats: ${summary.undervaluedFound} undervalued, ${summary.rateLimitHits} rate limits hit\n`);
+                    console.log(`📊 Stats: ${summary.undervaluedFound} undervalued, ${summary.rateLimitHits} rate limits, ${summary.errors.filter(e => e.is404).length} 404s\n`);
                 }
             }
 
@@ -178,8 +184,12 @@ class OptimalWeeklyStreetEasy {
             } catch (error) {
                 lastError = error;
                 const isRateLimit = error.response?.status === 429;
+                const is404 = error.response?.status === 404;
                 
-                if (isRateLimit && attempt < this.maxRetries) {
+                if (is404) {
+                    // Don't retry 404s - it's an endpoint/parameter issue
+                    throw new Error(`404 Not Found - Check API endpoint and parameters for ${neighborhood}`);
+                } else if (isRateLimit && attempt < this.maxRetries) {
                     const backoffDelay = this.baseDelay * Math.pow(this.retryBackoffMultiplier, attempt);
                     console.log(`   🔄 Rate limited (attempt ${attempt}), waiting ${backoffDelay/1000}s before retry...`);
                     await this.delay(backoffDelay);
@@ -198,15 +208,16 @@ class OptimalWeeklyStreetEasy {
     }
 
     /**
-     * Fetch properties from StreetEasy API
+     * FIXED: Fetch properties from StreetEasy API with correct endpoint and parameters
      */
     async fetchNeighborhoodProperties(neighborhood) {
+        // FIXED: Use correct endpoint and parameter names
         const response = await axios.get(
-            'https://streeteasy-api.p.rapidapi.com/sales/active',
+            'https://streeteasy-api.p.rapidapi.com/sales/search', // ✅ Correct endpoint
             {
                 params: {
-                    location: neighborhood,
-                    limit: 200, // Reasonable limit to avoid timeouts
+                    areas: neighborhood,        // ✅ Correct parameter name (not 'location')
+                    limit: 200,                // Reasonable limit to avoid timeouts
                     minPrice: 200000,
                     maxPrice: 5000000
                 },
@@ -218,23 +229,47 @@ class OptimalWeeklyStreetEasy {
             }
         );
 
-        if (response.data && Array.isArray(response.data)) {
-            return response.data.map(property => ({
-                listing_id: property.id || `${property.address}-${property.price}`,
-                address: property.address,
-                neighborhood: neighborhood,
-                price: property.price,
-                sqft: property.sqft,
-                beds: property.beds,
-                baths: property.baths,
-                description: property.description || '',
-                url: property.url,
-                property_type: property.type,
-                fetched_date: new Date().toISOString()
-            }));
+        // Handle different response formats
+        let propertiesData = [];
+        
+        if (response.data) {
+            // Check if response has listings array
+            if (response.data.listings && Array.isArray(response.data.listings)) {
+                propertiesData = response.data.listings;
+            }
+            // Check if response is directly an array
+            else if (Array.isArray(response.data)) {
+                propertiesData = response.data;
+            }
+            // Check for other possible property arrays
+            else if (response.data.properties && Array.isArray(response.data.properties)) {
+                propertiesData = response.data.properties;
+            }
+            // Check for results array
+            else if (response.data.results && Array.isArray(response.data.results)) {
+                propertiesData = response.data.results;
+            }
+            else {
+                console.warn(`   ⚠️ Unexpected response format for ${neighborhood}:`, Object.keys(response.data));
+                return [];
+            }
         }
 
-        return [];
+        // Map to consistent format
+        return propertiesData.map(property => ({
+            listing_id: property.id || property.listing_id || `${property.address}-${property.price}`,
+            address: property.address || property.street_address || 'Address not available',
+            neighborhood: neighborhood,
+            price: property.price || property.list_price || 0,
+            sqft: property.sqft || property.square_feet || property.size || 0,
+            beds: property.beds || property.bedrooms || 0,
+            baths: property.baths || property.bathrooms || 0,
+            description: property.description || property.details || '',
+            url: property.url || property.link || property.streeteasy_url || '',
+            property_type: property.type || property.property_type || 'unknown',
+            days_on_market: property.days_on_market || property.dom || 0,
+            fetched_date: new Date().toISOString()
+        }));
     }
 
     /**
@@ -470,7 +505,7 @@ class OptimalWeeklyStreetEasy {
     }
 
     logWeeklySummary(summary) {
-        console.log('\n📊 OPTIMAL WEEKLY ANALYSIS COMPLETE');
+        console.log('\n📊 FIXED WEEKLY ANALYSIS COMPLETE');
         console.log('='.repeat(60));
         console.log(`⏱️ Duration: ${summary.duration.toFixed(1)} minutes`);
         console.log(`🗽 Neighborhoods processed: ${summary.neighborhoodsProcessed}`);
@@ -485,8 +520,13 @@ class OptimalWeeklyStreetEasy {
         
         if (summary.errors.length > 0) {
             const rateLimitErrors = summary.errors.filter(e => e.isRateLimit).length;
-            const otherErrors = summary.errors.length - rateLimitErrors;
-            console.log(`❌ Errors: ${summary.errors.length} total (${rateLimitErrors} rate limits, ${otherErrors} other)`);
+            const notFoundErrors = summary.errors.filter(e => e.is404).length;
+            const otherErrors = summary.errors.length - rateLimitErrors - notFoundErrors;
+            console.log(`❌ Errors: ${summary.errors.length} total (${rateLimitErrors} rate limits, ${notFoundErrors} 404s, ${otherErrors} other)`);
+            
+            if (notFoundErrors > 0) {
+                console.log(`🔧 404 Errors suggest API endpoint/parameter issues - check StreetEasy API docs`);
+            }
         }
 
         if (summary.savedToDatabase > 0) {
@@ -496,8 +536,8 @@ class OptimalWeeklyStreetEasy {
         }
         
         const successRate = summary.neighborhoodsProcessed > 0 ? 
-            (summary.neighborhoodsProcessed / summary.apiCallsUsed * 100).toFixed(1) : '0';
-        console.log(`📈 Success rate: ${successRate}% of API calls succeeded`);
+            ((summary.neighborhoodsProcessed - summary.errors.filter(e => e.is404).length) / summary.apiCallsUsed * 100).toFixed(1) : '0';
+        console.log(`📈 Success rate: ${successRate}% of API calls succeeded (excluding 404s)`);
         
         const totalDbOperations = summary.savedToDatabase + summary.updatedInDatabase + summary.duplicatesSkipped;
         if (totalDbOperations > 0) {
@@ -521,16 +561,30 @@ async function runWeeklyAnalysis() {
     const analyzer = new OptimalWeeklyStreetEasy();
     
     try {
-        console.log('🗽 Starting Optimal Weekly StreetEasy Analysis...\n');
+        console.log('🗽 Starting FIXED Weekly StreetEasy Analysis...\n');
+        console.log('🔧 Changes made:');
+        console.log('   - Fixed endpoint: /sales/search (was /sales/active)');
+        console.log('   - Fixed parameter: areas (was location)');
+        console.log('   - Added 404 error handling');
+        console.log('   - Improved response format handling\n');
+        
         const results = await analyzer.runWeeklyUndervaluedRefresh();
         
-        console.log('\n✅ Optimal analysis completed!');
+        console.log('\n✅ Fixed analysis completed!');
+        
+        if (results.errors.filter(e => e.is404).length > 0) {
+            console.log('\n⚠️ If you still get 404 errors, double-check:');
+            console.log('   1. StreetEasy API documentation for exact endpoints');
+            console.log('   2. Your RapidAPI subscription is active');
+            console.log('   3. Neighborhood names match API requirements');
+        }
+        
         console.log(`📊 Check your Supabase 'undervalued_properties' table for ${results.savedToDatabase} new deals!`);
         
         return results;
         
     } catch (error) {
-        console.error('💥 Optimal analysis failed:', error.message);
+        console.error('💥 Fixed analysis failed:', error.message);
         process.exit(1);
     }
 }
