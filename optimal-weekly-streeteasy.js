@@ -1,18 +1,5 @@
-/**
-     * DEBUG VERSION: Enhanced debugging to find why we're getting 0 deals
-     */
-    filterUndervaluedProperties(properties, neighborhood, pastSales = []) {
-        const undervalued = [];
-
-        console.log(`\n   🔍 DEBUGGING ${neighborhood.toUpperCase()}:`);
-        console.log(`   📋 Active properties: ${properties.length}`);
-        console.log(`   📊 Past sales: ${pastSales.length}`);
-
-        // Show sample of what we received
-        if (properties.length > 0) {
-            const sample = properties[0];
-            console.log(`   🏠 Sample property: ${sample.price?.toLocaleString() || 'NO PRICE'}, ${sample.beds || 'NO BEDS'}// optimal-weekly-streeteasy.js
-// FIXED VERSION: Correct API endpoints and parameters
+// optimal-weekly-streeteasy.js
+// FIXED VERSION: Correct API endpoints and parameters with full debugging
 
 require('dotenv').config();
 const axios = require('axios');
@@ -218,6 +205,103 @@ class OptimalWeeklyStreetEasy {
     }
 
     /**
+     * FIXED: Correct API call format based on documentation
+     */
+    async fetchNeighborhoodProperties(neighborhood) {
+        console.log(`   📡 Calling API for ${neighborhood}...`);
+        
+        const response = await axios.get(
+            'https://streeteasy-api.p.rapidapi.com/sales/search',
+            {
+                params: {
+                    areas: neighborhood,  // Should be properly encoded by axios
+                    limit: 500,          // Maximum allowed
+                    minPrice: 200000,    // Reasonable minimum for NYC
+                    maxPrice: 10000000,  // High maximum to catch all
+                    offset: 0            // Start from beginning
+                },
+                headers: {
+                    'X-RapidAPI-Key': this.rapidApiKey,
+                    'X-RapidAPI-Host': 'streeteasy-api.p.rapidapi.com'
+                },
+                timeout: 30000
+            }
+        );
+
+        console.log(`   📊 Raw response keys:`, Object.keys(response.data || {}));
+        console.log(`   📊 Response status:`, response.status);
+        
+        // Handle response based on documentation format
+        let propertiesData = [];
+        
+        if (response.data) {
+            // Log the actual structure we received
+            console.log(`   📋 Full response structure:`, JSON.stringify(response.data, null, 2).substring(0, 500) + '...');
+            
+            // Try different property arrays based on API docs
+            if (response.data.results && Array.isArray(response.data.results)) {
+                propertiesData = response.data.results;
+                console.log(`   ✅ Found properties in 'results' array: ${propertiesData.length}`);
+            }
+            else if (response.data.listings && Array.isArray(response.data.listings)) {
+                propertiesData = response.data.listings;
+                console.log(`   ✅ Found properties in 'listings' array: ${propertiesData.length}`);
+            }
+            else if (Array.isArray(response.data)) {
+                propertiesData = response.data;
+                console.log(`   ✅ Response is direct array: ${propertiesData.length}`);
+            }
+            else if (response.data.properties && Array.isArray(response.data.properties)) {
+                propertiesData = response.data.properties;
+                console.log(`   ✅ Found properties in 'properties' array: ${propertiesData.length}`);
+            }
+            else {
+                console.warn(`   ⚠️ Unexpected response format. Available keys:`, Object.keys(response.data));
+                console.warn(`   ⚠️ First 200 chars of response:`, JSON.stringify(response.data).substring(0, 200));
+                return [];
+            }
+            
+            // Log pagination info if present
+            if (response.data.pagination) {
+                console.log(`   📄 Pagination: ${response.data.pagination.count} total, next offset: ${response.data.pagination.nextOffset}`);
+            }
+        }
+
+        // Map to consistent format and log sample
+        const mappedProperties = propertiesData.map(property => {
+            // Log first property structure to understand the data
+            if (propertiesData.indexOf(property) === 0) {
+                console.log(`   🏠 Sample property structure:`, JSON.stringify(property, null, 2).substring(0, 300) + '...');
+            }
+            
+            return {
+                listing_id: property.id || property.listing_id || `${property.address}-${property.price}`,
+                address: property.address || property.street_address || 'Address not available',
+                neighborhood: neighborhood,
+                price: property.price || property.list_price || property.asking_price || 0,
+                sqft: property.sqft || property.square_feet || property.size || null,
+                beds: property.beds || property.bedrooms || property.bed_count || 0,
+                baths: property.baths || property.bathrooms || property.bath_count || 0,
+                description: property.description || property.details || property.remarks || '',
+                url: property.url || property.link || property.streeteasy_url || '',
+                property_type: property.type || property.property_type || property.building_type || 'unknown',
+                days_on_market: property.days_on_market || property.dom || property.days_on_redfin || 0,
+                fetched_date: new Date().toISOString()
+            };
+        }).filter(prop => prop.price > 0); // Only keep properties with valid prices
+
+        console.log(`   ✅ Mapped to ${mappedProperties.length} valid properties`);
+        
+        // Log sample of mapped data
+        if (mappedProperties.length > 0) {
+            const sample = mappedProperties[0];
+            console.log(`   💰 Sample mapped: $${sample.price?.toLocaleString()}, ${sample.beds} beds, ${sample.baths} baths`);
+        }
+
+        return mappedProperties;
+    }
+
+    /**
      * ENHANCED: Also with better debugging for past sales
      */
     async fetchPastSalesComparables(neighborhood) {
@@ -278,7 +362,7 @@ class OptimalWeeklyStreetEasy {
             
             if (mappedSales.length > 0) {
                 const sample = mappedSales[0];
-                console.log(`   💰 Sample past sale: ${sample.sale_price?.toLocaleString()}, ${sample.beds} beds`);
+                console.log(`   💰 Sample past sale: $${sample.sale_price?.toLocaleString()}, ${sample.beds} beds`);
             }
 
             return mappedSales;
@@ -292,66 +376,113 @@ class OptimalWeeklyStreetEasy {
             return []; // Fallback to active listings comparison
         }
     }
-    async fetchNeighborhoodProperties(neighborhood) {
-        // FIXED: Use correct endpoint and parameter names
-        const response = await axios.get(
-            'https://streeteasy-api.p.rapidapi.com/sales/search', // ✅ Correct endpoint
-            {
-                params: {
-                    areas: neighborhood,        // ✅ Correct parameter name (not 'location')
-                    limit: 200,                // Reasonable limit to avoid timeouts
-                    minPrice: 200000,
-                    maxPrice: 5000000
-                },
-                headers: {
-                    'X-RapidAPI-Key': this.rapidApiKey,
-                    'X-RapidAPI-Host': 'streeteasy-api.p.rapidapi.com'
-                },
-                timeout: 30000 // 30s timeout
-            }
-        );
 
-        // Handle different response formats
-        let propertiesData = [];
+    /**
+     * ENHANCED APPROACH: Use past sales data for accurate comparables
+     * Falls back to active listings if no past sales available
+     */
+    filterUndervaluedProperties(properties, neighborhood, pastSales = []) {
+        const undervalued = [];
+
+        console.log(`\n   🔍 DEBUGGING ${neighborhood.toUpperCase()}:`);
+        console.log(`   📋 Active properties: ${properties.length}`);
+        console.log(`   📊 Past sales: ${pastSales.length}`);
+
+        // Show sample of what we received
+        if (properties.length > 0) {
+            const sample = properties[0];
+            console.log(`   🏠 Sample property: $${sample.price?.toLocaleString() || 'NO PRICE'}, ${sample.beds || 'NO BEDS'} beds`);
+        }
+
+        // Prefer past sales data for comparables, fallback to active listings
+        const comparableData = pastSales.length >= 3 ? pastSales : properties;
+        const comparisonType = pastSales.length >= 3 ? 'recent sales' : 'active listings';
         
-        if (response.data) {
-            // Check if response has listings array
-            if (response.data.listings && Array.isArray(response.data.listings)) {
-                propertiesData = response.data.listings;
+        console.log(`   🔍 Using ${comparableData.length} ${comparisonType} for comparison`);
+
+        // Group comparables by bedroom count
+        const comparablesByBeds = {};
+        comparableData.forEach(comp => {
+            const price = pastSales.length >= 3 ? comp.sale_price : comp.price;
+            if (!price || price <= 0) return;
+            
+            const beds = comp.beds || '0';
+            if (!comparablesByBeds[beds]) {
+                comparablesByBeds[beds] = [];
             }
-            // Check if response is directly an array
-            else if (Array.isArray(response.data)) {
-                propertiesData = response.data;
+            comparablesByBeds[beds].push(price);
+        });
+
+        console.log(`   📊 Comparables by bedroom count:`, Object.keys(comparablesByBeds).map(beds => `${beds}-bed: ${comparablesByBeds[beds].length} properties`).join(', '));
+
+        // Analyze each active listing
+        for (const property of properties) {
+            if (!property.price || property.price <= 0) continue;
+
+            const beds = property.beds || '0';
+            const comparablePrices = comparablesByBeds[beds] || [];
+            
+            // DEBUG: Log comparison details
+            console.log(`   🏠 ${property.address}: $${property.price.toLocaleString()} (${beds} beds)`);
+            console.log(`       📊 Found ${comparablePrices.length} comparable ${beds}-bed ${comparisonType}`);
+            
+            // Need at least 3 comparable properties
+            if (comparablePrices.length < 3) {
+                console.log(`       ❌ Not enough comparables (need 3+)`);
+                continue;
             }
-            // Check for other possible property arrays
-            else if (response.data.properties && Array.isArray(response.data.properties)) {
-                propertiesData = response.data.properties;
-            }
-            // Check for results array
-            else if (response.data.results && Array.isArray(response.data.results)) {
-                propertiesData = response.data.results;
-            }
-            else {
-                console.warn(`   ⚠️ Unexpected response format for ${neighborhood}:`, Object.keys(response.data));
-                return [];
+
+            // Calculate market benchmarks
+            const sortedPrices = [...comparablePrices].sort((a, b) => a - b);
+            const medianPrice = sortedPrices[Math.floor(sortedPrices.length / 2)];
+            const avgPrice = comparablePrices.reduce((sum, price) => sum + price, 0) / comparablePrices.length;
+            
+            // Use average of median and mean for more stable benchmark
+            const marketPrice = Math.round((medianPrice + avgPrice) / 2);
+            const discountPercent = ((marketPrice - property.price) / marketPrice) * 100;
+            
+            // DEBUG: Show calculation details
+            console.log(`       💰 Market price: $${marketPrice.toLocaleString()} (median: $${Math.round(medianPrice).toLocaleString()}, avg: $${Math.round(avgPrice).toLocaleString()})`);
+            console.log(`       📉 Discount: ${discountPercent.toFixed(1)}% ${discountPercent >= 5 ? '✅ QUALIFIES' : '❌ Too small'}`);
+
+            // Find properties 5%+ below comparable sales/listings
+            if (discountPercent >= 5) {
+                const distressSignals = this.findDistressSignals(property.description);
+                const warningSignals = this.findWarningSignals(property.description);
+                
+                const scoreResult = this.calculateUndervaluationScore({
+                    discountPercent,
+                    distressSignals,
+                    warningSignals,
+                    neighborhood,
+                    beds: property.beds,
+                    comparableCount: comparablePrices.length,
+                    comparisonType: comparisonType
+                });
+
+                undervalued.push({
+                    ...property,
+                    market_price: marketPrice,
+                    median_comparable_price: Math.round(medianPrice),
+                    avg_comparable_price: Math.round(avgPrice),
+                    discount_percent: Math.round(discountPercent * 10) / 10,
+                    potential_savings: Math.round(marketPrice - property.price),
+                    comparable_count: comparablePrices.length,
+                    comparison_method: `${comparablePrices.length} comparable ${beds}-bed ${comparisonType} in ${neighborhood}`,
+                    comparison_type: comparisonType, // 'recent sales' or 'active listings'
+                    distress_signals: distressSignals,
+                    warning_signals: warningSignals,
+                    undervaluation_score: scoreResult.score,
+                    deal_quality: scoreResult.dealQuality,
+                    analysis_date: new Date().toISOString()
+                });
+
+                console.log(`       🎉 FOUND DEAL: ${scoreResult.dealQuality} (${discountPercent.toFixed(1)}% below market)`);
             }
         }
 
-        // Map to consistent format
-        return propertiesData.map(property => ({
-            listing_id: property.id || property.listing_id || `${property.address}-${property.price}`,
-            address: property.address || property.street_address || 'Address not available',
-            neighborhood: neighborhood,
-            price: property.price || property.list_price || 0,
-            sqft: property.sqft || property.square_feet || property.size || 0,
-            beds: property.beds || property.bedrooms || 0,
-            baths: property.baths || property.bathrooms || 0,
-            description: property.description || property.details || '',
-            url: property.url || property.link || property.streeteasy_url || '',
-            property_type: property.type || property.property_type || 'unknown',
-            days_on_market: property.days_on_market || property.dom || 0,
-            fetched_date: new Date().toISOString()
-        }));
+        console.log(`   📈 Result: ${undervalued.length} undervalued properties found\n`);
+        return undervalued;
     }
 
     /**
@@ -362,51 +493,6 @@ class OptimalWeeklyStreetEasy {
             .map(n => n.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''))
             .filter(slug => VALID_STREETEASY_SLUGS.has(slug))
             .slice(0, 20); // Limit to top 20 to keep runtime reasonable
-    }
-
-    /**
-     * Filter undervalued properties
-     */
-    filterUndervaluedProperties(properties, neighborhood) {
-        const undervalued = [];
-
-        for (const property of properties) {
-            if (!property.price || !property.sqft || property.sqft <= 0) {
-                continue;
-            }
-
-            const actualPricePerSqft = property.price / property.sqft;
-            const marketThreshold = this.marketThresholds[neighborhood] || this.marketThresholds.default;
-            const discountPercent = ((marketThreshold - actualPricePerSqft) / marketThreshold) * 100;
-
-            if (discountPercent >= 5) { // Very aggressive for competitive NYC market
-                const distressSignals = this.findDistressSignals(property.description);
-                const warningSignals = this.findWarningSignals(property.description);
-                const scoreResult = this.calculateUndervaluationScore({
-                    discountPercent,
-                    distressSignals,
-                    warningSignals,
-                    neighborhood,
-                    sqft: property.sqft,
-                    beds: property.beds
-                });
-
-                undervalued.push({
-                    ...property,
-                    actual_price_per_sqft: Math.round(actualPricePerSqft),
-                    market_price_per_sqft: marketThreshold,
-                    discount_percent: Math.round(discountPercent * 10) / 10,
-                    potential_savings: Math.round((marketThreshold - actualPricePerSqft) * property.sqft),
-                    distress_signals: distressSignals,
-                    warning_signals: warningSignals,
-                    undervaluation_score: scoreResult.score,
-                    deal_quality: scoreResult.dealQuality, // GOOD, EXCELLENT, or UNICORN
-                    analysis_date: new Date().toISOString()
-                });
-            }
-        }
-
-        return undervalued;
     }
 
     findDistressSignals(description) {
@@ -560,7 +646,7 @@ class OptimalWeeklyStreetEasy {
                     if (insertError) {
                         console.error(`   ❌ Error inserting ${property.address}:`, insertError.message);
                     } else {
-                        console.log(`   ✅ Added: ${property.address} (${property.discount_percent}% below market, score: ${property.undervaluation_score})`);
+                        console.log(`   ✅ Added: ${property.address} (${property.discount_percent}% below ${property.comparison_type}, ${property.deal_quality}, score: ${property.undervaluation_score})`);
                         newCount++;
                     }
                 }
@@ -685,7 +771,8 @@ async function runWeeklyAnalysis() {
         console.log('   - Fixed endpoint: /sales/search (was /sales/active)');
         console.log('   - Fixed parameter: areas (was location)');
         console.log('   - Added 404 error handling');
-        console.log('   - Improved response format handling\n');
+        console.log('   - Improved response format handling');
+        console.log('   - Added comprehensive debugging\n');
         
         const results = await analyzer.runWeeklyUndervaluedRefresh();
         
