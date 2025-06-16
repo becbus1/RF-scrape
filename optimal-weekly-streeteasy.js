@@ -35,12 +35,34 @@ class OptimalWeeklyStreetEasy {
         this.maxRetries = 3;
         this.retryBackoffMultiplier = 2; // 15s, 30s, 60s on retries
         
-        // Market thresholds for analysis
+        // UPDATED 2024-2025 NYC Market Data (price per sqft) - Based on latest research
         this.marketThresholds = {
-            'west-village': 1800, 'soho': 1700, 'tribeca': 1600,
+            // Manhattan - High-end (Q3 2024 data: $1,400-$2,130/sqft)
+            'west-village': 2200, 'soho': 2100, 'tribeca': 2300,
+            'upper-east-side': 1800, 'upper-west-side': 1700, 'chelsea': 1900,
+            'financial-district': 1600, 'lower-east-side': 1500, 'midtown': 1650,
+            'gramercy-park': 1750, 'murray-hill': 1650, 'hells-kitchen': 1550,
+            
+            // Brooklyn - Premium areas ($800-$1,200/sqft)
             'park-slope': 1200, 'williamsburg': 1100, 'dumbo': 1300,
-            'long-island-city': 1000, 'astoria': 800, 'mott-haven': 450,
-            'saint-george': 500, 'default': 800
+            'brooklyn-heights': 1250, 'fort-greene': 1000, 'prospect-heights': 1050,
+            'crown-heights': 850, 'bedford-stuyvesant': 900, 'greenpoint': 1000,
+            'red-hook': 950, 'carroll-gardens': 1150, 'bushwick': 800,
+            'sunset-park': 750,
+            
+            // Queens - Mid-range ($600-$900/sqft)
+            'long-island-city': 950, 'hunters-point': 900, 'astoria': 800,
+            'sunnyside': 750, 'woodside': 700, 'jackson-heights': 650,
+            'forest-hills': 850, 'kew-gardens': 800,
+            
+            // Bronx - Affordable ($400-$600/sqft)
+            'mott-haven': 500, 'concourse': 450, 'fordham': 400, 'riverdale': 600,
+            
+            // Staten Island - Most affordable ($400-$550/sqft)
+            'saint-george': 500, 'stapleton': 450, 'new-brighton': 475,
+            
+            // Default for unknown neighborhoods
+            'default': 750
         };
     }
 
@@ -297,10 +319,10 @@ class OptimalWeeklyStreetEasy {
             const marketThreshold = this.marketThresholds[neighborhood] || this.marketThresholds.default;
             const discountPercent = ((marketThreshold - actualPricePerSqft) / marketThreshold) * 100;
 
-            if (discountPercent >= 15) {
+            if (discountPercent >= 5) { // Very aggressive for competitive NYC market
                 const distressSignals = this.findDistressSignals(property.description);
                 const warningSignals = this.findWarningSignals(property.description);
-                const score = this.calculateUndervaluationScore({
+                const scoreResult = this.calculateUndervaluationScore({
                     discountPercent,
                     distressSignals,
                     warningSignals,
@@ -317,7 +339,8 @@ class OptimalWeeklyStreetEasy {
                     potential_savings: Math.round((marketThreshold - actualPricePerSqft) * property.sqft),
                     distress_signals: distressSignals,
                     warning_signals: warningSignals,
-                    undervaluation_score: score,
+                    undervaluation_score: scoreResult.score,
+                    deal_quality: scoreResult.dealQuality, // GOOD, EXCELLENT, or UNICORN
                     analysis_date: new Date().toISOString()
                 });
             }
@@ -346,13 +369,39 @@ class OptimalWeeklyStreetEasy {
 
     calculateUndervaluationScore(factors) {
         let score = Math.min(factors.discountPercent * 2, 50);
+        
+        // Enhanced scoring with deal quality labels
+        let dealQuality = '';
+        let qualityBonus = 0;
+        
+        if (factors.discountPercent >= 15) {
+            dealQuality = 'UNICORN'; // 15%+ below market = Unicorn (very rare)
+            qualityBonus = 25;
+        } else if (factors.discountPercent >= 10) {
+            dealQuality = 'EXCELLENT'; // 10%+ below market = Excellent deal
+            qualityBonus = 15;
+        } else if (factors.discountPercent >= 5) {
+            dealQuality = 'GOOD'; // 5-8% below market = Good deal
+            qualityBonus = 10;
+        } else {
+            dealQuality = 'FAIR'; // Less than 5% below = Fair deal
+            qualityBonus = 5;
+        }
+        
+        score += qualityBonus;
         score += Math.min(factors.distressSignals.length * 5, 20);
+        
         if (factors.sqft > 1000) score += 10;
         else if (factors.sqft > 700) score += 7;
         else score += 3;
+        
         if (factors.beds >= 2) score += 5;
         score -= Math.min(factors.warningSignals.length * 5, 15);
-        return Math.max(0, Math.round(score));
+        
+        return {
+            score: Math.max(0, Math.round(score)),
+            dealQuality: dealQuality
+        };
     }
 
     /**
