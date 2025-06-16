@@ -1,5 +1,5 @@
 // optimal-weekly-streeteasy.js
-// FIXED VERSION: Correct API endpoints and parameters with full debugging
+// ENHANCED VERSION: Correct API endpoints with full image extraction
 
 require('dotenv').config();
 const axios = require('axios');
@@ -40,9 +40,10 @@ class OptimalWeeklyStreetEasy {
      * Main weekly refresh with aggressive rate limiting and duplicate prevention
      */
     async runWeeklyUndervaluedRefresh() {
-        console.log('\n🗽 Starting FIXED Weekly StreetEasy Analysis');
+        console.log('\n🗽 Starting ENHANCED Weekly StreetEasy Analysis with Images');
         console.log('⏱️ Using correct API endpoints with 15+ second delays');
-        console.log('🔧 Fixed: /sales/search endpoint with areas parameter');
+        console.log('🔧 Enhanced: Full image extraction from StreetEasy responses');
+        console.log('🖼️ Direct image display - Zero bandwidth cost');
         console.log('🔒 Duplicate prevention enabled');
         console.log('='.repeat(60));
 
@@ -54,6 +55,8 @@ class OptimalWeeklyStreetEasy {
             savedToDatabase: 0,
             updatedInDatabase: 0,
             duplicatesSkipped: 0,
+            propertiesWithImages: 0,
+            totalImagesExtracted: 0,
             apiCallsUsed: 0,
             errors: [],
             rateLimitHits: 0
@@ -89,6 +92,13 @@ class OptimalWeeklyStreetEasy {
                     
                     summary.totalPropertiesFetched += properties.length;
                     summary.apiCallsUsed++;
+
+                    // Count properties with images
+                    const propertiesWithImages = properties.filter(p => p.image_url || (p.image_urls && p.image_urls.length > 0));
+                    summary.propertiesWithImages += propertiesWithImages.length;
+                    summary.totalImagesExtracted += properties.reduce((sum, p) => sum + (p.image_count || 0), 0);
+
+                    console.log(`   🖼️ Images extracted: ${propertiesWithImages.length}/${properties.length} properties have images`);
 
                     if (properties.length > 0) {
                         const undervalued = this.filterUndervaluedProperties(properties, neighborhood, pastSales);
@@ -141,7 +151,7 @@ class OptimalWeeklyStreetEasy {
                 if ((i + 1) % 5 === 0) {
                     const elapsed = (Date.now() - summary.startTime) / 1000 / 60;
                     console.log(`\n📊 Progress: ${i + 1}/${validNeighborhoods.length} neighborhoods (${elapsed.toFixed(1)}min elapsed)`);
-                    console.log(`📊 Stats: ${summary.undervaluedFound} undervalued, ${summary.rateLimitHits} rate limits, ${summary.errors.filter(e => e.is404).length} 404s\n`);
+                    console.log(`📊 Stats: ${summary.undervaluedFound} undervalued, ${summary.propertiesWithImages} with images, ${summary.rateLimitHits} rate limits\n`);
                 }
             }
 
@@ -205,7 +215,7 @@ class OptimalWeeklyStreetEasy {
     }
 
     /**
-     * FIXED: Correct API call format based on documentation
+     * ENHANCED: Correct API call format with comprehensive image extraction
      */
     async fetchNeighborhoodProperties(neighborhood) {
         console.log(`   📡 Calling API for ${neighborhood}...`);
@@ -275,13 +285,16 @@ class OptimalWeeklyStreetEasy {
         
         console.log(`   🔍 ALL AVAILABLE FIELDS: ${Array.from(allFieldNames).sort().join(', ')}`);
         
-        // Map to consistent format and log sample
+        // Map to consistent format with comprehensive image extraction
         const mappedProperties = propertiesData.map((property, index) => {
             // Log first few property structures to understand the data
             if (index < 2) {
                 console.log(`   🏠 Raw property ${index + 1} (showing ALL fields):`);
                 console.log(JSON.stringify(property, null, 2));
             }
+            
+            // ENHANCED: Extract images with multiple fallback strategies
+            const imageData = this.extractImageUrls(property);
             
             // Try multiple field mappings for better data extraction
             const mappedProperty = {
@@ -298,6 +311,11 @@ class OptimalWeeklyStreetEasy {
                 days_on_market: property.days_on_market || property.dom || property.days_on_redfin || property.days_listed || 0,
                 fetched_date: new Date().toISOString(),
                 
+                // ENHANCED: Image data extraction
+                image_url: imageData.primaryImageUrl,
+                image_urls: imageData.allImageUrls,
+                image_count: imageData.imageCount,
+                
                 // Additional fields that might be available
                 building_name: property.building_name || property.building || '',
                 unit_number: property.unit || property.unit_number || '',
@@ -305,13 +323,15 @@ class OptimalWeeklyStreetEasy {
                 maintenance_fee: property.maintenance || property.hoa_fee || property.common_charges || null
             };
             
-            // Log mapped result for first few properties
+            // Log mapped result for first few properties including image info
             if (index < 2) {
                 console.log(`   ✅ Mapped property ${index + 1}:`, {
                     address: mappedProperty.address,
                     price: mappedProperty.price,
                     beds: mappedProperty.beds,
                     baths: mappedProperty.baths,
+                    image_url: mappedProperty.image_url,
+                    image_count: mappedProperty.image_count,
                     description: mappedProperty.description.substring(0, 100) + '...'
                 });
             }
@@ -321,13 +341,176 @@ class OptimalWeeklyStreetEasy {
 
         console.log(`   ✅ Mapped to ${mappedProperties.length} valid properties`);
         
+        // Log image extraction statistics
+        const propertiesWithImages = mappedProperties.filter(p => p.image_url);
+        const totalImages = mappedProperties.reduce((sum, p) => sum + (p.image_count || 0), 0);
+        console.log(`   🖼️ Image extraction: ${propertiesWithImages.length}/${mappedProperties.length} properties with images`);
+        console.log(`   📸 Total images found: ${totalImages}`);
+        
         // Log sample of mapped data
         if (mappedProperties.length > 0) {
             const sample = mappedProperties[0];
-            console.log(`   💰 Sample mapped: $${sample.price?.toLocaleString()}, ${sample.beds} beds, ${sample.baths} baths`);
+            console.log(`   💰 Sample mapped: $${sample.price?.toLocaleString()}, ${sample.beds} beds, ${sample.baths} baths, ${sample.image_count} images`);
         }
 
         return mappedProperties;
+    }
+
+    /**
+     * NEW: Comprehensive image URL extraction from StreetEasy API response
+     */
+    extractImageUrls(property) {
+        const imageUrls = [];
+        let primaryImageUrl = null;
+
+        // Strategy 1: Try common StreetEasy image field patterns
+        const imageFieldPatterns = [
+            'image_url', 'image', 'photo_url', 'photo', 'primary_image',
+            'images', 'photos', 'listing_images', 'property_images',
+            'media', 'gallery', 'attachments', 'files'
+        ];
+
+        imageFieldPatterns.forEach(field => {
+            if (property[field]) {
+                if (Array.isArray(property[field])) {
+                    // Handle array of images
+                    property[field].forEach(img => {
+                        const url = this.extractSingleImageUrl(img);
+                        if (url && this.isValidImageUrl(url)) {
+                            imageUrls.push(url);
+                            if (!primaryImageUrl) primaryImageUrl = url;
+                        }
+                    });
+                } else {
+                    // Handle single image
+                    const url = this.extractSingleImageUrl(property[field]);
+                    if (url && this.isValidImageUrl(url)) {
+                        imageUrls.push(url);
+                        if (!primaryImageUrl) primaryImageUrl = url;
+                    }
+                }
+            }
+        });
+
+        // Strategy 2: Look for nested image objects
+        if (property.listing && property.listing.images) {
+            this.processImageArray(property.listing.images, imageUrls, primaryImageUrl);
+        }
+
+        // Strategy 3: Look for media objects with different structures
+        if (property.media) {
+            if (Array.isArray(property.media)) {
+                property.media.forEach(mediaItem => {
+                    if (mediaItem.type === 'image' || mediaItem.media_type === 'photo') {
+                        const url = this.extractSingleImageUrl(mediaItem);
+                        if (url && this.isValidImageUrl(url)) {
+                            imageUrls.push(url);
+                            if (!primaryImageUrl) primaryImageUrl = url;
+                        }
+                    }
+                });
+            }
+        }
+
+        // Remove duplicates and clean URLs
+        const uniqueUrls = [...new Set(imageUrls)]
+            .map(url => this.cleanImageUrl(url))
+            .filter(url => url && this.isValidImageUrl(url));
+
+        return {
+            primaryImageUrl: primaryImageUrl ? this.cleanImageUrl(primaryImageUrl) : null,
+            allImageUrls: uniqueUrls,
+            imageCount: uniqueUrls.length
+        };
+    }
+
+    /**
+     * Extract single image URL from various object formats
+     */
+    extractSingleImageUrl(imageObj) {
+        if (typeof imageObj === 'string') {
+            return imageObj;
+        }
+        
+        if (typeof imageObj === 'object' && imageObj !== null) {
+            // Try common URL field names
+            return imageObj.url || imageObj.src || imageObj.href || 
+                   imageObj.image_url || imageObj.photo_url ||
+                   imageObj.large || imageObj.medium || imageObj.small ||
+                   imageObj.original || imageObj.full || imageObj.thumb;
+        }
+        
+        return null;
+    }
+
+    /**
+     * Process array of image objects
+     */
+    processImageArray(images, imageUrls, primaryImageUrl) {
+        if (!Array.isArray(images)) return;
+        
+        images.forEach(img => {
+            const url = this.extractSingleImageUrl(img);
+            if (url && this.isValidImageUrl(url)) {
+                imageUrls.push(url);
+                if (!primaryImageUrl) primaryImageUrl = url;
+            }
+        });
+    }
+
+    /**
+     * Validate if URL is a valid image URL
+     */
+    isValidImageUrl(url) {
+        if (!url || typeof url !== 'string') return false;
+        
+        // Check for valid image extensions
+        const imageExtensions = /\.(jpg|jpeg|png|webp|gif|svg)(\?.*)?$/i;
+        
+        // Check for known image hosting domains
+        const validDomains = [
+            'photos.zillowstatic.com',
+            'streeteasy-media.s3.amazonaws.com',
+            'images.streeteasy.com',
+            'photos.streeteasy.com',
+            'media.streeteasy.com',
+            'ssl.cdn-redfin.com',
+            'ap.rdcpix.com'
+        ];
+
+        return imageExtensions.test(url) || validDomains.some(domain => url.includes(domain));
+    }
+
+    /**
+     * Clean and normalize image URL
+     */
+    cleanImageUrl(url) {
+        if (!url) return null;
+        
+        try {
+            // Remove any extra parameters except essential ones
+            const urlObj = new URL(url);
+            
+            // Keep some common image parameters but remove tracking
+            const keepParams = ['w', 'h', 'q', 'format', 'auto', 'fit', 'crop'];
+            const newSearchParams = new URLSearchParams();
+            
+            keepParams.forEach(param => {
+                if (urlObj.searchParams.has(param)) {
+                    newSearchParams.set(param, urlObj.searchParams.get(param));
+                }
+            });
+            
+            urlObj.search = newSearchParams.toString();
+            
+            // Ensure HTTPS
+            urlObj.protocol = 'https:';
+            
+            return urlObj.toString();
+        } catch (error) {
+            // If URL parsing fails, just ensure HTTPS and return
+            return url.replace(/^http:/, 'https:');
+        }
     }
 
     /**
@@ -420,7 +603,7 @@ class OptimalWeeklyStreetEasy {
         // Show sample of what we received
         if (properties.length > 0) {
             const sample = properties[0];
-            console.log(`   🏠 Sample property: $${sample.price?.toLocaleString() || 'NO PRICE'}, ${sample.beds || 'NO BEDS'} beds`);
+            console.log(`   🏠 Sample property: $${sample.price?.toLocaleString() || 'NO PRICE'}, ${sample.beds || 'NO BEDS'} beds, ${sample.image_count || 0} images`);
         }
 
         // Prefer past sales data for comparables, fallback to active listings
@@ -452,7 +635,7 @@ class OptimalWeeklyStreetEasy {
             const comparablePrices = comparablesByBeds[beds] || [];
             
             // DEBUG: Log comparison details
-            console.log(`   🏠 ${property.address}: $${property.price.toLocaleString()} (${beds} beds)`);
+            console.log(`   🏠 ${property.address}: $${property.price.toLocaleString()} (${beds} beds, ${property.image_count || 0} images)`);
             console.log(`       📊 Found ${comparablePrices.length} comparable ${beds}-bed ${comparisonType}`);
             
             // Need at least 3 comparable properties
@@ -461,17 +644,24 @@ class OptimalWeeklyStreetEasy {
                 continue;
             }
 
-            // Calculate market benchmarks
+            // Calculate market benchmarks with outlier removal
             const sortedPrices = [...comparablePrices].sort((a, b) => a - b);
-            const medianPrice = sortedPrices[Math.floor(sortedPrices.length / 2)];
-            const avgPrice = comparablePrices.reduce((sum, price) => sum + price, 0) / comparablePrices.length;
             
-            // Use average of median and mean for more stable benchmark
-            const marketPrice = Math.round((medianPrice + avgPrice) / 2);
+            // Remove outliers (top and bottom 10%) for more accurate market price
+            const trimmedPrices = sortedPrices.slice(
+                Math.floor(sortedPrices.length * 0.1), 
+                Math.ceil(sortedPrices.length * 0.9)
+            );
+            
+            const medianPrice = trimmedPrices[Math.floor(trimmedPrices.length / 2)];
+            const avgPrice = trimmedPrices.reduce((sum, price) => sum + price, 0) / trimmedPrices.length;
+            
+            // Use median as primary benchmark (more stable)
+            const marketPrice = medianPrice;
             const discountPercent = ((marketPrice - property.price) / marketPrice) * 100;
             
             // DEBUG: Show calculation details
-            console.log(`       💰 Market price: $${marketPrice.toLocaleString()} (median: $${Math.round(medianPrice).toLocaleString()}, avg: $${Math.round(avgPrice).toLocaleString()})`);
+            console.log(`       💰 Market price: $${marketPrice.toLocaleString()} (from ${trimmedPrices.length} trimmed comparables)`);
             console.log(`       📉 Discount: ${discountPercent.toFixed(1)}% ${discountPercent >= 5 ? '✅ QUALIFIES' : '❌ Too small'}`);
 
             // Find properties 5%+ below comparable sales/listings
@@ -485,8 +675,11 @@ class OptimalWeeklyStreetEasy {
                     warningSignals,
                     neighborhood,
                     beds: property.beds,
+                    baths: property.baths,
+                    sqft: property.sqft,
                     comparableCount: comparablePrices.length,
-                    comparisonType: comparisonType
+                    comparisonType: comparisonType,
+                    hasImages: property.image_count > 0
                 });
 
                 undervalued.push({
@@ -506,7 +699,7 @@ class OptimalWeeklyStreetEasy {
                     analysis_date: new Date().toISOString()
                 });
 
-                console.log(`       🎉 FOUND DEAL: ${scoreResult.dealQuality} (${discountPercent.toFixed(1)}% below market)`);
+                console.log(`       🎉 FOUND DEAL: ${scoreResult.dealQuality} (${discountPercent.toFixed(1)}% below market, ${property.image_count || 0} images)`);
             }
         }
 
@@ -543,7 +736,7 @@ class OptimalWeeklyStreetEasy {
     }
 
     calculateUndervaluationScore(factors) {
-        let score = Math.min(factors.discountPercent * 1.5, 40); // Reduced multiplier to prevent >100 scores
+        let score = Math.min(factors.discountPercent * 1.5, 40); // Base score from discount
         
         // Enhanced scoring with deal quality labels
         let dealQuality = '';
@@ -551,7 +744,7 @@ class OptimalWeeklyStreetEasy {
         
         if (factors.discountPercent >= 15) {
             dealQuality = 'UNICORN'; // 15%+ below market = Unicorn (very rare)
-            qualityBonus = 20; // Reduced from 25
+            qualityBonus = 20;
         } else if (factors.discountPercent >= 10) {
             dealQuality = 'EXCELLENT'; // 10%+ below market = Excellent deal
             qualityBonus = 15;
@@ -564,22 +757,31 @@ class OptimalWeeklyStreetEasy {
         }
         
         score += qualityBonus;
-        score += Math.min(factors.distressSignals.length * 3, 15); // Reduced from 5
+        score += Math.min(factors.distressSignals.length * 3, 15);
         
-        // Adjust scoring since we're not using sqft
-        if (factors.beds >= 3) score += 8; // Reduced bonuses
+        // Property characteristics bonus
+        if (factors.beds >= 3) score += 8;
         else if (factors.beds >= 2) score += 5;
         else score += 2;
         
-        // Bonus for having more comparables (more reliable analysis)
-        if (factors.comparableCount >= 10) score += 10; // Reduced from 15
+        if (factors.baths >= 2) score += 5;
+        else if (factors.baths >= 1) score += 3;
+        
+        if (factors.sqft >= 1000) score += 8;
+        else if (factors.sqft >= 700) score += 5;
+        
+        // NEW: Image bonus - properties with images are more valuable
+        if (factors.hasImages) score += 5;
+        
+        // Comparable data quality bonus
+        if (factors.comparableCount >= 10) score += 10;
         else if (factors.comparableCount >= 5) score += 7;
         else if (factors.comparableCount >= 3) score += 3;
         
         // Bonus for using actual sales data vs active listings
-        if (factors.comparisonType === 'recent sales') score += 8; // Reduced from 10
+        if (factors.comparisonType === 'recent sales') score += 8;
         
-        score -= Math.min(factors.warningSignals.length * 3, 10); // Reduced penalty
+        score -= Math.min(factors.warningSignals.length * 3, 10);
         
         return {
             score: Math.max(0, Math.min(100, Math.round(score))), // Cap at 100
@@ -588,7 +790,7 @@ class OptimalWeeklyStreetEasy {
     }
 
     /**
-     * Save to database with duplicate prevention and return detailed stats
+     * ENHANCED: Save to database with image data and return detailed stats
      */
     async saveUndervaluedPropertiesWithStats(properties, neighborhood) {
         if (!properties || properties.length === 0) {
@@ -616,19 +818,26 @@ class OptimalWeeklyStreetEasy {
                     continue;
                 }
 
+                // ENHANCED: Database record with image data
                 const dbRecord = {
                     listing_id: property.listing_id,
                     address: property.address,
                     neighborhood: property.neighborhood,
                     price: property.price,
                     sqft: property.sqft || null,
-                    beds: property.beds,
-                    baths: property.baths,
-                    description: (property.description || '').substring(0, 500),
+                    beds: property.beds || 0,
+                    baths: property.baths || 0,
+                    description: (property.description || '').substring(0, 1000),
                     url: property.url,
                     property_type: property.property_type,
                     
-                    // Enhanced comparison fields (now supported by database)
+                    // NEW: Image fields
+                    image_url: property.image_url,
+                    image_urls: property.image_urls || [],
+                    image_count: property.image_count || 0,
+                    primary_image_verified: false, // Will be verified in background
+                    
+                    // Enhanced comparison fields
                     market_price: property.market_price,
                     comparable_count: property.comparable_count,
                     comparison_method: property.comparison_method,
@@ -643,6 +852,14 @@ class OptimalWeeklyStreetEasy {
                     distress_signals: property.distress_signals || [],
                     warning_signals: property.warning_signals || [],
                     undervaluation_score: property.undervaluation_score,
+                    
+                    // Additional property details
+                    days_on_market: property.days_on_market || null,
+                    building_name: property.building_name || null,
+                    unit_number: property.unit_number || null,
+                    floor: property.floor || null,
+                    maintenance_fee: property.maintenance_fee || null,
+                    
                     analysis_date: property.analysis_date,
                     status: 'active'
                 };
@@ -666,7 +883,7 @@ class OptimalWeeklyStreetEasy {
                         if (updateError) {
                             console.error(`   ❌ Error updating ${property.address}:`, updateError.message);
                         } else {
-                            console.log(`   🔄 Updated: ${property.address} (score: ${existingScore} → ${newScore})`);
+                            console.log(`   🔄 Updated: ${property.address} (${property.image_count || 0} images, score: ${existingScore} → ${newScore})`);
                             updateCount++;
                         }
                     } else {
@@ -682,7 +899,7 @@ class OptimalWeeklyStreetEasy {
                     if (insertError) {
                         console.error(`   ❌ Error inserting ${property.address}:`, insertError.message);
                     } else {
-                        console.log(`   ✅ Added: ${property.address} (${property.discount_percent}% below ${property.comparison_type}, ${property.deal_quality}, score: ${property.undervaluation_score})`);
+                        console.log(`   ✅ Added: ${property.address} (${property.image_count || 0} images, ${property.discount_percent}% below ${property.comparison_type}, ${property.deal_quality}, score: ${property.undervaluation_score})`);
                         newCount++;
                     }
                 }
@@ -729,9 +946,17 @@ class OptimalWeeklyStreetEasy {
                     total_properties_fetched: summary.totalPropertiesFetched,
                     undervalued_found: summary.undervaluedFound,
                     saved_to_database: summary.savedToDatabase,
+                    updated_in_database: summary.updatedInDatabase,
+                    duplicates_skipped: summary.duplicatesSkipped,
                     api_calls_used: summary.apiCallsUsed,
                     duration_minutes: Math.round(summary.duration),
                     errors: summary.errors,
+                    
+                    // NEW: Image processing stats
+                    properties_with_images: summary.propertiesWithImages,
+                    images_verified: 0, // Will be updated by background verification
+                    image_verification_errors: 0,
+                    
                     completed: true
                 }]);
 
@@ -746,11 +971,13 @@ class OptimalWeeklyStreetEasy {
     }
 
     logWeeklySummary(summary) {
-        console.log('\n📊 FIXED WEEKLY ANALYSIS COMPLETE');
+        console.log('\n📊 ENHANCED WEEKLY ANALYSIS COMPLETE');
         console.log('='.repeat(60));
         console.log(`⏱️ Duration: ${summary.duration.toFixed(1)} minutes`);
         console.log(`🗽 Neighborhoods processed: ${summary.neighborhoodsProcessed}`);
         console.log(`📡 Total properties fetched: ${summary.totalPropertiesFetched}`);
+        console.log(`🖼️ Properties with images: ${summary.propertiesWithImages}`);
+        console.log(`📸 Total images extracted: ${summary.totalImagesExtracted}`);
         console.log(`🎯 Undervalued properties found: ${summary.undervaluedFound}`);
         console.log(`💾 New properties saved: ${summary.savedToDatabase}`);
         console.log(`🔄 Properties updated: ${summary.updatedInDatabase}`);
@@ -758,6 +985,11 @@ class OptimalWeeklyStreetEasy {
         console.log(`📞 API calls used: ${summary.apiCallsUsed}`);
         console.log(`⚡ Rate limit hits: ${summary.rateLimitHits}`);
         console.log(`⏰ Final delay setting: ${this.baseDelay/1000}s between calls`);
+        
+        // Image extraction statistics
+        const imageSuccessRate = summary.totalPropertiesFetched > 0 ? 
+            (summary.propertiesWithImages / summary.totalPropertiesFetched * 100).toFixed(1) : '0';
+        console.log(`🖼️ Image extraction rate: ${imageSuccessRate}% of properties have images`);
         
         if (summary.errors.length > 0) {
             const rateLimitErrors = summary.errors.filter(e => e.isRateLimit).length;
@@ -771,7 +1003,8 @@ class OptimalWeeklyStreetEasy {
         }
 
         if (summary.savedToDatabase > 0) {
-            console.log('\n🎉 SUCCESS: Found and saved undervalued properties!');
+            console.log('\n🎉 SUCCESS: Found and saved undervalued properties with images!');
+            console.log(`🖼️ Direct image display enabled - Zero bandwidth cost!`);
         } else {
             console.log('\n📊 No undervalued properties found (normal in competitive NYC market)');
         }
@@ -802,17 +1035,18 @@ async function runWeeklyAnalysis() {
     const analyzer = new OptimalWeeklyStreetEasy();
     
     try {
-        console.log('🗽 Starting FIXED Weekly StreetEasy Analysis...\n');
-        console.log('🔧 Changes made:');
-        console.log('   - Fixed endpoint: /sales/search (was /sales/active)');
-        console.log('   - Fixed parameter: areas (was location)');
-        console.log('   - Added 404 error handling');
-        console.log('   - Improved response format handling');
-        console.log('   - Added comprehensive debugging\n');
+        console.log('🗽 Starting ENHANCED Weekly StreetEasy Analysis...\n');
+        console.log('🔧 Enhanced features:');
+        console.log('   - Fixed endpoint: /sales/search with areas parameter');
+        console.log('   - Comprehensive image extraction from API responses');
+        console.log('   - Direct image display (zero bandwidth cost)');
+        console.log('   - Enhanced property scoring with image bonuses');
+        console.log('   - Improved database schema with image fields');
+        console.log('   - Duplicate prevention and update logic\n');
         
         const results = await analyzer.runWeeklyUndervaluedRefresh();
         
-        console.log('\n✅ Fixed analysis completed!');
+        console.log('\n✅ Enhanced analysis completed!');
         
         if (results.errors.filter(e => e.is404).length > 0) {
             console.log('\n⚠️ If you still get 404 errors, double-check:');
@@ -821,12 +1055,13 @@ async function runWeeklyAnalysis() {
             console.log('   3. Neighborhood names match API requirements');
         }
         
-        console.log(`📊 Check your Supabase 'undervalued_properties' table for ${results.savedToDatabase} new deals!`);
+        console.log(`📊 Check your Supabase 'undervalued_properties' table for ${results.savedToDatabase} new deals with images!`);
+        console.log(`🖼️ ${results.propertiesWithImages} properties now have direct image display capability!`);
         
         return results;
         
     } catch (error) {
-        console.error('💥 Fixed analysis failed:', error.message);
+        console.error('💥 Enhanced analysis failed:', error.message);
         process.exit(1);
     }
 }
