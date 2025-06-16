@@ -268,26 +268,46 @@ class OptimalWeeklyStreetEasy {
         }
 
         // Map to consistent format and log sample
-        const mappedProperties = propertiesData.map(property => {
-            // Log first property structure to understand the data
-            if (propertiesData.indexOf(property) === 0) {
-                console.log(`   🏠 Sample property structure:`, JSON.stringify(property, null, 2).substring(0, 300) + '...');
+        const mappedProperties = propertiesData.map((property, index) => {
+            // Log first few property structures to understand the data
+            if (index < 3) {
+                console.log(`   🏠 Raw property ${index + 1}:`, JSON.stringify(property, null, 2));
             }
             
-            return {
-                listing_id: property.id || property.listing_id || `${property.address}-${property.price}`,
-                address: property.address || property.street_address || 'Address not available',
+            // Try multiple field mappings for better data extraction
+            const mappedProperty = {
+                listing_id: property.id || property.listing_id || property.streeteasy_id || `fallback-${Date.now()}-${index}`,
+                address: property.address || property.street_address || property.full_address || property.location || 'Address not available',
                 neighborhood: neighborhood,
-                price: property.price || property.list_price || property.asking_price || 0,
-                sqft: property.sqft || property.square_feet || property.size || null,
-                beds: property.beds || property.bedrooms || property.bed_count || 0,
-                baths: property.baths || property.bathrooms || property.bath_count || 0,
-                description: property.description || property.details || property.remarks || '',
-                url: property.url || property.link || property.streeteasy_url || '',
-                property_type: property.type || property.property_type || property.building_type || 'unknown',
-                days_on_market: property.days_on_market || property.dom || property.days_on_redfin || 0,
-                fetched_date: new Date().toISOString()
+                price: property.price || property.list_price || property.asking_price || property.listing_price || 0,
+                sqft: property.sqft || property.square_feet || property.size || property.area || null,
+                beds: property.beds || property.bedrooms || property.bed_count || property.num_beds || 0,
+                baths: property.baths || property.bathrooms || property.bath_count || property.num_baths || 0,
+                description: property.description || property.details || property.remarks || property.listing_description || '',
+                url: property.url || property.link || property.streeteasy_url || property.listing_url || '',
+                property_type: property.type || property.property_type || property.building_type || property.home_type || 'unknown',
+                days_on_market: property.days_on_market || property.dom || property.days_on_redfin || property.days_listed || 0,
+                fetched_date: new Date().toISOString(),
+                
+                // Additional fields that might be available
+                building_name: property.building_name || property.building || '',
+                unit_number: property.unit || property.unit_number || '',
+                floor: property.floor || property.floor_number || null,
+                maintenance_fee: property.maintenance || property.hoa_fee || property.common_charges || null
             };
+            
+            // Log mapped result for first few properties
+            if (index < 2) {
+                console.log(`   ✅ Mapped property ${index + 1}:`, {
+                    address: mappedProperty.address,
+                    price: mappedProperty.price,
+                    beds: mappedProperty.beds,
+                    baths: mappedProperty.baths,
+                    description: mappedProperty.description.substring(0, 100) + '...'
+                });
+            }
+            
+            return mappedProperty;
         }).filter(prop => prop.price > 0); // Only keep properties with valid prices
 
         console.log(`   ✅ Mapped to ${mappedProperties.length} valid properties`);
@@ -514,7 +534,7 @@ class OptimalWeeklyStreetEasy {
     }
 
     calculateUndervaluationScore(factors) {
-        let score = Math.min(factors.discountPercent * 2, 50);
+        let score = Math.min(factors.discountPercent * 1.5, 40); // Reduced multiplier to prevent >100 scores
         
         // Enhanced scoring with deal quality labels
         let dealQuality = '';
@@ -522,7 +542,7 @@ class OptimalWeeklyStreetEasy {
         
         if (factors.discountPercent >= 15) {
             dealQuality = 'UNICORN'; // 15%+ below market = Unicorn (very rare)
-            qualityBonus = 25;
+            qualityBonus = 20; // Reduced from 25
         } else if (factors.discountPercent >= 10) {
             dealQuality = 'EXCELLENT'; // 10%+ below market = Excellent deal
             qualityBonus = 15;
@@ -535,25 +555,25 @@ class OptimalWeeklyStreetEasy {
         }
         
         score += qualityBonus;
-        score += Math.min(factors.distressSignals.length * 5, 20);
+        score += Math.min(factors.distressSignals.length * 3, 15); // Reduced from 5
         
         // Adjust scoring since we're not using sqft
-        if (factors.beds >= 3) score += 10; // Larger properties often better deals
-        else if (factors.beds >= 2) score += 7;
-        else score += 3;
+        if (factors.beds >= 3) score += 8; // Reduced bonuses
+        else if (factors.beds >= 2) score += 5;
+        else score += 2;
         
         // Bonus for having more comparables (more reliable analysis)
-        if (factors.comparableCount >= 10) score += 15;
-        else if (factors.comparableCount >= 5) score += 10;
-        else if (factors.comparableCount >= 3) score += 5;
+        if (factors.comparableCount >= 10) score += 10; // Reduced from 15
+        else if (factors.comparableCount >= 5) score += 7;
+        else if (factors.comparableCount >= 3) score += 3;
         
         // Bonus for using actual sales data vs active listings
-        if (factors.comparisonType === 'recent sales') score += 10;
+        if (factors.comparisonType === 'recent sales') score += 8; // Reduced from 10
         
-        score -= Math.min(factors.warningSignals.length * 5, 15);
+        score -= Math.min(factors.warningSignals.length * 3, 10); // Reduced penalty
         
         return {
-            score: Math.max(0, Math.round(score)),
+            score: Math.max(0, Math.min(100, Math.round(score))), // Cap at 100
             dealQuality: dealQuality
         };
     }
@@ -598,6 +618,17 @@ class OptimalWeeklyStreetEasy {
                     description: (property.description || '').substring(0, 500),
                     url: property.url,
                     property_type: property.property_type,
+                    
+                    // Enhanced comparison fields (now supported by database)
+                    market_price: property.market_price,
+                    comparable_count: property.comparable_count,
+                    comparison_method: property.comparison_method,
+                    deal_quality: property.deal_quality,
+                    median_comparable_price: property.median_comparable_price,
+                    avg_comparable_price: property.avg_comparable_price,
+                    comparison_type: property.comparison_type,
+                    
+                    // Analysis fields
                     discount_percent: property.discount_percent,
                     potential_savings: property.potential_savings,
                     distress_signals: property.distress_signals || [],
@@ -605,8 +636,6 @@ class OptimalWeeklyStreetEasy {
                     undervaluation_score: property.undervaluation_score,
                     analysis_date: property.analysis_date,
                     status: 'active'
-                    // Removed new fields that don't exist in your table yet:
-                    // market_price, comparable_count, comparison_method, deal_quality
                 };
 
                 if (existing) {
