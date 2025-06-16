@@ -391,11 +391,15 @@ class OptimalWeeklyStreetEasy {
         score += qualityBonus;
         score += Math.min(factors.distressSignals.length * 5, 20);
         
-        if (factors.sqft > 1000) score += 10;
-        else if (factors.sqft > 700) score += 7;
+        // Adjust scoring since we're not using sqft
+        if (factors.beds >= 3) score += 10; // Larger properties often better deals
+        else if (factors.beds >= 2) score += 7;
         else score += 3;
         
-        if (factors.beds >= 2) score += 5;
+        // Bonus for having more comparables (more reliable analysis)
+        if (factors.comparableCount >= 10) score += 10;
+        else if (factors.comparableCount >= 5) score += 5;
+        
         score -= Math.min(factors.warningSignals.length * 5, 15);
         
         return {
@@ -438,19 +442,21 @@ class OptimalWeeklyStreetEasy {
                     address: property.address,
                     neighborhood: property.neighborhood,
                     price: property.price,
-                    sqft: property.sqft,
+                    sqft: property.sqft || null, // May be null since we're not requiring it
                     beds: property.beds,
                     baths: property.baths,
                     description: (property.description || '').substring(0, 500),
                     url: property.url,
                     property_type: property.property_type,
-                    actual_price_per_sqft: property.actual_price_per_sqft,
-                    market_price_per_sqft: property.market_price_per_sqft,
+                    market_price: property.market_price, // Changed from price per sqft fields
                     discount_percent: property.discount_percent,
                     potential_savings: property.potential_savings,
+                    comparable_count: property.comparable_count,
+                    comparison_method: property.comparison_method,
                     distress_signals: property.distress_signals || [],
                     warning_signals: property.warning_signals || [],
                     undervaluation_score: property.undervaluation_score,
+                    deal_quality: property.deal_quality,
                     analysis_date: property.analysis_date,
                     status: 'active'
                 };
