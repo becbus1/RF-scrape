@@ -592,23 +592,21 @@ class OptimalWeeklyStreetEasy {
                     address: property.address,
                     neighborhood: property.neighborhood,
                     price: property.price,
-                    sqft: property.sqft || null, // May be null since we're not requiring it
+                    sqft: property.sqft || null,
                     beds: property.beds,
                     baths: property.baths,
                     description: (property.description || '').substring(0, 500),
                     url: property.url,
                     property_type: property.property_type,
-                    market_price: property.market_price, // Changed from price per sqft fields
                     discount_percent: property.discount_percent,
                     potential_savings: property.potential_savings,
-                    comparable_count: property.comparable_count,
-                    comparison_method: property.comparison_method,
                     distress_signals: property.distress_signals || [],
                     warning_signals: property.warning_signals || [],
                     undervaluation_score: property.undervaluation_score,
-                    deal_quality: property.deal_quality,
                     analysis_date: property.analysis_date,
                     status: 'active'
+                    // Removed new fields that don't exist in your table yet:
+                    // market_price, comparable_count, comparison_method, deal_quality
                 };
 
                 if (existing) {
