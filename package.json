@@ -2,9 +2,15 @@
   "name": "nyc-hybrid-property-finder",
   "version": "2.0.0",
   "description": "Hybrid system using Redfin's public data + targeted scraping to find undervalued NYC properties",
-  "main": "optimal-weekly-streeteasy.js",
+  "main": "biweekly-streeteasy-sales.js",
   "scripts": {
-    "start": "node optimal-weekly-streeteasy.js",
+    "start": "node biweekly-streeteasy-sales.js",
+    
+    "sales": "node biweekly-streeteasy-sales.js",
+    "rentals": "node biweekly-streeteasy-rentals.js",
+    "sales-test": "node biweekly-streeteasy-sales.js --neighborhood park-slope",
+    "rentals-test": "node biweekly-streeteasy-rentals.js --neighborhood williamsburg",
+    
     "test": "node test-scraper.js --test-only",
     "demo": "node test-scraper.js --demo-only",
     
@@ -39,7 +45,11 @@
     "property-investment",
     "distress-signals",
     "below-market",
-    "weekly-analysis"
+    "weekly-analysis",
+    "streeteasy",
+    "rentals",
+    "sales",
+    "biweekly-analysis"
   ],
   "author": "Your Name",
   "license": "MIT",
@@ -60,7 +70,7 @@
     "url": "https://github.com/yourusername/nyc-hybrid-property-finder.git"
   },
   "config": {
-    "analysis_schedule": "weekly",
+    "analysis_schedule": "biweekly",
     "min_discount_percent": 15,
     "max_days_on_market": 90,
     "nyc_price_range": {
@@ -73,6 +83,12 @@
       "zip_market_tracker", 
       "neighborhood_market_tracker",
       "weekly_housing_inventory"
-    ]
+    ],
+    "streeteasy_config": {
+      "api_calls_per_month": 10000,
+      "neighborhoods_per_day": 3,
+      "cache_duration_days": 30,
+      "undervaluation_threshold": 10
+    }
   }
 }
