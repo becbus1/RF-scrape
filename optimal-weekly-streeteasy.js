@@ -1,4 +1,17 @@
-// optimal-weekly-streeteasy.js
+/**
+     * DEBUG VERSION: Enhanced debugging to find why we're getting 0 deals
+     */
+    filterUndervaluedProperties(properties, neighborhood, pastSales = []) {
+        const undervalued = [];
+
+        console.log(`\n   🔍 DEBUGGING ${neighborhood.toUpperCase()}:`);
+        console.log(`   📋 Active properties: ${properties.length}`);
+        console.log(`   📊 Past sales: ${pastSales.length}`);
+
+        // Show sample of what we received
+        if (properties.length > 0) {
+            const sample = properties[0];
+            console.log(`   🏠 Sample property: ${sample.price?.toLocaleString() || 'NO PRICE'}, ${sample.beds || 'NO BEDS'}// optimal-weekly-streeteasy.js
 // FIXED VERSION: Correct API endpoints and parameters
 
 require('dotenv').config();
@@ -205,17 +218,22 @@ class OptimalWeeklyStreetEasy {
     }
 
     /**
-     * ENHANCED: Fetch past sales data for accurate comparables
+     * ENHANCED: Also with better debugging for past sales
      */
     async fetchPastSalesComparables(neighborhood) {
         try {
+            console.log(`   📊 Fetching past sales for ${neighborhood}...`);
+            
             const response = await axios.get(
-                'https://streeteasy-api.p.rapidapi.com/sales/past/search', // ✅ Correct endpoint from screenshot
+                'https://streeteasy-api.p.rapidapi.com/sales/past/search',
                 {
                     params: {
                         areas: neighborhood,
                         limit: 500,  // Get lots of comp data
-                        months: 6,   // Last 6 months of actual sales
+                        // Add time filters for recent sales
+                        minPrice: 200000,
+                        maxPrice: 10000000,
+                        offset: 0
                     },
                     headers: {
                         'X-RapidAPI-Key': this.rapidApiKey,
@@ -225,33 +243,52 @@ class OptimalWeeklyStreetEasy {
                 }
             );
 
-            // Handle different response formats (same as active listings)
+            console.log(`   📊 Past sales response keys:`, Object.keys(response.data || {}));
+            
             let salesData = [];
             
             if (response.data) {
-                if (response.data.listings && Array.isArray(response.data.listings)) {
+                // Log structure for debugging
+                console.log(`   📋 Past sales structure:`, JSON.stringify(response.data, null, 2).substring(0, 300) + '...');
+                
+                if (response.data.results && Array.isArray(response.data.results)) {
+                    salesData = response.data.results;
+                } else if (response.data.listings && Array.isArray(response.data.listings)) {
                     salesData = response.data.listings;
                 } else if (Array.isArray(response.data)) {
                     salesData = response.data;
                 } else if (response.data.properties && Array.isArray(response.data.properties)) {
                     salesData = response.data.properties;
-                } else if (response.data.results && Array.isArray(response.data.results)) {
-                    salesData = response.data.results;
+                } else if (response.data.sales && Array.isArray(response.data.sales)) {
+                    salesData = response.data.sales;
                 }
             }
 
             // Map to consistent format
-            return salesData.map(sale => ({
-                sale_price: sale.price || sale.sale_price || 0,
-                beds: sale.beds || sale.bedrooms || 0,
-                baths: sale.baths || sale.bathrooms || 0,
-                property_type: sale.type || sale.property_type || 'unknown',
-                sale_date: sale.sale_date || sale.date_sold || sale.closed_date,
+            const mappedSales = salesData.map(sale => ({
+                sale_price: sale.price || sale.sale_price || sale.sold_price || 0,
+                beds: sale.beds || sale.bedrooms || sale.bed_count || 0,
+                baths: sale.baths || sale.bathrooms || sale.bath_count || 0,
+                property_type: sale.type || sale.property_type || sale.building_type || 'unknown',
+                sale_date: sale.sale_date || sale.date_sold || sale.closed_date || sale.sold_date,
                 address: sale.address || 'Address not available'
             })).filter(sale => sale.sale_price > 0); // Only valid sales
 
+            console.log(`   ✅ Past sales: ${mappedSales.length} valid sales found`);
+            
+            if (mappedSales.length > 0) {
+                const sample = mappedSales[0];
+                console.log(`   💰 Sample past sale: ${sample.sale_price?.toLocaleString()}, ${sample.beds} beds`);
+            }
+
+            return mappedSales;
+
         } catch (error) {
             console.warn(`   ⚠️ Could not fetch past sales for ${neighborhood}: ${error.message}`);
+            if (error.response) {
+                console.warn(`   ⚠️ Past sales API error status: ${error.response.status}`);
+                console.warn(`   ⚠️ Past sales API error data:`, JSON.stringify(error.response.data, null, 2).substring(0, 200));
+            }
             return []; // Fallback to active listings comparison
         }
     }
