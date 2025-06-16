@@ -34,36 +34,6 @@ class OptimalWeeklyStreetEasy {
         this.baseDelay = 15000; // 15 seconds between calls
         this.maxRetries = 3;
         this.retryBackoffMultiplier = 2; // 15s, 30s, 60s on retries
-        
-        // UPDATED 2024-2025 NYC Market Data (price per sqft) - Based on latest research
-        this.marketThresholds = {
-            // Manhattan - High-end (Q3 2024 data: $1,400-$2,130/sqft)
-            'west-village': 2200, 'soho': 2100, 'tribeca': 2300,
-            'upper-east-side': 1800, 'upper-west-side': 1700, 'chelsea': 1900,
-            'financial-district': 1600, 'lower-east-side': 1500, 'midtown': 1650,
-            'gramercy-park': 1750, 'murray-hill': 1650, 'hells-kitchen': 1550,
-            
-            // Brooklyn - Premium areas ($800-$1,200/sqft)
-            'park-slope': 1200, 'williamsburg': 1100, 'dumbo': 1300,
-            'brooklyn-heights': 1250, 'fort-greene': 1000, 'prospect-heights': 1050,
-            'crown-heights': 850, 'bedford-stuyvesant': 900, 'greenpoint': 1000,
-            'red-hook': 950, 'carroll-gardens': 1150, 'bushwick': 800,
-            'sunset-park': 750,
-            
-            // Queens - Mid-range ($600-$900/sqft)
-            'long-island-city': 950, 'hunters-point': 900, 'astoria': 800,
-            'sunnyside': 750, 'woodside': 700, 'jackson-heights': 650,
-            'forest-hills': 850, 'kew-gardens': 800,
-            
-            // Bronx - Affordable ($400-$600/sqft)
-            'mott-haven': 500, 'concourse': 450, 'fordham': 400, 'riverdale': 600,
-            
-            // Staten Island - Most affordable ($400-$550/sqft)
-            'saint-george': 500, 'stapleton': 450, 'new-brighton': 475,
-            
-            // Default for unknown neighborhoods
-            'default': 750
-        };
     }
 
     /**
@@ -112,11 +82,16 @@ class OptimalWeeklyStreetEasy {
                     }
                     
                     const properties = await this.fetchNeighborhoodPropertiesWithRetry(neighborhood);
+                    
+                    // NEW: Also fetch past sales for better comparables
+                    const pastSales = await this.fetchPastSalesComparables(neighborhood);
+                    console.log(`   📊 Past sales data: ${pastSales.length} recent sales found`);
+                    
                     summary.totalPropertiesFetched += properties.length;
                     summary.apiCallsUsed++;
 
                     if (properties.length > 0) {
-                        const undervalued = this.filterUndervaluedProperties(properties, neighborhood);
+                        const undervalued = this.filterUndervaluedProperties(properties, neighborhood, pastSales);
                         summary.undervaluedFound += undervalued.length;
 
                         if (undervalued.length > 0) {
@@ -230,8 +205,56 @@ class OptimalWeeklyStreetEasy {
     }
 
     /**
-     * FIXED: Fetch properties from StreetEasy API with correct endpoint and parameters
+     * ENHANCED: Fetch past sales data for accurate comparables
      */
+    async fetchPastSalesComparables(neighborhood) {
+        try {
+            const response = await axios.get(
+                'https://streeteasy-api.p.rapidapi.com/sales/past/search', // ✅ Correct endpoint from screenshot
+                {
+                    params: {
+                        areas: neighborhood,
+                        limit: 500,  // Get lots of comp data
+                        months: 6,   // Last 6 months of actual sales
+                    },
+                    headers: {
+                        'X-RapidAPI-Key': this.rapidApiKey,
+                        'X-RapidAPI-Host': 'streeteasy-api.p.rapidapi.com'
+                    },
+                    timeout: 30000
+                }
+            );
+
+            // Handle different response formats (same as active listings)
+            let salesData = [];
+            
+            if (response.data) {
+                if (response.data.listings && Array.isArray(response.data.listings)) {
+                    salesData = response.data.listings;
+                } else if (Array.isArray(response.data)) {
+                    salesData = response.data;
+                } else if (response.data.properties && Array.isArray(response.data.properties)) {
+                    salesData = response.data.properties;
+                } else if (response.data.results && Array.isArray(response.data.results)) {
+                    salesData = response.data.results;
+                }
+            }
+
+            // Map to consistent format
+            return salesData.map(sale => ({
+                sale_price: sale.price || sale.sale_price || 0,
+                beds: sale.beds || sale.bedrooms || 0,
+                baths: sale.baths || sale.bathrooms || 0,
+                property_type: sale.type || sale.property_type || 'unknown',
+                sale_date: sale.sale_date || sale.date_sold || sale.closed_date,
+                address: sale.address || 'Address not available'
+            })).filter(sale => sale.sale_price > 0); // Only valid sales
+
+        } catch (error) {
+            console.warn(`   ⚠️ Could not fetch past sales for ${neighborhood}: ${error.message}`);
+            return []; // Fallback to active listings comparison
+        }
+    }
     async fetchNeighborhoodProperties(neighborhood) {
         // FIXED: Use correct endpoint and parameter names
         const response = await axios.get(
@@ -397,8 +420,12 @@ class OptimalWeeklyStreetEasy {
         else score += 3;
         
         // Bonus for having more comparables (more reliable analysis)
-        if (factors.comparableCount >= 10) score += 10;
-        else if (factors.comparableCount >= 5) score += 5;
+        if (factors.comparableCount >= 10) score += 15;
+        else if (factors.comparableCount >= 5) score += 10;
+        else if (factors.comparableCount >= 3) score += 5;
+        
+        // Bonus for using actual sales data vs active listings
+        if (factors.comparisonType === 'recent sales') score += 10;
         
         score -= Math.min(factors.warningSignals.length * 5, 15);
         
