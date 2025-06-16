@@ -1,3 +1,7 @@
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 // optimal-weekly-streeteasy.js
 // Weekly refresh of ALL NYC neighborhoods, filter to undervalued properties only
 
