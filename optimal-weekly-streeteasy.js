@@ -1,332 +1,24 @@
-function delay(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
 // optimal-weekly-streeteasy.js
-// Weekly refresh of ALL NYC neighborhoods, filter to undervalued properties only
+// FINAL VERSION: Rate-limited with duplicate prevention
 
 require('dotenv').config();
 const axios = require('axios');
 const { createClient } = require('@supabase/supabase-js');
+
 const VALID_STREETEASY_SLUGS = new Set([
-  "all-downtown",
-  "all-midtown",
-  "all-upper-east-side",
-  "all-upper-manhattan",
-  "all-upper-west-side",
-  "annadale",
-  "arden-heights",
-  "arlington",
-  "arrochar",
-  "arverne",
-  "astoria",
-  "auburndale",
-  "bath-beach",
-  "battery-park-city",
-  "bay-ridge",
-  "bay-terrace",
-  "bay-terrace-queens",
-  "baychester",
-  "bayside",
-  "bayswater",
-  "bedford-park",
-  "bedford-stuyvesant",
-  "beechhurst",
-  "beekman",
-  "belle-harbor",
-  "bellerose",
-  "belmont",
-  "bensonhurst",
-  "bergen-beach",
-  "bloomfield",
-  "boerum-hill",
-  "borough-park",
-  "breezy-point",
-  "briarwood",
-  "brighton-beach",
-  "broad-channel",
-  "bronxwood",
-  "brooklyn-heights",
-  "brookville",
-  "brownsville",
-  "bulls-head",
-  "bushwick",
-  "cambria-heights",
-  "canarsie",
-  "carnegie-hill",
-  "carroll-gardens",
-  "castle-hill",
-  "castleton-corners",
-  "central-harlem",
-  "central-park-south",
-  "charleston",
-  "chelsea",
-  "chelsea-staten-island",
-  "chinatown",
-  "city-island",
-  "city-line",
-  "civic-center",
-  "claremont",
-  "clearview",
-  "clifton",
-  "clinton-hill",
-  "co-op-city",
-  "cobble-hill",
-  "college-point",
-  "columbia-st-waterfront-district",
-  "concourse",
-  "coney-island",
-  "corona",
-  "country-club",
-  "crotona-park-east",
-  "crown-heights",
-  "cypress-hills",
-  "ditmars-steinway",
-  "ditmas-park",
-  "dongan-hills",
-  "douglaston",
-  "downtown-brooklyn",
-  "dumbo",
-  "dyker-heights",
-  "east-elmhurst",
-  "east-flatbush",
-  "east-flushing",
-  "east-harlem",
-  "east-new-york",
-  "east-shore",
-  "east-tremont",
-  "east-village",
-  "east-williamsburg",
-  "eastchester",
-  "edenwald",
-  "edgemere",
-  "egbertville",
-  "elm-park",
-  "elmhurst",
-  "eltingville",
-  "emerson-hill",
-  "far-rockaway",
-  "farragut",
-  "fieldston",
-  "financial-district",
-  "fiske-terrace",
-  "flatbush",
-  "flatiron",
-  "flatlands",
-  "floral-park",
-  "flushing",
-  "fordham",
-  "forest-hills",
-  "fort-george",
-  "fort-greene",
-  "fort-hamilton",
-  "fort-wadsworth",
-  "fresh-meadows",
-  "fultonseaport",
-  "gerritsen-bea",
-  "glen-oaks",
-  "glendale",
-  "gowanus",
-  "gramercy-park",
-  "graniteville",
-  "grant-city",
-  "grasmere",
-  "gravesend",
-  "great-kills",
-  "greenpoint",
-  "greenridge",
-  "greenwich-village",
-  "greenwood",
-  "grymes-hill",
-  "hamilton-beach",
-  "hamilton-heights",
-  "hammels",
-  "hells-kitchen",
-  "highbridge",
-  "hillcrest",
-  "hollis",
-  "homecrest",
-  "howard-beach",
-  "howland-hook",
-  "hudson-heights",
-  "hudson-square",
-  "hudson-yards",
-  "huguenot",
-  "hunters-point",
-  "hunts-point",
-  "inwood",
-  "jackson-heights",
-  "jamaica",
-  "jamaica-estates",
-  "jamaica-hills",
-  "kensington",
-  "kew-gardens",
-  "kew-gardens-hills",
-  "kingsbridge",
-  "kingsbridge-heights",
-  "kips-bay",
-  "laconia",
-  "laurelton",
-  "lenox-hill",
-  "lighthouse-hill",
-  "lincoln-square",
-  "lindenwood",
-  "little-italy",
-  "little-neck",
-  "locust-point",
-  "long-island-city",
-  "longwood",
-  "lower-east-side",
-  "madison",
-  "malba",
-  "manhattan-beach",
-  "manhattan-valley",
-  "manhattanville",
-  "manor-heights",
-  "mapleton",
-  "marble-hill",
-  "marine-park",
-  "mariners-harbor",
-  "maspeth",
-  "meiers-corners",
-  "melrose",
-  "mid-island",
-  "middle-village",
-  "midland-beach",
-  "midtown",
-  "midtown-east",
-  "midtown-south",
-  "midtown-west",
-  "midwood",
-  "mill-basin",
-  "morningside-heights",
-  "morris-heights",
-  "morris-park",
-  "morrisania",
-  "mott-haven",
-  "mt-hope",
-  "murray-hill",
-  "murray-hill-queens",
-  "neponsit",
-  "new-brighton",
-  "new-dorp",
-  "new-dorp-beach",
-  "new-hyde-park",
-  "new-lots",
-  "new-springville",
-  "noho",
-  "nolita",
-  "nomad",
-  "north-corona",
-  "north-new-york",
-  "north-shore",
-  "norwood",
-  "oakland-gardens",
-  "oakwood",
-  "oakwood-beach",
-  "ocean-breeze",
-  "ocean-hill",
-  "ocean-parkway",
-  "old-howard-beach",
-  "old-mill-basin",
-  "ozone-park",
-  "park-hill",
-  "park-slope",
-  "parkchester",
-  "pelham-bay",
-  "pelham-gardens",
-  "pelham-parkway",
-  "pleasant-plains",
-  "pomonok",
-  "port-morris",
-  "port-richmond",
-  "princes-bay",
-  "prospect-heights",
-  "prospect-lefferts-gardens",
-  "prospect-park-south",
-  "queens-village",
-  "ramblersville",
-  "red-hook",
-  "rego-park",
-  "richmond-hill",
-  "richmond-valley",
-  "richmondtown",
-  "ridgewood",
-  "riverdale",
-  "rockaway-all",
-  "rockaway-park",
-  "rockwood-park",
-  "roosevelt-island",
-  "rosebank",
-  "rosedale",
-  "rossville",
-  "saint-george",
-  "schuylerville",
-  "seagate",
-  "sheepshead-bay",
-  "shore-acres",
-  "silver-lake",
-  "soho",
-  "soundview",
-  "south-beach",
-  "south-harlem",
-  "south-jamaica",
-  "south-ozone-park",
-  "south-richmond-hill",
-  "south-shore",
-  "springfield-gardens",
-  "spuyten-duyvil",
-  "st-albans",
-  "stapleton",
-  "starrett-city",
-  "stuyvesant-heights",
-  "stuyvesant-townpcv",
-  "sunnyside",
-  "sunnyside-staten-island",
-  "sunset-park",
-  "sutton-place",
-  "throgs-neck",
-  "todt-hill",
-  "tompkinsville",
-  "tottenville",
-  "travis",
-  "tremont",
-  "tribeca",
-  "turtle-bay",
-  "two-bridges",
-  "university-heights",
-  "upper-carnegie-hill",
-  "upper-east-side",
-  "upper-west-side",
-  "utopia",
-  "van-nest",
-  "vinegar-hill",
-  "wakefield",
-  "washington-heights",
-  "weeksville",
-  "west-brighton",
-  "west-chelsea",
-  "west-farms",
-  "west-harlem",
-  "west-shore",
-  "west-village",
-  "westchester-square",
-  "westchester-village",
-  "westerleigh",
-  "whitestone",
-  "williamsbridge",
-  "williamsburg",
-  "willowbrook",
-  "windsor-terrace",
-  "wingate",
-  "woodhaven",
-  "woodlawn",
-  "woodrow",
-  "woodside",
-  "woodstock",
-  "yorkville",
+    "west-village", "east-village", "soho", "tribeca", "chelsea",
+    "upper-east-side", "upper-west-side", "financial-district", "lower-east-side",
+    "gramercy-park", "murray-hill", "hells-kitchen", "midtown",
+    "park-slope", "williamsburg", "dumbo", "brooklyn-heights", "fort-greene",
+    "prospect-heights", "crown-heights", "bedford-stuyvesant", "greenpoint",
+    "red-hook", "carroll-gardens", "bushwick", "sunset-park",
+    "long-island-city", "hunters-point", "astoria", "sunnyside",
+    "woodside", "jackson-heights", "forest-hills", "kew-gardens",
+    "mott-haven", "concourse", "fordham", "riverdale",
+    "saint-george", "stapleton", "new-brighton"
 ]);
-const { HIGH_PRIORITY_NEIGHBORHOODS, ALL_NYC_NEIGHBORHOODS } = require('./comprehensive-nyc-neighborhoods.js');
+
+const { HIGH_PRIORITY_NEIGHBORHOODS } = require('./comprehensive-nyc-neighborhoods.js');
 
 class OptimalWeeklyStreetEasy {
     constructor() {
@@ -336,96 +28,122 @@ class OptimalWeeklyStreetEasy {
         );
         
         this.rapidApiKey = process.env.RAPIDAPI_KEY;
-        this.weeklyApiCalls = 0;
+        this.apiCallsUsed = 0;
         
-        // Market analysis for price per sqft thresholds
+        // AGGRESSIVE rate limiting settings
+        this.baseDelay = 15000; // 15 seconds between calls
+        this.maxRetries = 3;
+        this.retryBackoffMultiplier = 2; // 15s, 30s, 60s on retries
+        
+        // Market thresholds for analysis
         this.marketThresholds = {
-            // Rough price per sqft thresholds for "market rate" in each area
-            'Manhattan': 1400,
-            'Brooklyn': 900,
-            'Queens': 700,
-            'Bronx': 450,
-            'Staten Island': 500,
-            
-            // Specific high-value neighborhoods
-            'West Village': 1800,
-            'SoHo': 1700,
-            'Tribeca': 1600,
-            'Park Slope': 1200,
-            'Williamsburg': 1100,
-            'DUMBO': 1300,
-            'Long Island City': 1000,
-            'Astoria': 800
+            'west-village': 1800, 'soho': 1700, 'tribeca': 1600,
+            'park-slope': 1200, 'williamsburg': 1100, 'dumbo': 1300,
+            'long-island-city': 1000, 'astoria': 800, 'mott-haven': 450,
+            'saint-george': 500, 'default': 800
         };
     }
 
     /**
-     * Main weekly refresh function
+     * Main weekly refresh with aggressive rate limiting and duplicate prevention
      */
     async runWeeklyUndervaluedRefresh() {
-        console.log('\n🗽 Starting Weekly Undervalued Property Refresh');
+        console.log('\n🗽 Starting OPTIMAL Weekly StreetEasy Analysis');
+        console.log('⏱️ Using 15+ second delays between API calls to avoid 429 errors');
+        console.log('🔒 Duplicate prevention enabled');
         console.log('='.repeat(60));
-        console.log(`📋 Strategy: Fetch ALL neighborhoods → Filter 15%+ below market → Store only undervalued`);
-        console.log(`🎯 Neighborhoods to check: ${HIGH_PRIORITY_NEIGHBORHOODS.length} high-priority areas\n`);
 
         const summary = {
             startTime: new Date(),
-            neighborhoodsChecked: 0,
+            neighborhoodsProcessed: 0,
             totalPropertiesFetched: 0,
             undervaluedFound: 0,
             savedToDatabase: 0,
+            updatedInDatabase: 0,
+            duplicatesSkipped: 0,
             apiCallsUsed: 0,
-            errors: []
+            errors: [],
+            rateLimitHits: 0
         };
 
         try {
-            // Step 1: Clear old data
+            // Clear old data
             await this.clearOldUndervaluedProperties();
 
-            // Step 2: Process each high-priority neighborhood
-            for (const neighborhood of HIGH_PRIORITY_NEIGHBORHOODS) {
+            // Get valid neighborhoods only
+            const validNeighborhoods = this.getValidNeighborhoods();
+            console.log(`🎯 Processing ${validNeighborhoods.length} valid neighborhoods with 15s+ delays\n`);
+
+            // Process each neighborhood with aggressive spacing
+            for (let i = 0; i < validNeighborhoods.length; i++) {
+                const neighborhood = validNeighborhoods[i];
+                
                 try {
-                    console.log(`🔍 Processing ${neighborhood}...`);
+                    console.log(`🔍 [${i + 1}/${validNeighborhoods.length}] Processing ${neighborhood}...`);
                     
-                    const properties = await this.fetchNeighborhoodProperties(neighborhood);
+                    // Apply base delay before each call (except first)
+                    if (i > 0) {
+                        const delay = this.calculateDelay(i);
+                        console.log(`   ⏰ Waiting ${delay/1000}s to avoid rate limits...`);
+                        await this.delay(delay);
+                    }
+                    
+                    const properties = await this.fetchNeighborhoodPropertiesWithRetry(neighborhood);
                     summary.totalPropertiesFetched += properties.length;
                     summary.apiCallsUsed++;
-                    this.weeklyApiCalls++;
 
                     if (properties.length > 0) {
                         const undervalued = this.filterUndervaluedProperties(properties, neighborhood);
                         summary.undervaluedFound += undervalued.length;
 
                         if (undervalued.length > 0) {
-                            const saved = await this.saveUndervaluedProperties(undervalued, neighborhood);
-                            summary.savedToDatabase += saved;
-                            console.log(`   ✅ ${neighborhood}: ${undervalued.length} undervalued found, ${saved} saved`);
+                            const saveResult = await this.saveUndervaluedPropertiesWithStats(undervalued, neighborhood);
+                            summary.savedToDatabase += saveResult.newCount;
+                            summary.updatedInDatabase += saveResult.updateCount;
+                            summary.duplicatesSkipped += saveResult.duplicateCount;
+                            console.log(`   ✅ ${neighborhood}: ${saveResult.newCount} new, ${saveResult.updateCount} updated, ${saveResult.duplicateCount} duplicates`);
                         } else {
                             console.log(`   📊 ${neighborhood}: ${properties.length} properties, none undervalued`);
                         }
                     } else {
-                        console.log(`   ⚠️ ${neighborhood}: No properties returned`);
+                        console.log(`   📊 ${neighborhood}: No properties returned`);
                     }
 
-                    summary.neighborhoodsChecked++;
-
-                    // Rate limiting
-                    await this.delay(6000);
+                    summary.neighborhoodsProcessed++;
 
                 } catch (error) {
-                    console.error(`❌ Error processing ${neighborhood}:`, error.message);
-                    summary.errors.push({ neighborhood, error: error.message });
+                    const isRateLimit = error.response?.status === 429;
+                    if (isRateLimit) {
+                        summary.rateLimitHits++;
+                        console.error(`   ❌ RATE LIMITED on ${neighborhood} - increasing delays`);
+                        
+                        // Exponentially increase base delay after rate limit hits
+                        this.baseDelay = Math.min(this.baseDelay * 1.5, 60000); // Max 60s
+                        console.log(`   ⏰ New base delay: ${this.baseDelay/1000}s`);
+                        
+                        // Wait extra long after rate limit
+                        await this.delay(this.baseDelay * 2);
+                    } else {
+                        console.error(`   ❌ Error with ${neighborhood}: ${error.message}`);
+                    }
+                    
+                    summary.errors.push({ 
+                        neighborhood, 
+                        error: error.message,
+                        isRateLimit 
+                    });
                 }
 
-                // Safety check for API limits
-                if (this.weeklyApiCalls >= 200) { // Safety limit
-                    console.log('⚠️ Reached weekly API safety limit, stopping');
-                    break;
+                // Log progress every 5 neighborhoods
+                if ((i + 1) % 5 === 0) {
+                    const elapsed = (Date.now() - summary.startTime) / 1000 / 60;
+                    console.log(`\n📊 Progress: ${i + 1}/${validNeighborhoods.length} neighborhoods (${elapsed.toFixed(1)}min elapsed)`);
+                    console.log(`📊 Stats: ${summary.undervaluedFound} undervalued, ${summary.rateLimitHits} rate limits hit\n`);
                 }
             }
 
             summary.endTime = new Date();
-            summary.duration = (summary.endTime - summary.startTime) / 1000 / 60; // minutes
+            summary.duration = (summary.endTime - summary.startTime) / 1000 / 60;
 
             this.logWeeklySummary(summary);
             await this.saveWeeklySummary(summary);
@@ -439,86 +157,119 @@ class OptimalWeeklyStreetEasy {
     }
 
     /**
-     * Fetch properties from a single neighborhood
+     * Calculate progressive delay - gets longer as we make more calls
      */
-    async fetchNeighborhoodProperties(neighborhood) {
-        try {
-        const slug = neighborhood.toLowerCase().replace(/\s+/g, '-');
-        if (!VALID_STREETEASY_SLUGS.has(slug)) {
-            console.warn(`⚠️ Skipping unsupported neighborhood: ${neighborhood} → ${slug}`);
-            return [];
-        }
-        const response = await axios.get(
-            'https://streeteasy-api.p.rapidapi.com/sales/active',
-                'https://streeteasy-api.p.rapidapi.com/properties/search',
-                {
-                    params: {
-                        location: slug,
-                        limit: 500, // Max per call
-                        minPrice: 200000, // Reasonable minimum for NYC
-                        maxPrice: 5000000, // Reasonable maximum
-                        types: 'condo,coop,house' // All property types
-                    },
-                    headers: {
-                        'X-RapidAPI-Key': this.rapidApiKey,
-                        'X-RapidAPI-Host': 'streeteasy-api.p.rapidapi.com'
-                    },
-                    timeout: 15000
-                }
-            );
-
-            if (response.data && Array.isArray(response.data)) {
-                return response.data.map(property => ({
-                    listing_id: property.id || `${property.address}-${property.price}`,
-                    address: property.address,
-                    neighborhood: neighborhood,
-                    price: property.price,
-                    sqft: property.sqft,
-                    beds: property.beds,
-                    baths: property.baths,
-                    description: property.description || '',
-                    url: property.url,
-                    property_type: property.type,
-                    fetched_date: new Date().toISOString()
-                }));
-            }
-
-            return [];
-
-        } catch (error) {
-            console.error(`❌ API error for ${neighborhood}:`, error.message);
-            throw error;
-        }
+    calculateDelay(callIndex) {
+        // Start with base delay, increase gradually
+        const progressiveIncrease = Math.floor(callIndex / 5) * 2000; // +2s every 5 calls
+        return this.baseDelay + progressiveIncrease;
     }
 
     /**
-     * Filter properties that are 15%+ below market price per sqft
+     * Fetch with retry logic and exponential backoff
+     */
+    async fetchNeighborhoodPropertiesWithRetry(neighborhood) {
+        let lastError;
+        
+        for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
+            try {
+                return await this.fetchNeighborhoodProperties(neighborhood);
+                
+            } catch (error) {
+                lastError = error;
+                const isRateLimit = error.response?.status === 429;
+                
+                if (isRateLimit && attempt < this.maxRetries) {
+                    const backoffDelay = this.baseDelay * Math.pow(this.retryBackoffMultiplier, attempt);
+                    console.log(`   🔄 Rate limited (attempt ${attempt}), waiting ${backoffDelay/1000}s before retry...`);
+                    await this.delay(backoffDelay);
+                } else if (attempt < this.maxRetries) {
+                    // For non-rate-limit errors, shorter delay
+                    console.log(`   🔄 Error (attempt ${attempt}), waiting 5s before retry...`);
+                    await this.delay(5000);
+                } else {
+                    // Final attempt failed
+                    throw lastError;
+                }
+            }
+        }
+        
+        throw lastError;
+    }
+
+    /**
+     * Fetch properties from StreetEasy API
+     */
+    async fetchNeighborhoodProperties(neighborhood) {
+        const response = await axios.get(
+            'https://streeteasy-api.p.rapidapi.com/sales/active',
+            {
+                params: {
+                    location: neighborhood,
+                    limit: 200, // Reasonable limit to avoid timeouts
+                    minPrice: 200000,
+                    maxPrice: 5000000
+                },
+                headers: {
+                    'X-RapidAPI-Key': this.rapidApiKey,
+                    'X-RapidAPI-Host': 'streeteasy-api.p.rapidapi.com'
+                },
+                timeout: 30000 // 30s timeout
+            }
+        );
+
+        if (response.data && Array.isArray(response.data)) {
+            return response.data.map(property => ({
+                listing_id: property.id || `${property.address}-${property.price}`,
+                address: property.address,
+                neighborhood: neighborhood,
+                price: property.price,
+                sqft: property.sqft,
+                beds: property.beds,
+                baths: property.baths,
+                description: property.description || '',
+                url: property.url,
+                property_type: property.type,
+                fetched_date: new Date().toISOString()
+            }));
+        }
+
+        return [];
+    }
+
+    /**
+     * Get valid neighborhoods that exist in StreetEasy API
+     */
+    getValidNeighborhoods() {
+        return HIGH_PRIORITY_NEIGHBORHOODS
+            .map(n => n.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''))
+            .filter(slug => VALID_STREETEASY_SLUGS.has(slug))
+            .slice(0, 20); // Limit to top 20 to keep runtime reasonable
+    }
+
+    /**
+     * Filter undervalued properties
      */
     filterUndervaluedProperties(properties, neighborhood) {
         const undervalued = [];
 
         for (const property of properties) {
             if (!property.price || !property.sqft || property.sqft <= 0) {
-                continue; // Skip properties without valid price/sqft data
+                continue;
             }
 
             const actualPricePerSqft = property.price / property.sqft;
-            const marketThreshold = this.getMarketThreshold(neighborhood);
+            const marketThreshold = this.marketThresholds[neighborhood] || this.marketThresholds.default;
             const discountPercent = ((marketThreshold - actualPricePerSqft) / marketThreshold) * 100;
 
-            // Property is undervalued if it's 15%+ below market rate per sqft
             if (discountPercent >= 15) {
-                // Analyze description for distress signals
                 const distressSignals = this.findDistressSignals(property.description);
                 const warningSignals = this.findWarningSignals(property.description);
-                
-                // Calculate comprehensive score
                 const score = this.calculateUndervaluationScore({
                     discountPercent,
                     distressSignals,
                     warningSignals,
                     neighborhood,
-                    propertyType: property.property_type,
                     sqft: property.sqft,
                     beds: property.beds
                 });
@@ -540,158 +291,144 @@ class OptimalWeeklyStreetEasy {
         return undervalued;
     }
 
-    /**
-     * Get market threshold for neighborhood
-     */
-    getMarketThreshold(neighborhood) {
-        // Check specific neighborhood first
-        if (this.marketThresholds[neighborhood]) {
-            return this.marketThresholds[neighborhood];
-        }
-
-        // Fall back to borough-level thresholds
-        if (neighborhood.includes('Manhattan') || 
-            ['West Village', 'East Village', 'SoHo', 'Tribeca', 'Chelsea', 'Upper East Side', 'Upper West Side'].some(n => neighborhood.includes(n))) {
-            return this.marketThresholds['Manhattan'];
-        }
-
-        if (['Park Slope', 'Williamsburg', 'DUMBO', 'Brooklyn Heights', 'Fort Greene'].some(n => neighborhood.includes(n))) {
-            return this.marketThresholds['Brooklyn'];
-        }
-
-        if (['Long Island City', 'Astoria', 'Sunnyside'].some(n => neighborhood.includes(n))) {
-            return this.marketThresholds['Queens'];
-        }
-
-        if (neighborhood.includes('Bronx') || ['Mott Haven', 'South Bronx'].includes(neighborhood)) {
-            return this.marketThresholds['Bronx'];
-        }
-
-        if (neighborhood.includes('Staten Island') || ['St. George', 'Stapleton'].includes(neighborhood)) {
-            return this.marketThresholds['Staten Island'];
-        }
-
-        // Default fallback
-        return 800;
-    }
-
-    /**
-     * Find distress signals in description
-     */
     findDistressSignals(description) {
         const distressKeywords = [
             'motivated seller', 'must sell', 'as-is', 'needs work', 'fixer-upper',
-            'estate sale', 'inherited', 'price reduced', 'bring offers', 'cash only',
-            'motivated', 'quick sale', 'investor special', 'tlc', 'handyman special'
+            'estate sale', 'inherited', 'price reduced', 'bring offers', 'cash only'
         ];
-
         const text = description.toLowerCase();
         return distressKeywords.filter(keyword => text.includes(keyword));
     }
 
-    /**
-     * Find warning signals in description
-     */
     findWarningSignals(description) {
         const warningKeywords = [
             'flood damage', 'water damage', 'foundation issues', 'structural',
-            'fire damage', 'mold', 'asbestos', 'lead paint', 'no permits',
-            'back taxes', 'liens', 'title issues', 'housing court'
+            'fire damage', 'mold', 'asbestos', 'lead paint', 'no permits'
         ];
-
         const text = description.toLowerCase();
         return warningKeywords.filter(keyword => text.includes(keyword));
     }
 
-    /**
-     * Calculate undervaluation score
-     */
     calculateUndervaluationScore(factors) {
-        let score = 0;
-
-        // Discount percentage (0-50 points)
-        score += Math.min(factors.discountPercent * 2, 50);
-
-        // Distress signals bonus (0-20 points)
+        let score = Math.min(factors.discountPercent * 2, 50);
         score += Math.min(factors.distressSignals.length * 5, 20);
-
-        // Neighborhood bonus (0-15 points)
-        const premiumNeighborhoods = ['West Village', 'SoHo', 'Tribeca', 'Park Slope', 'Williamsburg'];
-        if (premiumNeighborhoods.includes(factors.neighborhood)) {
-            score += 15;
-        } else if (factors.neighborhood.includes('Manhattan') || factors.neighborhood.includes('Brooklyn')) {
-            score += 10;
-        } else {
-            score += 5;
-        }
-
-        // Size bonus (0-10 points)
         if (factors.sqft > 1000) score += 10;
         else if (factors.sqft > 700) score += 7;
         else score += 3;
-
-        // Bedroom bonus (0-5 points)
         if (factors.beds >= 2) score += 5;
-
-        // Warning penalty (0 to -15 points)
         score -= Math.min(factors.warningSignals.length * 5, 15);
-
         return Math.max(0, Math.round(score));
     }
 
     /**
-     * Save undervalued properties to database
+     * Save to database with duplicate prevention and return detailed stats
      */
-    async saveUndervaluedProperties(properties, neighborhood) {
+    async saveUndervaluedPropertiesWithStats(properties, neighborhood) {
+        if (!properties || properties.length === 0) {
+            return { newCount: 0, updateCount: 0, duplicateCount: 0 };
+        }
+
+        console.log(`   💾 Checking ${properties.length} properties for duplicates...`);
+        
+        let newCount = 0;
+        let duplicateCount = 0;
+        let updateCount = 0;
+
         try {
-            const dbRecords = properties.map(property => ({
-                listing_id: property.listing_id,
-                address: property.address,
-                neighborhood: property.neighborhood,
-                price: property.price,
-                sqft: property.sqft,
-                beds: property.beds,
-                baths: property.baths,
-                description: property.description.substring(0, 500), // Truncate for storage
-                url: property.url,
-                property_type: property.property_type,
-                actual_price_per_sqft: property.actual_price_per_sqft,
-                market_price_per_sqft: property.market_price_per_sqft,
-                discount_percent: property.discount_percent,
-                potential_savings: property.potential_savings,
-                distress_signals: property.distress_signals,
-                warning_signals: property.warning_signals,
-                undervaluation_score: property.undervaluation_score,
-                analysis_date: property.analysis_date,
-                status: 'active'
-            }));
+            for (const property of properties) {
+                // Check for existing property by listing_id or address+price combination
+                const { data: existing, error: checkError } = await this.supabase
+                    .from('undervalued_properties')
+                    .select('id, undervaluation_score, analysis_date')
+                    .or(`listing_id.eq.${property.listing_id},and(address.eq."${property.address}",price.eq.${property.price})`)
+                    .single();
 
-            const { data, error } = await this.supabase
-                .from('undervalued_properties')
-                .insert(dbRecords);
+                if (checkError && checkError.code !== 'PGRST116') {
+                    // PGRST116 = no rows found (not an error)
+                    console.error(`   ❌ Error checking for existing property:`, checkError.message);
+                    continue;
+                }
 
-            if (error) {
-                console.error(`❌ Database error for ${neighborhood}:`, error.message);
-                return 0;
+                const dbRecord = {
+                    listing_id: property.listing_id,
+                    address: property.address,
+                    neighborhood: property.neighborhood,
+                    price: property.price,
+                    sqft: property.sqft,
+                    beds: property.beds,
+                    baths: property.baths,
+                    description: (property.description || '').substring(0, 500),
+                    url: property.url,
+                    property_type: property.property_type,
+                    actual_price_per_sqft: property.actual_price_per_sqft,
+                    market_price_per_sqft: property.market_price_per_sqft,
+                    discount_percent: property.discount_percent,
+                    potential_savings: property.potential_savings,
+                    distress_signals: property.distress_signals || [],
+                    warning_signals: property.warning_signals || [],
+                    undervaluation_score: property.undervaluation_score,
+                    analysis_date: property.analysis_date,
+                    status: 'active'
+                };
+
+                if (existing) {
+                    // Property exists - decide whether to update
+                    const existingScore = existing.undervaluation_score || 0;
+                    const newScore = property.undervaluation_score || 0;
+                    
+                    // Update if score improved significantly (5+ points) or data is much newer
+                    const scoreImproved = newScore > (existingScore + 5);
+                    const isNewerData = new Date(property.analysis_date) > new Date(existing.analysis_date);
+                    
+                    if (scoreImproved || (isNewerData && newScore >= existingScore)) {
+                        // Update existing record
+                        const { error: updateError } = await this.supabase
+                            .from('undervalued_properties')
+                            .update(dbRecord)
+                            .eq('id', existing.id);
+
+                        if (updateError) {
+                            console.error(`   ❌ Error updating ${property.address}:`, updateError.message);
+                        } else {
+                            console.log(`   🔄 Updated: ${property.address} (score: ${existingScore} → ${newScore})`);
+                            updateCount++;
+                        }
+                    } else {
+                        console.log(`   ⏭️ Skipped duplicate: ${property.address} (score: ${newScore}, existing: ${existingScore})`);
+                        duplicateCount++;
+                    }
+                } else {
+                    // New property - insert it
+                    const { error: insertError } = await this.supabase
+                        .from('undervalued_properties')
+                        .insert([dbRecord]);
+
+                    if (insertError) {
+                        console.error(`   ❌ Error inserting ${property.address}:`, insertError.message);
+                    } else {
+                        console.log(`   ✅ Added: ${property.address} (${property.discount_percent}% below market, score: ${property.undervaluation_score})`);
+                        newCount++;
+                    }
+                }
+
+                // Small delay to avoid overwhelming database
+                await this.delay(100);
             }
 
-            return dbRecords.length;
+            return { newCount, updateCount, duplicateCount };
 
         } catch (error) {
             console.error(`❌ Save error for ${neighborhood}:`, error.message);
-            return 0;
+            return { newCount: 0, updateCount: 0, duplicateCount: 0 };
         }
     }
 
-    /**
-     * Clear old undervalued properties (weekly refresh)
-     */
     async clearOldUndervaluedProperties() {
         try {
             const oneWeekAgo = new Date();
             oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
 
-            const { data, error } = await this.supabase
+            const { error } = await this.supabase
                 .from('undervalued_properties')
                 .delete()
                 .lt('analysis_date', oneWeekAgo.toISOString());
@@ -701,22 +438,18 @@ class OptimalWeeklyStreetEasy {
             } else {
                 console.log(`🧹 Cleared old properties from database`);
             }
-
         } catch (error) {
             console.error('❌ Clear old properties error:', error.message);
         }
     }
 
-    /**
-     * Save weekly summary to database
-     */
     async saveWeeklySummary(summary) {
         try {
             const { error } = await this.supabase
                 .from('weekly_analysis_runs')
                 .insert([{
                     run_date: summary.startTime,
-                    neighborhoods_checked: summary.neighborhoodsChecked,
+                    neighborhoods_checked: summary.neighborhoodsProcessed,
                     total_properties_fetched: summary.totalPropertiesFetched,
                     undervalued_found: summary.undervaluedFound,
                     saved_to_database: summary.savedToDatabase,
@@ -731,49 +464,53 @@ class OptimalWeeklyStreetEasy {
             } else {
                 console.log('✅ Weekly summary saved to database');
             }
-
         } catch (error) {
             console.error('❌ Save summary error:', error.message);
         }
     }
 
-    /**
-     * Log weekly summary
-     */
     logWeeklySummary(summary) {
-        console.log('\n📊 WEEKLY UNDERVALUED REFRESH COMPLETE');
+        console.log('\n📊 OPTIMAL WEEKLY ANALYSIS COMPLETE');
         console.log('='.repeat(60));
         console.log(`⏱️ Duration: ${summary.duration.toFixed(1)} minutes`);
-        console.log(`🗽 Neighborhoods checked: ${summary.neighborhoodsChecked}`);
+        console.log(`🗽 Neighborhoods processed: ${summary.neighborhoodsProcessed}`);
         console.log(`📡 Total properties fetched: ${summary.totalPropertiesFetched}`);
         console.log(`🎯 Undervalued properties found: ${summary.undervaluedFound}`);
-        console.log(`💾 Saved to database: ${summary.savedToDatabase}`);
+        console.log(`💾 New properties saved: ${summary.savedToDatabase}`);
+        console.log(`🔄 Properties updated: ${summary.updatedInDatabase}`);
+        console.log(`⏭️ Duplicates skipped: ${summary.duplicatesSkipped}`);
         console.log(`📞 API calls used: ${summary.apiCallsUsed}`);
+        console.log(`⚡ Rate limit hits: ${summary.rateLimitHits}`);
+        console.log(`⏰ Final delay setting: ${this.baseDelay/1000}s between calls`);
         
-        if (summary.undervaluedFound > 0) {
-            const avgDiscount = (summary.undervaluedFound / summary.totalPropertiesFetched * 100).toFixed(1);
-            console.log(`📈 Undervaluation rate: ${avgDiscount}% of properties analyzed`);
-        }
-
         if (summary.errors.length > 0) {
-            console.log(`❌ Errors: ${summary.errors.length}`);
-            summary.errors.slice(0, 5).forEach(err => {
-                console.log(`   - ${err.neighborhood || 'General'}: ${err.error}`);
-            });
+            const rateLimitErrors = summary.errors.filter(e => e.isRateLimit).length;
+            const otherErrors = summary.errors.length - rateLimitErrors;
+            console.log(`❌ Errors: ${summary.errors.length} total (${rateLimitErrors} rate limits, ${otherErrors} other)`);
         }
 
-        console.log('\n🎉 Next week: Fresh data will be collected and old data refreshed!');
+        if (summary.savedToDatabase > 0) {
+            console.log('\n🎉 SUCCESS: Found and saved undervalued properties!');
+        } else {
+            console.log('\n📊 No undervalued properties found (normal in competitive NYC market)');
+        }
+        
+        const successRate = summary.neighborhoodsProcessed > 0 ? 
+            (summary.neighborhoodsProcessed / summary.apiCallsUsed * 100).toFixed(1) : '0';
+        console.log(`📈 Success rate: ${successRate}% of API calls succeeded`);
+        
+        const totalDbOperations = summary.savedToDatabase + summary.updatedInDatabase + summary.duplicatesSkipped;
+        if (totalDbOperations > 0) {
+            console.log(`🔒 Duplicate prevention: ${summary.duplicatesSkipped}/${totalDbOperations} (${(summary.duplicatesSkipped/totalDbOperations*100).toFixed(1)}%) duplicates prevented`);
+        }
     }
 
-    /**
-     * Utility delay function
-     */
     delay(ms) {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
 }
 
-// Main execution for weekly run
+// Main execution
 async function runWeeklyAnalysis() {
     if (!process.env.RAPIDAPI_KEY || !process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) {
         console.error('❌ Missing required environment variables!');
@@ -787,13 +524,13 @@ async function runWeeklyAnalysis() {
         console.log('🗽 Starting Optimal Weekly StreetEasy Analysis...\n');
         const results = await analyzer.runWeeklyUndervaluedRefresh();
         
-        console.log('\n✅ Weekly analysis completed successfully!');
+        console.log('\n✅ Optimal analysis completed!');
         console.log(`📊 Check your Supabase 'undervalued_properties' table for ${results.savedToDatabase} new deals!`);
         
         return results;
         
     } catch (error) {
-        console.error('💥 Weekly analysis failed:', error.message);
+        console.error('💥 Optimal analysis failed:', error.message);
         process.exit(1);
     }
 }
