@@ -267,11 +267,20 @@ class OptimalWeeklyStreetEasy {
             }
         }
 
+        // FIELD DISCOVERY: Log all unique field names across all properties
+        const allFieldNames = new Set();
+        propertiesData.forEach(property => {
+            Object.keys(property).forEach(key => allFieldNames.add(key));
+        });
+        
+        console.log(`   🔍 ALL AVAILABLE FIELDS: ${Array.from(allFieldNames).sort().join(', ')}`);
+        
         // Map to consistent format and log sample
         const mappedProperties = propertiesData.map((property, index) => {
             // Log first few property structures to understand the data
-            if (index < 3) {
-                console.log(`   🏠 Raw property ${index + 1}:`, JSON.stringify(property, null, 2));
+            if (index < 2) {
+                console.log(`   🏠 Raw property ${index + 1} (showing ALL fields):`);
+                console.log(JSON.stringify(property, null, 2));
             }
             
             // Try multiple field mappings for better data extraction
