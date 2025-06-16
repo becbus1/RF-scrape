@@ -410,7 +410,7 @@ class OptimalWeeklyStreetEasy {
                     summary.neighborhoodsChecked++;
 
                     // Rate limiting
-                    await this.delay(1000);
+                    await this.delay(6000);
 
                 } catch (error) {
                     console.error(`❌ Error processing ${neighborhood}:`, error.message);
