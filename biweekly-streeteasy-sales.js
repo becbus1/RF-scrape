@@ -1775,4 +1775,5 @@ const todaysNeighborhoods = ['carroll-gardens']; // Test with single neighborhoo
             await this.clearOldSalesData();
             await this.runAutomaticSoldDetection();
 
-            console.log(`📋 ${this.initialBulkLoad ? 'BULK LOAD' : 'Today\'s'} assignment: ${to
+            console.log(`📋 ${this.initialBulkLoad ? 'BULK LOAD' : 'Today\'s'} assignment: ${todaysNeighborhoods.join(', ')}`);
+            console.log(`⚡ Starting with ${this.baseDelay/1000}s delays (will adapt based on API response)\n`);
