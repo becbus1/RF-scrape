@@ -1,5 +1,53 @@
-console.log(`📋 ${this.initialBulkLoad ? 'BULK LOAD' : 'Today\'s'} assignment: ${todaysNeighborhoods.join(', ')}`);
-            console.log(`⚡ Starting with ${this.baseDelay/1000}s delays (will adapt based on API response)\n`);
+async runBiWeeklySalesRefresh() {
+    console.log('\n🏠 SMART DEDUPLICATION BI-WEEKLY SALES ANALYSIS');
+    console.log('💾 Cache-optimized to save 75-90% of API calls');
+    console.log('🏠 Auto-detects and removes sold listings');
+    console.log('⚡ Adaptive rate limiting with daily neighborhood scheduling');
+    console.log('🔧 FIXED: Database function dependencies resolved');
+    console.log('='.repeat(70));
+
+    // Get today's neighborhood assignment
+    const todaysNeighborhoods = this.getTodaysNeighborhoods();
+    
+    if (todaysNeighborhoods.length === 0) {
+        console.log('📅 No neighborhoods scheduled for today - analysis complete');
+        return { summary: { message: 'No neighborhoods scheduled for today' } };
+    }
+
+    const summary = {
+        startTime: new Date(),
+        scheduledDay: this.currentDay,
+        totalNeighborhoods: todaysNeighborhoods.length,
+        neighborhoodsProcessed: 0,
+        totalActiveSalesFound: 0,
+        totalDetailsAttempted: 0,
+        totalDetailsFetched: 0,
+        undervaluedFound: 0,
+        savedToDatabase: 0,
+        apiCallsUsed: 0,
+        adaptiveDelayChanges: 0,
+        apiCallsSaved: 0,
+        cacheHitRate: 0,
+        listingsMarkedSold: 0,
+        errors: [],
+        detailedStats: {
+            byNeighborhood: {},
+            apiUsage: this.apiUsageStats,
+            rateLimit: {
+                initialDelay: this.baseDelay,
+                finalDelay: this.baseDelay,
+                rateLimitHits: 0
+            }
+        }
+    };
+
+    try {
+        // Clear old sales data and run automatic cleanup
+        await this.clearOldSalesData();
+        await this.runAutomaticSoldDetection();
+
+        console.log(`📋 ${this.initialBulkLoad ? 'BULK LOAD' : 'Today\'s'} assignment: ${todaysNeighborhoods.join(', ')}`);
+        console.log(`⚡ Starting with ${this.baseDelay/1000}s delays (will adapt based on API response)\n`);
 
             // Process neighborhoods with smart deduplication
             for (let i = 0; i < todaysNeighborhoods.length; i++) {
