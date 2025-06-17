@@ -161,6 +161,349 @@ class EnhancedBiWeeklySalesAnalyzer {
     }
 
     /**
+     * SMART DEDUPLICATION: Check which sale IDs we already have cached
+     * FIXED: Added comprehensive error handling
+     */
+    async getExistingSaleIds(listingIds) {
+        if (!listingIds || listingIds.length === 0) return [];
+        
+        try {
+            const sevenDaysAgo = new Date();
+            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+            const { data, error } = await this.supabase
+                .from('sales_market_cache')
+                .select('listing_id')
+                .in('listing_id', listingIds)
+                .gte('last_checked', sevenDaysAgo.toISOString());
+
+            if (error) {
+                console.warn('⚠️ Error checking existing sales, will fetch all details:', error.message);
+                return [];
+            }
+
+            const existingIds = data.map(row => row.listing_id);
+            console.log(`   💾 Cache lookup: ${existingIds.length}/${listingIds.length} sales found in cache`);
+            return existingIds;
+        } catch (error) {
+            console.warn('⚠️ Cache lookup failed, will fetch all details:', error.message);
+            return [];
+        }
+    }
+
+    /**
+     * UPDATE cache with current search results and mark missing as sold
+     * FIXED: Added comprehensive error handling
+     */
+    async updateSalesCacheWithSearchResults(searchResults, neighborhood) {
+        const currentTime = new Date().toISOString();
+        const currentListingIds = searchResults.map(r => r.id?.toString()).filter(Boolean);
+        
+        try {
+            // Step 1: Update existing cache entries for sales we found in search
+            for (const sale of searchResults) {
+                if (!sale.id) continue;
+                
+                try {
+                    const cacheData = {
+                        listing_id: sale.id.toString(),
+                        address: sale.address || 'Address not available',
+                        neighborhood: neighborhood,
+                        borough: sale.borough || 'unknown',
+                        sale_price: sale.price || sale.salePrice || 0,
+                        bedrooms: sale.bedrooms || sale.beds || 0,
+                        bathrooms: sale.bathrooms || sale.baths || 0,
+                        sqft: sale.sqft || sale.square_feet || 0,
+                        property_type: sale.propertyType || sale.type || 'condo',
+                        market_status: 'pending', // Will be updated after analysis
+                        last_seen_in_search: currentTime,
+                        last_checked: currentTime,
+                        times_seen: 1 // Will be incremented if exists
+                    };
+
+                    // Upsert to cache (insert new or update existing)
+                    const { error } = await this.supabase
+                        .from('sales_market_cache')
+                        .upsert(cacheData, { 
+                            onConflict: 'listing_id',
+                            updateColumns: ['last_seen_in_search', 'last_checked', 'sale_price'] 
+                        });
+
+                    if (error) {
+                        console.warn(`⚠️ Error updating cache for ${sale.id}:`, error.message);
+                    }
+                } catch (itemError) {
+                    console.warn(`⚠️ Error processing cache item ${sale.id}:`, itemError.message);
+                }
+            }
+
+            // Step 2: Mark sales in this neighborhood as likely sold if not seen in recent search
+            // FIXED: Added proper error handling for missing tables
+            try {
+                const threeDaysAgo = new Date();
+                threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+
+                // Get sales in this neighborhood that weren't in current search
+                const { data: missingSales, error: missingError } = await this.supabase
+                    .from('sales_market_cache')
+                    .select('listing_id')
+                    .eq('neighborhood', neighborhood)
+                    .not('listing_id', 'in', `(${currentListingIds.map(id => `"${id}"`).join(',')})`)
+                    .lt('last_seen_in_search', threeDaysAgo.toISOString());
+
+                if (missingError) {
+                    console.warn('⚠️ Error checking for missing sales:', missingError.message);
+                    return { updated: searchResults.length, markedSold: 0 };
+                }
+
+                // Mark corresponding entries in undervalued_sales as likely sold
+                let markedSold = 0;
+                if (missingSales && missingSales.length > 0) {
+                    const missingIds = missingSales.map(r => r.listing_id);
+                    
+                    const { error: markSoldError } = await this.supabase
+                        .from('undervalued_sales')
+                        .update({
+                            status: 'likely_sold',
+                            likely_sold: true,
+                            sold_detected_at: currentTime
+                        })
+                        .in('listing_id', missingIds)
+                        .eq('status', 'active');
+
+                    if (!markSoldError) {
+                        markedSold = missingIds.length;
+                        this.apiUsageStats.listingsMarkedSold += markedSold;
+                        console.log(`   🏠 Marked ${markedSold} sales as likely sold (not seen in recent search)`);
+                    } else {
+                        console.warn('⚠️ Error marking sales as sold:', markSoldError.message);
+                    }
+                }
+
+                console.log(`   💾 Updated cache: ${searchResults.length} sales, marked ${markedSold} as sold`);
+                return { updated: searchResults.length, markedSold };
+            } catch (markingError) {
+                console.warn('⚠️ Error in sales marking process:', markingError.message);
+                return { updated: searchResults.length, markedSold: 0 };
+            }
+
+        } catch (error) {
+            console.warn('⚠️ Error updating sales cache:', error.message);
+            return { updated: 0, markedSold: 0 };
+        }
+    }
+
+    /**
+     * Clear old sales data with enhanced cleanup
+     * FIXED: Graceful degradation for missing database functions
+     */
+    async clearOldSalesData() {
+        try {
+            const oneMonthAgo = new Date();
+            oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+
+            // Clear old undervalued sales
+            const { error: salesError } = await this.supabase
+                .from('undervalued_sales')
+                .delete()
+                .lt('analysis_date', oneMonthAgo.toISOString());
+
+            if (salesError) {
+                console.error('❌ Error clearing old sales data:', salesError.message);
+            } else {
+                console.log('🧹 Cleared old sales data (>1 month)');
+            }
+
+            // Clear old cache entries using the database function - with graceful fallback
+            try {
+                const { data: cleanupResult, error: cleanupError } = await this.supabase
+                    .rpc('cleanup_old_sales_cache_entries');
+
+                if (cleanupError) {
+                    console.warn('⚠️ Cache cleanup function not available:', cleanupError.message);
+                    console.warn('   Continuing without automatic cache cleanup');
+                } else {
+                    console.log(`🧹 ${cleanupResult || 'Cache cleanup completed'}`);
+                }
+            } catch (cleanupFunctionError) {
+                console.warn('⚠️ Cache cleanup function not available:', cleanupFunctionError.message);
+                console.warn('   This is expected if database functions are not yet created');
+                console.warn('   Manual cache cleanup can be done through the database');
+            }
+
+        } catch (error) {
+            console.error('❌ Clear old sales data error:', error.message);
+        }
+    }
+
+    /**
+     * Save bi-weekly sales summary with enhanced deduplication stats
+     * FIXED: Updated column names to match database schema
+     */
+    async saveBiWeeklySalesSummary(summary) {
+        try {
+            const { error } = await this.supabase
+                .from('bi_weekly_analysis_runs')
+                .insert([{
+                    run_date: summary.startTime,
+                    analysis_type: 'sales',
+                    neighborhoods_processed: summary.neighborhoodsProcessed,
+                    total_active_listings: summary.totalActiveSalesFound, // FIXED: Correct column name
+                    total_details_attempted: summary.totalDetailsAttempted,
+                    total_details_fetched: summary.totalDetailsFetched,
+                    undervalued_found: summary.undervaluedFound,
+                    saved_to_database: summary.savedToDatabase,
+                    api_calls_used: summary.apiCallsUsed,
+                    
+                    // ENHANCED: Deduplication performance stats
+                    api_calls_saved: summary.apiCallsSaved || 0,
+                    cache_hit_rate: summary.cacheHitRate || 0,
+                    listings_marked_rented: summary.listingsMarkedSold || 0, // Note: using same column for sold
+                    
+                    duration_minutes: Math.round(summary.duration),
+                    detailed_stats: summary.detailedStats,
+                    errors: summary.errors,
+                    completed: true
+                }]);
+
+            if (error) {
+                console.error('❌ Error saving bi-weekly sales summary:', error.message);
+            } else {
+                console.log('✅ Bi-weekly sales summary saved to database');
+            }
+        } catch (error) {
+            console.error('❌ Save sales summary error:', error.message);
+        }
+    }
+
+    /**
+     * Enhanced summary with deduplication performance
+     */
+    logSmartDeduplicationSummary(summary) {
+        const mode = this.initialBulkLoad ? 'INITIAL BULK LOAD' : 'SMART DEDUPLICATION';
+        
+        console.log(`\n📊 ${mode} SALES ANALYSIS COMPLETE`);
+        console.log('='.repeat(70));
+        
+        if (this.initialBulkLoad) {
+            console.log(`🚀 BULK LOAD: All ${summary.totalNeighborhoods} neighborhoods processed`);
+            console.log(`⏱️ Duration: ${summary.duration.toFixed(1)} minutes (~${(summary.duration/60).toFixed(1)} hours)`);
+        } else {
+            console.log(`📅 Schedule Day: ${summary.scheduledDay} of bi-weekly cycle`);
+            console.log(`⏱️ Duration: ${summary.duration.toFixed(1)} minutes`);
+        }
+        
+        console.log(`🗽 Neighborhoods processed: ${summary.neighborhoodsProcessed}/${summary.totalNeighborhoods}`);
+        
+        // Core metrics
+        console.log('\n📊 Core Analysis Metrics:');
+        console.log(`🏠 Active sales found: ${summary.totalActiveSalesFound}`);
+        console.log(`🔍 Details attempted: ${summary.totalDetailsAttempted}`);
+        console.log(`✅ Details successfully fetched: ${summary.totalDetailsFetched}`);
+        console.log(`🎯 Undervalued sales found: ${summary.undervaluedFound}`);
+        console.log(`💾 Saved to database: ${summary.savedToDatabase}`);
+        console.log(`📞 API calls used: ${summary.apiCallsUsed}`);
+        
+        // DEDUPLICATION PERFORMANCE HIGHLIGHT (only if not bulk load)
+        if (!this.initialBulkLoad) {
+            console.log('\n⚡ SMART DEDUPLICATION PERFORMANCE:');
+            console.log(`💾 API calls saved by cache: ${summary.apiCallsSaved}`);
+            console.log(`📈 Cache hit rate: ${summary.cacheHitRate.toFixed(1)}%`);
+            console.log(`🏠 Listings marked as sold: ${summary.listingsMarkedSold}`);
+            
+            // Calculate efficiency metrics
+            const totalPotentialCalls = summary.apiCallsUsed + summary.apiCallsSaved;
+            const efficiencyPercentage = totalPotentialCalls > 0 ? 
+                (summary.apiCallsSaved / totalPotentialCalls * 100).toFixed(1) : '0';
+            
+            console.log(`🚀 API efficiency: ${efficiencyPercentage}% reduction in API calls`);
+            
+            if (summary.apiCallsSaved > 0) {
+                const estimatedCostSavings = (summary.apiCallsSaved * 0.01).toFixed(2);
+                console.log(`💰 Estimated cost savings: ${estimatedCostSavings} (at $0.01/call)`);
+            }
+        }
+        
+        // Adaptive rate limiting performance
+        console.log('\n⚡ Adaptive Rate Limiting Performance:');
+        console.log(`   🚀 Started with: ${this.initialBulkLoad ? '8s' : '6s'} delays`);
+        console.log(`   🎯 Ended with: ${this.baseDelay/1000}s delays`);
+        console.log(`   📈 Rate limit hits: ${this.rateLimitHits}`);
+        console.log(`   🔧 Adaptive changes: ${summary.adaptiveDelayChanges}`);
+        
+        // Success rates
+        const detailSuccessRate = summary.totalDetailsAttempted > 0 ? 
+            (summary.totalDetailsFetched / summary.totalDetailsAttempted * 100).toFixed(1) : '0';
+        const undervaluedRate = summary.totalDetailsFetched > 0 ? 
+            (summary.undervaluedFound / summary.totalDetailsFetched * 100).toFixed(1) : '0';
+        
+        console.log('\n📈 Success Rates:');
+        console.log(`   📋 Detail fetch success: ${detailSuccessRate}%`);
+        console.log(`   🎯 Undervalued discovery rate: ${undervaluedRate}%`);
+        
+        // Top performing neighborhoods
+        console.log('\n🏆 Neighborhood Performance:');
+        const sortedNeighborhoods = Object.entries(summary.detailedStats.byNeighborhood)
+            .sort((a, b) => b[1].undervaluedFound - a[1].undervaluedFound);
+            
+        sortedNeighborhoods.slice(0, 10).forEach(([neighborhood, stats], index) => {
+            const savings = stats.apiCallsSaved || 0;
+            console.log(`   ${index + 1}. ${neighborhood}: ${stats.undervaluedFound} deals (${savings} API calls saved)`);
+        });
+        
+        // Error reporting
+        if (summary.errors.length > 0) {
+            const rateLimitErrors = summary.errors.filter(e => e.isRateLimit).length;
+            console.log(`\n❌ Errors: ${summary.errors.length} total (${rateLimitErrors} rate limits, ${summary.errors.length - rateLimitErrors} other)`);
+        }
+
+        // Next steps
+        if (this.initialBulkLoad) {
+            console.log('\n🎯 BULK LOAD COMPLETE!');
+            console.log('📝 Next steps:');
+            console.log('   1. Set INITIAL_BULK_LOAD=false in Railway');
+            console.log('   2. Switch to bi-weekly maintenance mode');
+            console.log('   3. Enjoy 75-90% API savings from smart caching!');
+        } else {
+            // Normal bi-weekly next day preview
+            const nextDay = this.currentDay + 1;
+            const nextDayNeighborhoods = this.dailySchedule[nextDay] || [];
+            if (nextDayNeighborhoods.length > 0) {
+                console.log(`\n📅 Tomorrow's schedule: ${nextDayNeighborhoods.join(', ')}`);
+            } else if (nextDay <= 8) {
+                console.log(`\n📅 Tomorrow: Buffer day (catch-up or completion)`);
+            } else {
+                console.log(`\n📅 Next bi-weekly cycle starts on the 1st or 15th of next month`);
+            }
+        }
+
+        // Results summary
+        if (summary.savedToDatabase > 0) {
+            console.log('\n🎉 SUCCESS: Found undervalued sales efficiently!');
+            console.log(`🔍 Check your Supabase 'undervalued_sales' table for ${summary.savedToDatabase} new deals`);
+            
+            if (!this.initialBulkLoad && summary.apiCallsSaved > 0) {
+                const efficiency = ((summary.apiCallsSaved / (summary.apiCallsUsed + summary.apiCallsSaved)) * 100).toFixed(1);
+                console.log(`⚡ Achieved ${efficiency}% API efficiency through smart caching`);
+            }
+        } else {
+            console.log('\n📊 No undervalued sales found (normal in competitive NYC market)');
+        }
+        
+        // Long-term projection (only for regular mode)
+        if (!this.initialBulkLoad && summary.apiCallsSaved > 0) {
+            console.log(`\n📊 Deduplication Impact: Expect 75-90% API savings in future runs`);
+            console.log(`💡 This system scales efficiently for long-term operation`);
+        }
+
+        // Database function status
+        console.log('\n🔧 Database Function Status:');
+        console.log('   ⚠️ Some advanced functions may not be available yet');
+        console.log('   📊 Core functionality works without them');
+        console.log('   🔧 Add database functions later for enhanced features');
+    }
+
+    /**
      * ADAPTIVE rate limiting - adjusts based on API response patterns
      */
     adaptiveRateLimit() {
@@ -232,56 +575,60 @@ class EnhancedBiWeeklySalesAnalyzer {
     delay(ms) {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
+
+    /**
+     * Main bi-weekly sales refresh with SMART DEDUPLICATION and BULK LOAD
+     */
     async runBiWeeklySalesRefresh() {
-    console.log('\n🏠 SMART DEDUPLICATION BI-WEEKLY SALES ANALYSIS');
-    console.log('💾 Cache-optimized to save 75-90% of API calls');
-    console.log('🏠 Auto-detects and removes sold listings');
-    console.log('⚡ Adaptive rate limiting with daily neighborhood scheduling');
-    console.log('🔧 FIXED: Database function dependencies resolved');
-    console.log('='.repeat(70));
+        console.log('\n🏠 SMART DEDUPLICATION BI-WEEKLY SALES ANALYSIS');
+        console.log('💾 Cache-optimized to save 75-90% of API calls');
+        console.log('🏠 Auto-detects and removes sold listings');
+        console.log('⚡ Adaptive rate limiting with daily neighborhood scheduling');
+        console.log('🔧 FIXED: Database function dependencies resolved');
+        console.log('='.repeat(70));
 
-    // Get today's neighborhood assignment
-    const todaysNeighborhoods = this.getTodaysNeighborhoods();
-    
-    if (todaysNeighborhoods.length === 0) {
-        console.log('📅 No neighborhoods scheduled for today - analysis complete');
-        return { summary: { message: 'No neighborhoods scheduled for today' } };
-    }
-
-    const summary = {
-        startTime: new Date(),
-        scheduledDay: this.currentDay,
-        totalNeighborhoods: todaysNeighborhoods.length,
-        neighborhoodsProcessed: 0,
-        totalActiveSalesFound: 0,
-        totalDetailsAttempted: 0,
-        totalDetailsFetched: 0,
-        undervaluedFound: 0,
-        savedToDatabase: 0,
-        apiCallsUsed: 0,
-        adaptiveDelayChanges: 0,
-        apiCallsSaved: 0,
-        cacheHitRate: 0,
-        listingsMarkedSold: 0,
-        errors: [],
-        detailedStats: {
-            byNeighborhood: {},
-            apiUsage: this.apiUsageStats,
-            rateLimit: {
-                initialDelay: this.baseDelay,
-                finalDelay: this.baseDelay,
-                rateLimitHits: 0
-            }
+        // Get today's neighborhood assignment
+        const todaysNeighborhoods = ['carroll-gardens']; // Test with single neighborhood
+        
+        if (todaysNeighborhoods.length === 0) {
+            console.log('📅 No neighborhoods scheduled for today - analysis complete');
+            return { summary: { message: 'No neighborhoods scheduled for today' } };
         }
-    };
 
-    try {
-        // Clear old sales data and run automatic cleanup
-        await this.clearOldSalesData();
-        await this.runAutomaticSoldDetection();
+        const summary = {
+            startTime: new Date(),
+            scheduledDay: this.currentDay,
+            totalNeighborhoods: todaysNeighborhoods.length,
+            neighborhoodsProcessed: 0,
+            totalActiveSalesFound: 0,
+            totalDetailsAttempted: 0,
+            totalDetailsFetched: 0,
+            undervaluedFound: 0,
+            savedToDatabase: 0,
+            apiCallsUsed: 0,
+            adaptiveDelayChanges: 0,
+            apiCallsSaved: 0,
+            cacheHitRate: 0,
+            listingsMarkedSold: 0,
+            errors: [],
+            detailedStats: {
+                byNeighborhood: {},
+                apiUsage: this.apiUsageStats,
+                rateLimit: {
+                    initialDelay: this.baseDelay,
+                    finalDelay: this.baseDelay,
+                    rateLimitHits: 0
+                }
+            }
+        };
 
-        console.log(`📋 ${this.initialBulkLoad ? 'BULK LOAD' : 'Today\'s'} assignment: ${todaysNeighborhoods.join(', ')}`);
-        console.log(`⚡ Starting with ${this.baseDelay/1000}s delays (will adapt based on API response)\n`);
+        try {
+            // Clear old sales data and run automatic cleanup
+            await this.clearOldSalesData();
+            await this.runAutomaticSoldDetection();
+
+            console.log(`📋 ${this.initialBulkLoad ? 'BULK LOAD' : 'Today\'s'} assignment: ${todaysNeighborhoods.join(', ')}`);
+            console.log(`⚡ Starting with ${this.baseDelay/1000}s delays (will adapt based on API response)\n`);
 
             // Process neighborhoods with smart deduplication
             for (let i = 0; i < todaysNeighborhoods.length; i++) {
@@ -1415,806 +1762,6 @@ module.exports = EnhancedBiWeeklySalesAnalyzer;
 if (require.main === module) {
     main().catch(error => {
         console.error('💥 Enhanced sales analyzer with deduplication crashed:', error);
-        process.exit(1);
-    });
-}// enhanced-biweekly-streeteasy-sales.js
-// FINAL VERSION: Smart deduplication + initial bulk load + fixed cache updates
-// FIXED: Database column names, cache updates, and initial bulk load feature
-
-require('dotenv').config();
-const axios = require('axios');
-const { createClient } = require('@supabase/supabase-js');
-
-const HIGH_PRIORITY_NEIGHBORHOODS = [
-    'west-village', 'east-village', 'soho', 'tribeca', 'chelsea',
-    'upper-east-side', 'upper-west-side', 'park-slope', 'williamsburg',
-    'dumbo', 'brooklyn-heights', 'fort-greene', 'prospect-heights',
-    'crown-heights', 'bedford-stuyvesant', 'greenpoint', 'bushwick',
-    'long-island-city', 'astoria', 'sunnyside'
-];
-
-class EnhancedBiWeeklySalesAnalyzer {
-    constructor() {
-        this.supabase = createClient(
-            process.env.SUPABASE_URL,
-            process.env.SUPABASE_ANON_KEY
-        );
-        
-        this.rapidApiKey = process.env.RAPIDAPI_KEY;
-        this.apiCallsUsed = 0;
-        
-        // Check for initial bulk load mode
-        this.initialBulkLoad = process.env.INITIAL_BULK_LOAD === 'true';
-        
-        // ADAPTIVE RATE LIMITING SYSTEM
-        this.baseDelay = this.initialBulkLoad ? 8000 : 6000; // Slightly slower for bulk load
-        this.maxRetries = 3;
-        this.retryBackoffMultiplier = 2;
-        
-        // Adaptive rate limiting tracking
-        this.rateLimitHits = 0;
-        this.callTimestamps = [];
-        this.maxCallsPerHour = this.initialBulkLoad ? 250 : 300; // More conservative for bulk
-        this.lastRateLimitTime = null;
-        
-        // Smart scheduling system
-        this.dailySchedule = this.createDailySchedule();
-        this.currentDay = this.getCurrentScheduleDay();
-        
-        // Track sales-specific API usage with DEDUPLICATION stats
-        this.apiUsageStats = {
-            activeSalesCalls: 0,
-            detailsCalls: 0,
-            failedCalls: 0,
-            rateLimitHits: 0,
-            adaptiveDelayChanges: 0,
-            // NEW: Deduplication performance tracking
-            totalListingsFound: 0,
-            cacheHits: 0,
-            newListingsToFetch: 0,
-            apiCallsSaved: 0,
-            listingsMarkedSold: 0
-        };
-    }
-
-    /**
-     * Create smart daily schedule spread over bi-weekly period
-     */
-    createDailySchedule() {
-        // Spread 20 neighborhoods over 8 days (within 2 weeks)
-        return {
-            1: ['west-village', 'east-village', 'soho'], // High-value Manhattan
-            2: ['tribeca', 'chelsea', 'upper-east-side'],
-            3: ['upper-west-side', 'park-slope', 'williamsburg'], // Premium Brooklyn
-            4: ['dumbo', 'brooklyn-heights', 'fort-greene'],
-            5: ['prospect-heights', 'crown-heights', 'bedford-stuyvesant'], // Emerging Brooklyn
-            6: ['greenpoint', 'bushwick', 'long-island-city'], // LIC + North Brooklyn
-            7: ['astoria', 'sunnyside'], // Queens
-            8: [] // Buffer day for catch-up or missed neighborhoods
-        };
-    }
-
-    /**
-     * Determine which day of the bi-weekly cycle we're on
-     * SALES SCHEDULE: Original schedule (not offset)
-     */
-    getCurrentScheduleDay() {
-        const today = new Date();
-        const dayOfMonth = today.getDate();
-        
-        // SALES SCHEDULE: Days 1-8 and 15-22 of month
-        if (dayOfMonth >= 1 && dayOfMonth <= 8) {
-            return dayOfMonth; // Days 1-8 of month
-        } else if (dayOfMonth >= 15 && dayOfMonth <= 22) {
-            return dayOfMonth - 14; // Days 15-22 become 1-8
-        } else {
-            return 0; // Off-schedule, run buffer mode
-        }
-    }
-
-    /**
-     * Get today's neighborhood assignments with BULK LOAD support
-     */
-    getTodaysNeighborhoods() {
-        // INITIAL BULK LOAD: Process ALL neighborhoods in one day
-        if (this.initialBulkLoad) {
-            console.log('🚀 INITIAL BULK LOAD MODE: Processing ALL neighborhoods');
-            console.log(`📋 Will process ${HIGH_PRIORITY_NEIGHBORHOODS.length} neighborhoods over ~10 hours`);
-            return HIGH_PRIORITY_NEIGHBORHOODS;
-        }
-        
-        // Normal bi-weekly schedule
-        const todaysNeighborhoods = this.dailySchedule[this.currentDay] || [];
-        
-        if (todaysNeighborhoods.length === 0) {
-            // Off-schedule or buffer day - check for missed neighborhoods
-            console.log('📅 Off-schedule day - checking for missed neighborhoods');
-            return this.getMissedNeighborhoods();
-        }
-        
-        console.log(`📅 Day ${this.currentDay} schedule: ${todaysNeighborhoods.length} neighborhoods`);
-        return todaysNeighborhoods;
-    }
-
-    /**
-     * Check for neighborhoods that might have been missed
-     */
-    async getMissedNeighborhoods() {
-        try {
-            // Check database for neighborhoods not analyzed in last 14 days
-            const { data, error } = await this.supabase
-                .from('bi_weekly_analysis_runs')
-                .select('detailed_stats')
-                .eq('analysis_type', 'sales')
-                .gte('run_date', new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString())
-                .order('run_date', { ascending: false });
-
-            if (error) {
-                console.log('⚠️ Could not check missed neighborhoods, using backup list');
-                return ['park-slope', 'williamsburg']; // Safe fallback
-            }
-
-            // Extract neighborhoods that were processed
-            const processedNeighborhoods = new Set();
-            data.forEach(run => {
-                if (run.detailed_stats?.byNeighborhood) {
-                    Object.keys(run.detailed_stats.byNeighborhood).forEach(n => 
-                        processedNeighborhoods.add(n)
-                    );
-                }
-            });
-
-            // Find neighborhoods not processed recently
-            const allNeighborhoods = Object.values(this.dailySchedule).flat();
-            const missedNeighborhoods = allNeighborhoods.filter(n => 
-                !processedNeighborhoods.has(n)
-            );
-
-            console.log(`🔍 Found ${missedNeighborhoods.length} missed neighborhoods: ${missedNeighborhoods.join(', ')}`);
-            return missedNeighborhoods.slice(0, 5); // Max 5 catch-up neighborhoods
-
-        } catch (error) {
-            console.log('⚠️ Error checking missed neighborhoods, using fallback');
-            return ['park-slope', 'williamsburg'];
-        }
-    }
-
-    /**
-     * SMART DEDUPLICATION: Check which sale IDs we already have cached
-     * FIXED: Added comprehensive error handling
-     */
-    async getExistingSaleIds(listingIds) {
-        if (!listingIds || listingIds.length === 0) return [];
-        
-        try {
-            const sevenDaysAgo = new Date();
-            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
-            const { data, error } = await this.supabase
-                .from('sales_market_cache')
-                .select('listing_id')
-                .in('listing_id', listingIds)
-                .gte('last_checked', sevenDaysAgo.toISOString());
-
-            if (error) {
-                console.warn('⚠️ Error checking existing sales, will fetch all details:', error.message);
-                return [];
-            }
-
-            const existingIds = data.map(row => row.listing_id);
-            console.log(`   💾 Cache lookup: ${existingIds.length}/${listingIds.length} sales found in cache`);
-            return existingIds;
-        } catch (error) {
-            console.warn('⚠️ Cache lookup failed, will fetch all details:', error.message);
-            return [];
-        }
-    }
-
-    /**
-     * UPDATE cache with current search results and mark missing as sold
-     * FIXED: Added comprehensive error handling
-     */
-    async updateSalesCacheWithSearchResults(searchResults, neighborhood) {
-        const currentTime = new Date().toISOString();
-        const currentListingIds = searchResults.map(r => r.id?.toString()).filter(Boolean);
-        
-        try {
-            // Step 1: Update existing cache entries for sales we found in search
-            for (const sale of searchResults) {
-                if (!sale.id) continue;
-                
-                try {
-                    const cacheData = {
-                        listing_id: sale.id.toString(),
-                        address: sale.address || 'Address not available',
-                        neighborhood: neighborhood,
-                        borough: sale.borough || 'unknown',
-                        sale_price: sale.price || sale.salePrice || 0,
-                        bedrooms: sale.bedrooms || sale.beds || 0,
-                        bathrooms: sale.bathrooms || sale.baths || 0,
-                        sqft: sale.sqft || sale.square_feet || 0,
-                        property_type: sale.propertyType || sale.type || 'condo',
-                        market_status: 'pending', // Will be updated after analysis
-                        last_seen_in_search: currentTime,
-                        last_checked: currentTime,
-                        times_seen: 1 // Will be incremented if exists
-                    };
-
-                    // Upsert to cache (insert new or update existing)
-                    const { error } = await this.supabase
-                        .from('sales_market_cache')
-                        .upsert(cacheData, { 
-                            onConflict: 'listing_id',
-                            updateColumns: ['last_seen_in_search', 'last_checked', 'sale_price'] 
-                        });
-
-                    if (error) {
-                        console.warn(`⚠️ Error updating cache for ${sale.id}:`, error.message);
-                    }
-                } catch (itemError) {
-                    console.warn(`⚠️ Error processing cache item ${sale.id}:`, itemError.message);
-                }
-            }
-
-            // Step 2: Mark sales in this neighborhood as likely sold if not seen in recent search
-            // FIXED: Added proper error handling for missing tables
-            try {
-                const threeDaysAgo = new Date();
-                threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
-
-                // Get sales in this neighborhood that weren't in current search
-                const { data: missingSales, error: missingError } = await this.supabase
-                    .from('sales_market_cache')
-                    .select('listing_id')
-                    .eq('neighborhood', neighborhood)
-                    .not('listing_id', 'in', `(${currentListingIds.map(id => `"${id}"`).join(',')})`)
-                    .lt('last_seen_in_search', threeDaysAgo.toISOString());
-
-                if (missingError) {
-                    console.warn('⚠️ Error checking for missing sales:', missingError.message);
-                    return { updated: searchResults.length, markedSold: 0 };
-                }
-
-                // Mark corresponding entries in undervalued_sales as likely sold
-                let markedSold = 0;
-                if (missingSales && missingSales.length > 0) {
-                    const missingIds = missingSales.map(r => r.listing_id);
-                    
-                    const { error: markSoldError } = await this.supabase
-                        .from('undervalued_sales')
-                        .update({
-                            status: 'likely_sold',
-                            likely_sold: true,
-                            sold_detected_at: currentTime
-                        })
-                        .in('listing_id', missingIds)
-                        .eq('status', 'active');
-
-                    if (!markSoldError) {
-                        markedSold = missingIds.length;
-                        this.apiUsageStats.listingsMarkedSold += markedSold;
-                        console.log(`   🏠 Marked ${markedSold} sales as likely sold (not seen in recent search)`);
-                    } else {
-                        console.warn('⚠️ Error marking sales as sold:', markSoldError.message);
-                    }
-                }
-
-                console.log(`   💾 Updated cache: ${searchResults.length} sales, marked ${markedSold} as sold`);
-                return { updated: searchResults.length, markedSold };
-            } catch (markingError) {
-                console.warn('⚠️ Error in sales marking process:', markingError.message);
-                return { updated: searchResults.length, markedSold: 0 };
-            }
-
-        } catch (error) {
-            console.warn('⚠️ Error updating sales cache:', error.message);
-            return { updated: 0, markedSold: 0 };
-        }
-    }
-
-    /**
-     * Clear old sales data with enhanced cleanup
-     * FIXED: Graceful degradation for missing database functions
-     */
-    async clearOldSalesData() {
-        try {
-            const oneMonthAgo = new Date();
-            oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
-
-            // Clear old undervalued sales
-            const { error: salesError } = await this.supabase
-                .from('undervalued_sales')
-                .delete()
-                .lt('analysis_date', oneMonthAgo.toISOString());
-
-            if (salesError) {
-                console.error('❌ Error clearing old sales data:', salesError.message);
-            } else {
-                console.log('🧹 Cleared old sales data (>1 month)');
-            }
-
-            // Clear old cache entries using the database function - with graceful fallback
-            try {
-                const { data: cleanupResult, error: cleanupError } = await this.supabase
-                    .rpc('cleanup_old_sales_cache_entries');
-
-                if (cleanupError) {
-                    console.warn('⚠️ Cache cleanup function not available:', cleanupError.message);
-                    console.warn('   Continuing without automatic cache cleanup');
-                } else {
-                    console.log(`🧹 ${cleanupResult || 'Cache cleanup completed'}`);
-                }
-            } catch (cleanupFunctionError) {
-                console.warn('⚠️ Cache cleanup function not available:', cleanupFunctionError.message);
-                console.warn('   This is expected if database functions are not yet created');
-                console.warn('   Manual cache cleanup can be done through the database');
-            }
-
-        } catch (error) {
-            console.error('❌ Clear old sales data error:', error.message);
-        }
-    }
-
-    /**
-     * Save bi-weekly sales summary with enhanced deduplication stats
-     * FIXED: Updated column names to match database schema
-     */
-    async saveBiWeeklySalesSummary(summary) {
-        try {
-            const { error } = await this.supabase
-                .from('bi_weekly_analysis_runs')
-                .insert([{
-                    run_date: summary.startTime,
-                    analysis_type: 'sales',
-                    neighborhoods_processed: summary.neighborhoodsProcessed,
-                    total_active_listings: summary.totalActiveSalesFound, // FIXED: Correct column name
-                    total_details_attempted: summary.totalDetailsAttempted,
-                    total_details_fetched: summary.totalDetailsFetched,
-                    undervalued_found: summary.undervaluedFound,
-                    saved_to_database: summary.savedToDatabase,
-                    api_calls_used: summary.apiCallsUsed,
-                    
-                    // ENHANCED: Deduplication performance stats
-                    api_calls_saved: summary.apiCallsSaved || 0,
-                    cache_hit_rate: summary.cacheHitRate || 0,
-                    listings_marked_rented: summary.listingsMarkedSold || 0, // Note: using same column for sold
-                    
-                    duration_minutes: Math.round(summary.duration),
-                    detailed_stats: summary.detailedStats,
-                    errors: summary.errors,
-                    completed: true
-                }]);
-
-            if (error) {
-                console.error('❌ Error saving bi-weekly sales summary:', error.message);
-            } else {
-                console.log('✅ Bi-weekly sales summary saved to database');
-            }
-        } catch (error) {
-            console.error('❌ Save sales summary error:', error.message);
-        }
-    }
-
-    /**
-     * Enhanced summary with deduplication performance
-     */
-    logSmartDeduplicationSummary(summary) {
-        const mode = this.initialBulkLoad ? 'INITIAL BULK LOAD' : 'SMART DEDUPLICATION';
-        
-        console.log(`\n📊 ${mode} SALES ANALYSIS COMPLETE`);
-        console.log('='.repeat(70));
-        
-        if (this.initialBulkLoad) {
-            console.log(`🚀 BULK LOAD: All ${summary.totalNeighborhoods} neighborhoods processed`);
-            console.log(`⏱️ Duration: ${summary.duration.toFixed(1)} minutes (~${(summary.duration/60).toFixed(1)} hours)`);
-        } else {
-            console.log(`📅 Schedule Day: ${summary.scheduledDay} of bi-weekly cycle`);
-            console.log(`⏱️ Duration: ${summary.duration.toFixed(1)} minutes`);
-        }
-        
-        console.log(`🗽 Neighborhoods processed: ${summary.neighborhoodsProcessed}/${summary.totalNeighborhoods}`);
-        
-        // Core metrics
-        console.log('\n📊 Core Analysis Metrics:');
-        console.log(`🏠 Active sales found: ${summary.totalActiveSalesFound}`);
-        console.log(`🔍 Details attempted: ${summary.totalDetailsAttempted}`);
-        console.log(`✅ Details successfully fetched: ${summary.totalDetailsFetched}`);
-        console.log(`🎯 Undervalued sales found: ${summary.undervaluedFound}`);
-        console.log(`💾 Saved to database: ${summary.savedToDatabase}`);
-        console.log(`📞 API calls used: ${summary.apiCallsUsed}`);
-        
-        // DEDUPLICATION PERFORMANCE HIGHLIGHT (only if not bulk load)
-        if (!this.initialBulkLoad) {
-            console.log('\n⚡ SMART DEDUPLICATION PERFORMANCE:');
-            console.log(`💾 API calls saved by cache: ${summary.apiCallsSaved}`);
-            console.log(`📈 Cache hit rate: ${summary.cacheHitRate.toFixed(1)}%`);
-            console.log(`🏠 Listings marked as sold: ${summary.listingsMarkedSold}`);
-            
-            // Calculate efficiency metrics
-            const totalPotentialCalls = summary.apiCallsUsed + summary.apiCallsSaved;
-            const efficiencyPercentage = totalPotentialCalls > 0 ? 
-                (summary.apiCallsSaved / totalPotentialCalls * 100).toFixed(1) : '0';
-            
-            console.log(`🚀 API efficiency: ${efficiencyPercentage}% reduction in API calls`);
-            
-            if (summary.apiCallsSaved > 0) {
-                const estimatedCostSavings = (summary.apiCallsSaved * 0.01).toFixed(2);
-                console.log(`💰 Estimated cost savings: ${estimatedCostSavings} (at $0.01/call)`);
-            }
-        }
-        
-        // Adaptive rate limiting performance
-        console.log('\n⚡ Adaptive Rate Limiting Performance:');
-        console.log(`   🚀 Started with: ${this.initialBulkLoad ? '8s' : '6s'} delays`);
-        console.log(`   🎯 Ended with: ${this.baseDelay/1000}s delays`);
-        console.log(`   📈 Rate limit hits: ${this.rateLimitHits}`);
-        console.log(`   🔧 Adaptive changes: ${summary.adaptiveDelayChanges}`);
-        
-        // Success rates
-        const detailSuccessRate = summary.totalDetailsAttempted > 0 ? 
-            (summary.totalDetailsFetched / summary.totalDetailsAttempted * 100).toFixed(1) : '0';
-        const undervaluedRate = summary.totalDetailsFetched > 0 ? 
-            (summary.undervaluedFound / summary.totalDetailsFetched * 100).toFixed(1) : '0';
-        
-        console.log('\n📈 Success Rates:');
-        console.log(`   📋 Detail fetch success: ${detailSuccessRate}%`);
-        console.log(`   🎯 Undervalued discovery rate: ${undervaluedRate}%`);
-        
-        // Top performing neighborhoods
-        console.log('\n🏆 Neighborhood Performance:');
-        const sortedNeighborhoods = Object.entries(summary.detailedStats.byNeighborhood)
-            .sort((a, b) => b[1].undervaluedFound - a[1].undervaluedFound);
-            
-        sortedNeighborhoods.slice(0, 10).forEach(([neighborhood, stats], index) => {
-            const savings = stats.apiCallsSaved || 0;
-            console.log(`   ${index + 1}. ${neighborhood}: ${stats.undervaluedFound} deals (${savings} API calls saved)`);
-        });
-        
-        // Error reporting
-        if (summary.errors.length > 0) {
-            const rateLimitErrors = summary.errors.filter(e => e.isRateLimit).length;
-            console.log(`\n❌ Errors: ${summary.errors.length} total (${rateLimitErrors} rate limits, ${summary.errors.length - rateLimitErrors} other)`);
-        }
-
-        // Next steps
-        if (this.initialBulkLoad) {
-            console.log('\n🎯 BULK LOAD COMPLETE!');
-            console.log('📝 Next steps:');
-            console.log('   1. Set INITIAL_BULK_LOAD=false in Railway');
-            console.log('   2. Switch to bi-weekly maintenance mode');
-            console.log('   3. Enjoy 75-90% API savings from smart caching!');
-        } else {
-            // Normal bi-weekly next day preview
-            const nextDay = this.currentDay + 1;
-            const nextDayNeighborhoods = this.dailySchedule[nextDay] || [];
-            if (nextDayNeighborhoods.length > 0) {
-                console.log(`\n📅 Tomorrow's schedule: ${nextDayNeighborhoods.join(', ')}`);
-            } else if (nextDay <= 8) {
-                console.log(`\n📅 Tomorrow: Buffer day (catch-up or completion)`);
-            } else {
-                console.log(`\n📅 Next bi-weekly cycle starts on the 1st or 15th of next month`);
-            }
-        }
-
-        // Results summary
-        if (summary.savedToDatabase > 0) {
-            console.log('\n🎉 SUCCESS: Found undervalued sales efficiently!');
-            console.log(`🔍 Check your Supabase 'undervalued_sales' table for ${summary.savedToDatabase} new deals`);
-            
-            if (!this.initialBulkLoad && summary.apiCallsSaved > 0) {
-                const efficiency = ((summary.apiCallsSaved / (summary.apiCallsUsed + summary.apiCallsSaved)) * 100).toFixed(1);
-                console.log(`⚡ Achieved ${efficiency}% API efficiency through smart caching`);
-            }
-        } else {
-            console.log('\n📊 No undervalued sales found (normal in competitive NYC market)');
-        }
-        
-        // Long-term projection (only for regular mode)
-        if (!this.initialBulkLoad && summary.apiCallsSaved > 0) {
-            console.log(`\n📊 Deduplication Impact: Expect 75-90% API savings in future runs`);
-            console.log(`💡 This system scales efficiently for long-term operation`);
-        }
-
-        // Database function status
-        console.log('\n🔧 Database Function Status:');
-        console.log('   ⚠️ Some advanced functions may not be available yet');
-        console.log('   📊 Core functionality works without them');
-        console.log('   🔧 Add database functions later for enhanced features');
-    }
-
-    /**
-     * ADAPTIVE rate limiting - adjusts based on API response patterns
-     */
-    adaptiveRateLimit() {
-        const now = Date.now();
-        
-        // Clean old timestamps (older than 1 hour)
-        this.callTimestamps = this.callTimestamps.filter(t => now - t < 60 * 60 * 1000);
-        
-        // Check if we're hitting hourly limits
-        const callsThisHour = this.callTimestamps.length;
-        
-        // ADAPTIVE LOGIC: Adjust delay based on recent performance
-        if (this.rateLimitHits === 0 && callsThisHour < this.maxCallsPerHour * 0.7) {
-            // All good - can be more aggressive (but not during bulk load)
-            if (!this.initialBulkLoad) {
-                this.baseDelay = Math.max(4000, this.baseDelay - 500); // Min 4s
-                console.log(`   ⚡ No rate limits - reducing delay to ${this.baseDelay/1000}s`);
-            }
-        } else if (this.rateLimitHits <= 2) {
-            // Some rate limits - be moderate
-            this.baseDelay = this.initialBulkLoad ? 10000 : 8000;
-            console.log(`   ⚖️ Some rate limits - moderate delay ${this.baseDelay/1000}s`);
-        } else if (this.rateLimitHits > 2) {
-            // Multiple rate limits - be very conservative
-            this.baseDelay = Math.min(25000, this.baseDelay + 3000); // Max 25s
-            console.log(`   🐌 Multiple rate limits - increasing delay to ${this.baseDelay/1000}s`);
-            this.apiUsageStats.adaptiveDelayChanges++;
-        }
-        
-        // Hourly protection
-        if (callsThisHour >= this.maxCallsPerHour) {
-            console.log(`⏰ Hourly limit reached (${callsThisHour}/${this.maxCallsPerHour}), waiting 30 minutes...`);
-            return 30 * 60 * 1000; // Wait 30 minutes
-        }
-        
-        // Progressive delay - gets slower as we make more calls in session
-        const sessionCalls = this.apiCallsUsed;
-        const progressiveIncrease = Math.floor(sessionCalls / 50) * 1000; // +1s every 50 calls
-        
-        // Random jitter to avoid synchronized requests
-        const jitter = Math.random() * 2000; // 0-2s random
-        
-        // Extra delay for bulk load to be more conservative
-        const bulkLoadPenalty = this.initialBulkLoad ? 2000 : 0;
-        
-        const finalDelay = this.baseDelay + progressiveIncrease + jitter + bulkLoadPenalty;
-        
-        // Record this call timestamp
-        this.callTimestamps.push(now);
-        
-        return finalDelay;
-    }
-
-    /**
-     * Enhanced delay with adaptive rate limiting
-     */
-    async smartDelay() {
-        const delayTime = this.adaptiveRateLimit();
-        
-        if (delayTime > 60000) { // More than 1 minute
-            console.log(`   ⏰ Long delay: ${Math.round(delayTime/1000/60)} minutes (rate limit protection)`);
-        } else {
-            console.log(`   ⏰ Adaptive delay: ${Math.round(delayTime/1000)}s`);
-        }
-        
-        await this.delay(delayTime);
-    }
-
-    delay(ms) {
-        return new Promise(resolve => setTimeout(resolve, ms));
-    }
-
-    /**
-     * Main bi-weekly sales refresh with SMART DEDUPLICATION and BULK LOAD
-     */
-    async runBiWeeklySalesRefresh() {
-        const mode = this.initialBulkLoad ? 'INITIAL BULK LOAD' : 'SMART DEDUPLICATION BI-WEEKLY';
-        
-        console.log(`\n🏠 ${mode} SALES ANALYSIS`);
-        
-        if (this.initialBulkLoad) {
-            console.log('🚀 BULK LOAD MODE: Processing ALL neighborhoods for initial deployment');
-            console.log('⏰ Estimated duration: 8-12 hours with conservative rate limiting');
-            console.log('💾 Will populate complete NYC sales inventory');
-        } else {
-            console.log('💾 Cache-optimized to save 75-90% of API calls');
-            console.log('🏠 Auto-detects and removes sold listings');
-            console.log('⚡ Adaptive rate limiting with daily neighborhood scheduling');
-        }
-        
-        console.log('🔧 FIXED: Database column names, cache updates, and all critical bugs');
-        console.log('='.repeat(70));
-
-        // Get today's neighborhood assignment (ALL neighborhoods if bulk load)
-const todaysNeighborhoods = ['carroll-gardens']; // Test with single neighborhood
-        
-        if (todaysNeighborhoods.length === 0) {
-            console.log('📅 No neighborhoods scheduled for today - analysis complete');
-            return { summary: { message: 'No neighborhoods scheduled for today' } };
-        }
-
-        const summary = {
-            startTime: new Date(),
-            scheduledDay: this.currentDay,
-            totalNeighborhoods: todaysNeighborhoods.length,
-            neighborhoodsProcessed: 0,
-            totalActiveSalesFound: 0,
-            totalDetailsAttempted: 0,
-            totalDetailsFetched: 0,
-            undervaluedFound: 0,
-            savedToDatabase: 0,
-            apiCallsUsed: 0,
-            adaptiveDelayChanges: 0,
-            // NEW: Deduplication stats
-            apiCallsSaved: 0,
-            cacheHitRate: 0,
-            listingsMarkedSold: 0,
-            errors: [],
-            detailedStats: {
-                byNeighborhood: {},
-                apiUsage: this.apiUsageStats,
-                rateLimit: {
-                    initialDelay: this.baseDelay,
-                    finalDelay: this.baseDelay,
-                    rateLimitHits: 0
-                }
-            }
-        };
-
-        try {
-            // Clear old sales data and run automatic cleanup
-            await this.clearOldSalesData();
-            await this.runAutomaticSoldDetection();
-
-            console.log(`📋 ${this.initialBulkLoad ? 'BULK LOAD' : 'Today\'s'} assignment: ${todaysNeighborhoods.join(', ')}`);
-            console.log(`⚡ Starting with ${this.baseDelay/1000}s delays (will adapt based on API response)\n`);
-
-            // Process neighborhoods with smart deduplication
-            for (let i = 0; i < todaysNeighborhoods.length; i++) {
-                const neighborhood = todaysNeighborhoods[i];
-                
-                try {
-                    console.log(`\n🏠 [${i + 1}/${todaysNeighborhoods.length}] PROCESSING: ${neighborhood}`);
-                    
-                    // Smart delay before each neighborhood (except first)
-                    if (i > 0) {
-                        await this.smartDelay();
-                    }
-                    
-                    // Step 1: Get ALL active sales with smart deduplication
-                    const { newSales, totalFound, cacheHits } = await this.fetchActiveSalesWithDeduplication(neighborhood);
-                    summary.totalActiveSalesFound += totalFound;
-                    this.apiUsageStats.totalListingsFound += totalFound;
-                    this.apiUsageStats.cacheHits += cacheHits;
-                    this.apiUsageStats.newListingsToFetch += newSales.length;
-                    this.apiUsageStats.apiCallsSaved += cacheHits;
-                    
-                    if (newSales.length === 0 && !this.initialBulkLoad) {
-                        console.log(`   📊 All ${totalFound} sales found in cache - 100% API savings!`);
-                        continue;
-                    }
-
-                    console.log(`   🎯 Smart deduplication: ${totalFound} total, ${newSales.length} new, ${cacheHits} cached`);
-                    if (cacheHits > 0 && !this.initialBulkLoad) {
-                        console.log(`   ⚡ API savings: ${cacheHits} detail calls avoided!`);
-                    }
-                    
-                    // Step 2: Fetch details ONLY for new sales
-                    const detailedSales = await this.fetchSalesDetailsWithCache(newSales, neighborhood);
-                    summary.totalDetailsAttempted += newSales.length;
-                    summary.totalDetailsFetched += detailedSales.length;
-                    
-                    // Step 3: Analyze for undervaluation
-                    const undervaluedSales = this.analyzeForSalesUndervaluation(detailedSales, neighborhood);
-                    summary.undervaluedFound += undervaluedSales.length;
-                    
-                    // Step 4: Save to database
-                    if (undervaluedSales.length > 0) {
-                        const saved = await this.saveUndervaluedSalesToDatabase(undervaluedSales, neighborhood);
-                        summary.savedToDatabase += saved;
-                    }
-                    
-                    // Step 5: Update cache with analysis results
-                    await this.updateCacheWithAnalysisResults(detailedSales, undervaluedSales);
-                    
-                    // Track neighborhood stats
-                    summary.detailedStats.byNeighborhood[neighborhood] = {
-                        totalFound: totalFound,
-                        cacheHits: cacheHits,
-                        newSales: newSales.length,
-                        detailsFetched: detailedSales.length,
-                        undervaluedFound: undervaluedSales.length,
-                        apiCallsUsed: 1 + newSales.length, // 1 search + detail calls
-                        apiCallsSaved: cacheHits
-                    };
-                    
-                    summary.neighborhoodsProcessed++;
-                    console.log(`   ✅ ${neighborhood}: ${undervaluedSales.length} undervalued sales found`);
-
-                    // For bulk load, log progress every 5 neighborhoods
-                    if (this.initialBulkLoad && (i + 1) % 5 === 0) {
-                        const progress = ((i + 1) / todaysNeighborhoods.length * 100).toFixed(1);
-                        const elapsed = (new Date() - summary.startTime) / 1000 / 60;
-                        const eta = elapsed / (i + 1) * todaysNeighborhoods.length - elapsed;
-                        console.log(`\n📊 BULK LOAD PROGRESS: ${progress}% complete (${i + 1}/${todaysNeighborhoods.length})`);
-                        console.log(`⏱️ Elapsed: ${elapsed.toFixed(1)}min, ETA: ${eta.toFixed(1)}min`);
-                        console.log(`🎯 Found ${summary.undervaluedFound} total undervalued sales so far\n`);
-                    }
-
-                } catch (error) {
-                    console.error(`   ❌ Error processing ${neighborhood}: ${error.message}`);
-                    
-                    // Handle rate limits specially
-                    if (error.response?.status === 429) {
-                        this.rateLimitHits++;
-                        this.apiUsageStats.rateLimitHits++;
-                        console.log(`   ⚡ Rate limit hit #${this.rateLimitHits} - adapting delays`);
-                        
-                        // Wait longer after rate limit (especially for bulk load)
-                        const penaltyDelay = this.initialBulkLoad ? 60000 : 30000;
-                        await this.delay(penaltyDelay);
-                    }
-                    
-                    summary.errors.push({
-                        neighborhood,
-                        error: error.message,
-                        timestamp: new Date().toISOString(),
-                        isRateLimit: error.response?.status === 429
-                    });
-                }
-            }
-
-            // Calculate final deduplication stats
-            summary.endTime = new Date();
-            summary.duration = (summary.endTime - summary.startTime) / 1000 / 60;
-            summary.apiCallsUsed = this.apiCallsUsed;
-            summary.apiCallsSaved = this.apiUsageStats.apiCallsSaved;
-            summary.cacheHitRate = this.apiUsageStats.totalListingsFound > 0 ? 
-                (this.apiUsageStats.cacheHits / this.apiUsageStats.totalListingsFound * 100) : 0;
-            summary.listingsMarkedSold = this.apiUsageStats.listingsMarkedSold;
-            summary.adaptiveDelayChanges = this.apiUsageStats.adaptiveDelayChanges;
-            summary.detailedStats.rateLimit = {
-                initialDelay: this.initialBulkLoad ? 8000 : 6000,
-                finalDelay: this.baseDelay,
-                rateLimitHits: this.rateLimitHits
-            };
-
-            await this.saveBiWeeklySalesSummary(summary);
-            this.logSmartDeduplicationSummary(summary);
-
-        } catch (error) {
-            console.error('💥 Smart deduplication sales refresh failed:', error.message);
-            summary.errors.push({ error: error.message });
-        }
-
-        return { summary };
-    }
-
-    // PLACEHOLDER: Add all remaining methods here from your original file:
-    // fetchActiveSalesWithDeduplication, analyzeForSalesUndervaluation, etc.
-}
-
-// CLI interface for sales
-async function main() {
-    const args = process.argv.slice(2);
-    
-    if (!process.env.RAPIDAPI_KEY || !process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) {
-        console.error('❌ Missing required environment variables!');
-        console.error('   RAPIDAPI_KEY, SUPABASE_URL, SUPABASE_ANON_KEY required');
-        process.exit(1);
-    }
-
-    const analyzer = new EnhancedBiWeeklySalesAnalyzer();
-
-    // Default: run bi-weekly sales analysis
-    const mode = process.env.INITIAL_BULK_LOAD === 'true' ? 'BULK LOAD' : 'bi-weekly';
-    console.log(`🏠 Starting enhanced ${mode} sales analysis...`);
-    
-    const results = await analyzer.runBiWeeklySalesRefresh();
-    
-    console.log(`\n🎉 Enhanced ${mode} sales analysis completed!`);
-    
-    return results;
-}
-
-// Export for use in other modules
-module.exports = EnhancedBiWeeklySalesAnalyzer;
-
-// Run if executed directly
-if (require.main === module) {
-    main().catch(error => {
-        console.error('💥 Enhanced sales analyzer crashed:', error);
         process.exit(1);
     });
 }
