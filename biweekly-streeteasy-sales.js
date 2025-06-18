@@ -930,8 +930,9 @@ class EnhancedBiWeeklySalesAnalyzer {
         }
     }
 
-    /**
+   /**
      * EFFICIENT: Update only price in cache (no refetch needed)
+     * FIXED: Using valid market_status values from schema
      */
     async updatePriceInCache(listingId, newPrice) {
         try {
@@ -939,9 +940,9 @@ class EnhancedBiWeeklySalesAnalyzer {
                 .from('sales_market_cache')
                 .update({
                     sale_price: newPrice,
-                    price: newPrice, // Also update test column
+                    price: newPrice, // Also update price field
                     last_checked: new Date().toISOString(),
-                    market_status: 'pending_analysis' // Will trigger reanalysis
+                    market_status: 'pending' // FIXED: Changed from 'pending_analysis' to valid 'pending'
                 })
                 .eq('listing_id', listingId);
 
@@ -988,6 +989,7 @@ class EnhancedBiWeeklySalesAnalyzer {
 
     /**
      * EFFICIENT: Mark listing for reanalysis due to price change
+     * FIXED: Using valid market_status values from schema
      */
     async triggerReanalysisForPriceChange(listingId, neighborhood) {
         try {
@@ -995,7 +997,7 @@ class EnhancedBiWeeklySalesAnalyzer {
             const { error } = await this.supabase
                 .from('sales_market_cache')
                 .update({
-                    market_status: 'price_changed_pending_analysis',
+                    market_status: 'pending', // FIXED: Changed from 'price_changed_pending_analysis' to valid 'pending'
                     last_analyzed: null // Clear analysis date to trigger reanalysis
                 })
                 .eq('listing_id', listingId);
@@ -1099,10 +1101,11 @@ class EnhancedBiWeeklySalesAnalyzer {
     }
 
     /**
-     * UNCHANGED: Fetch sales details for truly NEW listings only
+     * Fetch sales details with cache updates
+     * FIXED: Complete function implementation without duplicates + cache ONLY after successful fetch
      */
     async fetchSalesDetailsWithCache(newSales, neighborhood) {
-        console.log(`   🔍 Fetching details for ${newSales.length} truly NEW sales...`);
+        console.log(`   🔍 Fetching details for ${newSales.length} NEW sales (saving API calls from cache)...`);
         
         const detailedSales = [];
         let successCount = 0;
@@ -1135,12 +1138,13 @@ class EnhancedBiWeeklySalesAnalyzer {
                     
                     detailedSales.push(fullSalesData);
                     
-                    // Cache complete property details AFTER successful fetch
+                    // FIXED: Cache complete property details ONLY AFTER successful individual fetch
                     await this.cacheCompletePropertyDetails(sale.id, details, neighborhood);
                     
                     successCount++;
                 } else {
                     failureCount++;
+                    // FIXED: Cache failed fetch ONLY after we tried and failed
                     await this.cacheFailedFetch(sale.id, neighborhood);
                 }
 
@@ -1152,6 +1156,7 @@ class EnhancedBiWeeklySalesAnalyzer {
 
             } catch (error) {
                 failureCount++;
+                // FIXED: Cache failed fetch ONLY after we tried and failed
                 await this.cacheFailedFetch(sale.id, neighborhood);
                 
                 if (error.response?.status === 429) {
@@ -1170,7 +1175,8 @@ class EnhancedBiWeeklySalesAnalyzer {
     }
 
     /**
-     * UNCHANGED: Cache complete property details for new listings
+     * Cache complete property details for new listings
+     * FIXED: Using valid market_status values from schema + ONLY called after successful individual fetch
      */
     async cacheCompletePropertyDetails(listingId, details, neighborhood) {
         try {
@@ -1180,12 +1186,12 @@ class EnhancedBiWeeklySalesAnalyzer {
                 neighborhood: neighborhood,
                 borough: details.borough || 'unknown',
                 sale_price: details.salePrice || 0,
-                price: details.salePrice || 0, // Test column
+                price: details.salePrice || 0, // Also update price field
                 bedrooms: details.bedrooms || 0,
                 bathrooms: details.bathrooms || 0,
                 sqft: details.sqft || 0,
                 property_type: details.propertyType || 'condo',
-                market_status: 'pending_analysis',
+                market_status: 'pending', // FIXED: Valid schema value, set after successful individual fetch
                 last_checked: new Date().toISOString(),
                 last_seen_in_search: new Date().toISOString(),
                 last_analyzed: null
@@ -1209,7 +1215,8 @@ class EnhancedBiWeeklySalesAnalyzer {
     }
 
     /**
-     * UNCHANGED: Cache failed fetch attempt
+     * Cache failed fetch attempt
+     * FIXED: Using valid market_status values from schema + ONLY called after failed individual fetch
      */
     async cacheFailedFetch(listingId, neighborhood) {
         try {
@@ -1217,7 +1224,7 @@ class EnhancedBiWeeklySalesAnalyzer {
                 listing_id: listingId.toString(),
                 address: 'Fetch failed',
                 neighborhood: neighborhood,
-                market_status: 'fetch_failed',
+                market_status: 'fetch_failed', // Valid schema value, set after failed individual fetch
                 last_checked: new Date().toISOString(),
                 last_seen_in_search: new Date().toISOString()
             };
@@ -1238,7 +1245,8 @@ class EnhancedBiWeeklySalesAnalyzer {
     }
 
     /**
-     * UNCHANGED: Update cache with analysis results
+     * Update cache with analysis results
+     * FIXED: Using valid market_status values from schema + ONLY called after analysis complete
      */
     async updateCacheWithAnalysisResults(detailedSales, undervaluedSales) {
         try {
@@ -1247,7 +1255,7 @@ class EnhancedBiWeeklySalesAnalyzer {
                 
                 return {
                     listing_id: sale.id?.toString(),
-                    market_status: isUndervalued ? 'undervalued' : 'market_rate',
+                    market_status: isUndervalued ? 'undervalued' : 'market_rate', // Both valid schema values
                     last_analyzed: new Date().toISOString()
                 };
             });
