@@ -262,7 +262,7 @@ class EnhancedBiWeeklyRentalAnalyzer {
     getTodaysNeighborhoods() {
         // 12-HOUR OFFSET: Wait 12 hours after deploy to prevent API conflicts with sales
         const now = new Date().getTime();
-        const twelveHours = 0.5 * 60 * 60 * 1000; // updated to 30 minutes, for final version change 0.5 to 12
+        const twelveHours = 0.25 * 60 * 60 * 1000; // updated to 15 minutes, for final version change 0.25 to 12
         const waitUntil = this.deployTime + twelveHours;
         
         if (now < waitUntil) {
@@ -329,9 +329,9 @@ class EnhancedBiWeeklyRentalAnalyzer {
         }
     }
 
-    /**
-     * SMART DEDUPLICATION: Check which rental IDs we already have cached
-     * FIXED: Added comprehensive error handling
+   /**
+     * SMART DEDUPLICATION: Check which rental IDs we already have cached WITH COMPLETE DETAILS
+     * FIXED: Only count cache entries that have full property details (address, bedrooms, etc.)
      */
     async getExistingRentalIds(listingIds) {
         if (!listingIds || listingIds.length === 0) return [];
@@ -342,7 +342,7 @@ class EnhancedBiWeeklyRentalAnalyzer {
 
             const { data, error } = await this.supabase
                 .from('rental_market_cache')
-                .select('listing_id')
+                .select('listing_id, address, bedrooms, bathrooms')
                 .in('listing_id', listingIds)
                 .gte('last_checked', sevenDaysAgo.toISOString());
 
@@ -351,8 +351,24 @@ class EnhancedBiWeeklyRentalAnalyzer {
                 return [];
             }
 
-            const existingIds = data.map(row => row.listing_id);
-            console.log(`   💾 Cache lookup: ${existingIds.length}/${listingIds.length} rentals found in cache`);
+            // CRITICAL FIX: Only return IDs that have COMPLETE details
+            const completeEntries = data.filter(row => 
+                row.address && 
+                row.address !== 'Address not available' && 
+                row.address !== 'Details unavailable' &&
+                row.address !== 'Fetch failed' &&
+                row.bedrooms !== null &&
+                row.bathrooms !== null
+            );
+
+            const existingIds = completeEntries.map(row => row.listing_id);
+            const incompleteCount = data.length - completeEntries.length;
+            
+            console.log(`   💾 Cache lookup: ${existingIds.length}/${listingIds.length} rentals with COMPLETE details found in cache`);
+            if (incompleteCount > 0) {
+                console.log(`   🔄 ${incompleteCount} cached entries need detail fetching (incomplete data)`);
+            }
+            
             return existingIds;
         } catch (error) {
             console.warn('⚠️ Cache lookup failed, will fetch all details:', error.message);
