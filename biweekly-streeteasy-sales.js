@@ -1583,7 +1583,7 @@ class EnhancedBiWeeklySalesAnalyzer {
         };
     }
 
-    /**
+   /**
      * Analyze individual sale for undervaluation
      */
     analyzeSaleValue(sale, marketData, neighborhood) {
@@ -1633,6 +1633,9 @@ class EnhancedBiWeeklySalesAnalyzer {
 
         const isUndervalued = discountPercent >= undervaluationThreshold;
 
+        // Parse description for distress signals and undervaluation reasons
+        const descriptionAnalysis = this.parseDescriptionForUndervaluationReasons(sale.description || '');
+
         // Calculate comprehensive sales score
         const score = this.calculateSalesUndervaluationScore({
             discountPercent,
@@ -1662,8 +1665,22 @@ class EnhancedBiWeeklySalesAnalyzer {
             reliabilityScore,
             score,
             grade: this.calculateGrade(score),
-            reasoning: this.generateSalesReasoning(discountPercent, sale, marketData, comparisonMethod, reliabilityScore)
+            reasoning: this.generateSalesReasoning(discountPercent, sale, marketData, comparisonMethod, reliabilityScore),
+            
+            // ADD: Description analysis results
+            undervalued_phrases: descriptionAnalysis.distressSignals,
+            undervaluation_category: this.categorizeUndervaluationReason(descriptionAnalysis)
         };
+    }
+
+    /**
+     * Categorize the main undervaluation reason based on description analysis
+     */
+    categorizeUndervaluationReason(descriptionAnalysis) {
+        if (descriptionAnalysis.needsRenovation) return 'Needs Renovation';
+        if (descriptionAnalysis.isUrgent) return 'Seller Urgency';
+        if (descriptionAnalysis.distressSignals.length > 0) return 'Distress Sale';
+        return 'Market Discount';
     }
 
     /**
