@@ -1,6 +1,5 @@
 // enhanced-biweekly-streeteasy-rentals.js
 // FINAL VERSION: Smart deduplication + automatic rented listing cleanup + 12-hour deployment delay
-// ENHANCED: Added functional property description parser for undervaluation reasons
 // FIXED: Critical database function issues resolved for immediate deployment
 require('dotenv').config();
 const axios = require('axios');
@@ -56,167 +55,6 @@ class EnhancedBiWeeklyRentalAnalyzer {
             apiCallsSaved: 0,
             listingsMarkedRented: 0
         };
-
-        // DESCRIPTION PARSING: Rental-specific undervaluation categories
-        this.undervaluationCategories = {
-            motivated_landlord: {
-                phrases: [
-                    'motivated landlord', 'priced to rent fast', 'bring all offers',
-                    'must rent quickly', 'eager to rent', 'flexible on price',
-                    'negotiable rent', 'open to offers', 'owner motivated',
-                    'quick rental needed', 'willing to negotiate', 'price flexible'
-                ],
-                weight: 0.8
-            },
-            poor_condition: {
-                phrases: [
-                    'needs tlc', 'not renovated', 'original condition', 'older kitchen',
-                    'needs updating', 'could use work', 'some wear', 'as-is condition',
-                    'fixer upper', 'handyman special', 'needs cosmetic work',
-                    'dated interior', 'original fixtures', 'older appliances',
-                    'some maintenance needed', 'vintage condition'
-                ],
-                weight: 0.7
-            },
-            concessions_incentives: {
-                phrases: [
-                    '1 month free', 'no fee', 'broker fee paid', 'move-in special',
-                    'first month free', 'waived broker fee', 'incentive offered',
-                    'rent concession', 'free months', 'reduced security deposit',
-                    'no broker commission', 'move in incentive', 'signing bonus',
-                    'reduced rent', 'promotional rate', 'landlord pays fee'
-                ],
-                weight: 0.9
-            },
-            vacancy_pressure: {
-                phrases: [
-                    'available immediately', 'back on market', 'long vacancy',
-                    'vacant for months', 'been available', 'ready to move in',
-                    'immediate occupancy', 'sitting vacant', 'empty apartment',
-                    'no current tenant', 'recently vacated', 'quick move in'
-                ],
-                weight: 0.6
-            },
-            unusual_lease_terms: {
-                phrases: [
-                    'month to month', 'basement apartment', 'limited sunlight',
-                    'short term lease', 'garden level', 'below grade',
-                    'flexible lease', 'temporary rental', 'sublet available',
-                    'studio conversion', 'efficiency apartment', 'convertible space',
-                    'loft space', 'artist studio', 'live/work space'
-                ],
-                weight: 0.5
-            },
-            location_noise_issues: {
-                phrases: [
-                    'street noise', 'construction nearby', 'ground floor',
-                    'busy street', 'near highway', 'train noise',
-                    'airport noise', 'commercial area', 'mixed use building',
-                    'above restaurant', 'street level', 'facing busy road',
-                    'construction zone', 'noisy area', 'urban sounds'
-                ],
-                weight: 0.4
-            },
-            timing_flexibility: {
-                phrases: [
-                    'flexible lease start', 'move in anytime', 'timing negotiable',
-                    'flexible move in', 'can start anytime', 'date flexible',
-                    'when convenient', 'your schedule', 'accommodate timing',
-                    'flexible availability', 'timing works for you'
-                ],
-                weight: 0.3
-            }
-        };
-    }
-
-    /**
-     * NEW: Parse description for undervaluation reasons
-     */
-    parseDescriptionForUndervaluationReasons(description) {
-        if (!description || typeof description !== 'string') {
-            return {
-                category: 'unknown',
-                phrases: [],
-                confidence: 0
-            };
-        }
-
-        const lowerDesc = description.toLowerCase();
-        const foundCategories = [];
-
-        // Check each category for matching phrases
-        for (const [categoryName, categoryData] of Object.entries(this.undervaluationCategories)) {
-            const matchingPhrases = categoryData.phrases.filter(phrase => 
-                lowerDesc.includes(phrase.toLowerCase())
-            );
-
-            if (matchingPhrases.length > 0) {
-                const categoryScore = matchingPhrases.length * categoryData.weight * 20;
-                foundCategories.push({
-                    category: categoryName,
-                    phrases: matchingPhrases,
-                    score: categoryScore,
-                    weight: categoryData.weight
-                });
-            }
-        }
-
-        // If no specific category found, check for general distress indicators
-        if (foundCategories.length === 0) {
-            const generalDistressWords = [
-                'urgent', 'asap', 'must rent', 'reduced', 'deal', 'special price',
-                'below market', 'great value', 'steal', 'opportunity'
-            ];
-
-            const generalMatches = generalDistressWords.filter(word =>
-                lowerDesc.includes(word.toLowerCase())
-            );
-
-            if (generalMatches.length > 0) {
-                return {
-                    category: 'general_opportunity',
-                    phrases: generalMatches,
-                    confidence: Math.min(generalMatches.length * 15, 60)
-                };
-            }
-
-            return {
-                category: 'unknown',
-                phrases: [],
-                confidence: 0
-            };
-        }
-
-        // Sort by score and return the highest-scoring category
-        foundCategories.sort((a, b) => b.score - a.score);
-        const topCategory = foundCategories[0];
-
-        // Calculate confidence based on phrase matches and weights
-        const confidence = Math.min(topCategory.score, 100);
-
-        return {
-            category: topCategory.category,
-            phrases: topCategory.phrases,
-            confidence: Math.round(confidence)
-        };
-    }
-
-    /**
-     * NEW: Get human-readable category description
-     */
-    getCategoryDescription(category) {
-        const descriptions = {
-            motivated_landlord: 'Motivated Landlord',
-            poor_condition: 'Poor Condition',
-            concessions_incentives: 'Concessions & Incentives',
-            vacancy_pressure: 'Vacancy Pressure',
-            unusual_lease_terms: 'Unusual Lease Terms',
-            location_noise_issues: 'Location/Noise Issues',
-            timing_flexibility: 'Timing Flexibility',
-            general_opportunity: 'General Opportunity',
-            unknown: 'Unknown'
-        };
-        return descriptions[category] || 'Unknown';
     }
 
     /**
@@ -256,39 +94,45 @@ class EnhancedBiWeeklyRentalAnalyzer {
         }
     }
 
-    /**
+ /**
      * Get today's neighborhood assignments WITH 12-HOUR DEPLOYMENT DELAY
+     * TESTING VERSION: Waits 15 minutes then only tests park-slope
      */
-    getTodaysNeighborhoods() {
-        // 12-HOUR OFFSET: Wait 12 hours after deploy to prevent API conflicts with sales
+    async getTodaysNeighborhoods() {
+        // 15-MINUTE DELAY: Wait 15 minutes after deploy to prevent API conflicts with sales
         const now = new Date().getTime();
-        const twelveHours = 0.25 * 60 * 60 * 1000; // updated to 15 minutes, for final version change 0.25 to 12
-        const waitUntil = this.deployTime + twelveHours;
+        const fifteenMinutes = 15 * 60 * 1000; // 15 minutes in milliseconds
+        const waitUntil = this.deployTime + fifteenMinutes;
         
         if (now < waitUntil) {
             const timeRemaining = waitUntil - now;
             const hoursRemaining = Math.floor(timeRemaining / (60 * 60 * 1000));
             const minutesRemaining = Math.floor((timeRemaining % (60 * 60 * 1000)) / (60 * 1000));
+            const secondsRemaining = Math.floor((timeRemaining % (60 * 1000)) / 1000);
             
-            console.log(`⏰ RENTALS BULK LOAD DELAY: Waiting ${hoursRemaining}h ${minutesRemaining}m after deploy`);
-            console.log('   This prevents API conflicts with sales scraper during initial bulk load');
-            return []; // No neighborhoods = scraper exits gracefully
+            console.log(`⏰ TESTING RENTALS DELAY: Waiting ${hoursRemaining}h ${minutesRemaining}m ${secondsRemaining}s after deploy`);
+            console.log('   This tests the 15-minute delay functionality');
+            console.log('   Will process park-slope only after delay completes');
+            
+            // WAIT: Actually delay for the full time
+            console.log(`   ⏳ Waiting ${Math.ceil(timeRemaining / 1000)}s before testing park-slope...`);
+            await this.delay(timeRemaining);
+            
+            console.log('   ✅ 15-minute wait complete! Testing park-slope now...');
+        } else {
+            console.log('✅ 15+ minutes have passed since deploy - running immediately');
         }
         
-        const todaysNeighborhoods = this.dailySchedule[this.currentDay] || [];
+        // TESTING OVERRIDE: Only process park-slope regardless of schedule
+        console.log('🧪 TESTING MODE: Only processing park-slope neighborhood');
+        console.log('   (In production, this would use the normal daily schedule)');
         
-        if (todaysNeighborhoods.length === 0) {
-            // Off-schedule or buffer day - check for missed neighborhoods
-            console.log('📅 Off-schedule day - checking for missed neighborhoods');
-            return this.getMissedNeighborhoods();
-        }
-        
-        console.log(`📅 Day ${this.currentDay} schedule: ${todaysNeighborhoods.length} neighborhoods`);
-        return todaysNeighborhoods;
+        return ['park-slope'];
     }
 
     /**
      * Check for neighborhoods that might have been missed
+     * FIXED: Added missing async and proper function structure
      */
     async getMissedNeighborhoods() {
         try {
@@ -329,9 +173,9 @@ class EnhancedBiWeeklyRentalAnalyzer {
         }
     }
 
-   /**
-     * SMART DEDUPLICATION: Check which rental IDs we already have cached WITH COMPLETE DETAILS
-     * FIXED: Only count cache entries that have full property details (address, bedrooms, etc.)
+    /**
+     * SMART DEDUPLICATION: Check which rental IDs we already have cached
+     * FIXED: Added comprehensive error handling
      */
     async getExistingRentalIds(listingIds) {
         if (!listingIds || listingIds.length === 0) return [];
@@ -342,7 +186,7 @@ class EnhancedBiWeeklyRentalAnalyzer {
 
             const { data, error } = await this.supabase
                 .from('rental_market_cache')
-                .select('listing_id, address, bedrooms, bathrooms')
+                .select('listing_id')
                 .in('listing_id', listingIds)
                 .gte('last_checked', sevenDaysAgo.toISOString());
 
@@ -351,24 +195,8 @@ class EnhancedBiWeeklyRentalAnalyzer {
                 return [];
             }
 
-            // CRITICAL FIX: Only return IDs that have COMPLETE details
-            const completeEntries = data.filter(row => 
-                row.address && 
-                row.address !== 'Address not available' && 
-                row.address !== 'Details unavailable' &&
-                row.address !== 'Fetch failed' &&
-                row.bedrooms !== null &&
-                row.bathrooms !== null
-            );
-
-            const existingIds = completeEntries.map(row => row.listing_id);
-            const incompleteCount = data.length - completeEntries.length;
-            
-            console.log(`   💾 Cache lookup: ${existingIds.length}/${listingIds.length} rentals with COMPLETE details found in cache`);
-            if (incompleteCount > 0) {
-                console.log(`   🔄 ${incompleteCount} cached entries need detail fetching (incomplete data)`);
-            }
-            
+            const existingIds = data.map(row => row.listing_id);
+            console.log(`   💾 Cache lookup: ${existingIds.length}/${listingIds.length} rentals found in cache`);
             return existingIds;
         } catch (error) {
             console.warn('⚠️ Cache lookup failed, will fetch all details:', error.message);
@@ -739,12 +567,11 @@ class EnhancedBiWeeklyRentalAnalyzer {
         console.log('🏠 Auto-detects and removes rented listings');
         console.log('⚡ Adaptive rate limiting with daily neighborhood scheduling');
         console.log('⏰ 12-hour deployment delay to prevent API conflicts');
-        console.log('🔧 ENHANCED: Property description parser for undervaluation reasons');
         console.log('🔧 FIXED: Database function dependencies resolved');
         console.log('='.repeat(70));
 
         // Get today's neighborhood assignment WITH 12-HOUR DEPLOYMENT DELAY
-        const todaysNeighborhoods = ['park-slope']; // Test with single neighborhood
+        const todaysNeighborhoods = await this.getTodaysNeighborhoods();
         
         if (todaysNeighborhoods.length === 0) {
             console.log('📅 No neighborhoods scheduled for today - analysis complete');
@@ -1390,7 +1217,7 @@ class EnhancedBiWeeklyRentalAnalyzer {
     }
 
     /**
-     * ENHANCED: Analyze individual rental for undervaluation with description parsing
+     * Analyze individual rental for undervaluation
      */
     analyzeRentalValue(rental, marketData, neighborhood) {
         const monthlyRent = rental.monthlyRent;
@@ -1427,15 +1254,9 @@ class EnhancedBiWeeklyRentalAnalyzer {
                 discountPercent: 0,
                 comparisonMethod: 'insufficient data',
                 reliabilityScore: 0,
-                reasoning: 'Not enough comparable rentals for analysis',
-                undervaluationCategory: 'unknown',
-                undervaluationPhrases: [],
-                categoryConfidence: 0
+                reasoning: 'Not enough comparable rentals for analysis'
             };
         }
-
-        // ENHANCED: Parse description for undervaluation reasons
-        const descriptionAnalysis = this.parseDescriptionForUndervaluationReasons(rental.description || '');
 
         // Adjust undervaluation threshold based on reliability
         let undervaluationThreshold = 8; // Lower threshold for rentals (8%)
@@ -1445,7 +1266,7 @@ class EnhancedBiWeeklyRentalAnalyzer {
 
         const isUndervalued = discountPercent >= undervaluationThreshold;
 
-        // Calculate comprehensive rental score with description insights
+        // Calculate comprehensive rental score
         const score = this.calculateRentalUndervaluationScore({
             discountPercent,
             daysOnMarket: rental.daysOnMarket || 0,
@@ -1462,10 +1283,7 @@ class EnhancedBiWeeklyRentalAnalyzer {
             noFee: rental.noFee,
             petFriendly: rental.petFriendly,
             laundryAvailable: rental.laundryAvailable,
-            gymAvailable: rental.gymAvailable,
-            // NEW: Description analysis factors
-            undervaluationCategory: descriptionAnalysis.category,
-            categoryConfidence: descriptionAnalysis.confidence
+            gymAvailable: rental.gymAvailable
         });
 
         return {
@@ -1479,16 +1297,12 @@ class EnhancedBiWeeklyRentalAnalyzer {
             reliabilityScore,
             score,
             grade: this.calculateGrade(score),
-            reasoning: this.generateRentalReasoning(discountPercent, rental, marketData, comparisonMethod, reliabilityScore),
-            // NEW: Enhanced description analysis results
-            undervaluationCategory: descriptionAnalysis.category,
-            undervaluationPhrases: descriptionAnalysis.phrases,
-            categoryConfidence: descriptionAnalysis.confidence
+            reasoning: this.generateRentalReasoning(discountPercent, rental, marketData, comparisonMethod, reliabilityScore)
         };
     }
 
     /**
-     * ENHANCED: Calculate comprehensive rental undervaluation score with description insights
+     * Calculate comprehensive rental undervaluation score
      */
     calculateRentalUndervaluationScore(factors) {
         let score = 0;
@@ -1527,26 +1341,6 @@ class EnhancedBiWeeklyRentalAnalyzer {
         if (factors.reliabilityScore >= 90) score += 5;
         else if (factors.reliabilityScore < 70) score -= 5;
 
-        // NEW: Description analysis bonus based on category and confidence
-        if (factors.undervaluationCategory && factors.undervaluationCategory !== 'unknown') {
-            const categoryBonuses = {
-                motivated_landlord: 8,
-                concessions_incentives: 10,
-                poor_condition: 6,
-                vacancy_pressure: 7,
-                unusual_lease_terms: 4,
-                location_noise_issues: 3,
-                timing_flexibility: 2,
-                general_opportunity: 3
-            };
-            
-            const categoryBonus = categoryBonuses[factors.undervaluationCategory] || 0;
-            const confidenceMultiplier = factors.categoryConfidence / 100;
-            const descriptionBonus = Math.round(categoryBonus * confidenceMultiplier);
-            
-            score += descriptionBonus;
-        }
-
         return Math.min(100, Math.max(0, Math.round(score)));
     }
 
@@ -1564,7 +1358,7 @@ class EnhancedBiWeeklyRentalAnalyzer {
     }
 
     /**
-     * ENHANCED: Generate human-readable reasoning for rentals with description insights
+     * Generate human-readable reasoning for rentals
      */
     generateRentalReasoning(discountPercent, rental, marketData, comparisonMethod, reliabilityScore) {
         const reasons = [];
@@ -1602,7 +1396,7 @@ class EnhancedBiWeeklyRentalAnalyzer {
     }
 
     /**
-     * ENHANCED: Save undervalued rentals to database with description analysis
+     * Save undervalued rentals to database with enhanced deduplication check
      */
     async saveUndervaluedRentalsToDatabase(undervaluedRentals, neighborhood) {
         console.log(`   💾 Saving ${undervaluedRentals.length} undervalued rentals to database...`);
@@ -1628,17 +1422,12 @@ class EnhancedBiWeeklyRentalAnalyzer {
                                 discount_percent: rental.discountPercent,
                                 last_seen_in_search: new Date().toISOString(),
                                 times_seen_in_search: 1, // Reset counter
-                                analysis_date: new Date().toISOString(),
-                                // NEW: Update description analysis fields
-                                undervaluation_category: rental.undervaluationCategory || 'unknown',
-                                undervaluation_phrases: rental.undervaluationPhrases || [],
-                                category_confidence: rental.categoryConfidence || 0
+                                analysis_date: new Date().toISOString()
                             })
                             .eq('id', existing.id);
 
                         if (!updateError) {
-                            const categoryDisplay = this.getCategoryDescription(rental.undervaluationCategory);
-                            console.log(`   🔄 Updated: ${rental.address} (score: ${existing.score} → ${rental.score}) [${categoryDisplay.toUpperCase()}]`);
+                            console.log(`   🔄 Updated: ${rental.address} (score: ${existing.score} → ${rental.score})`);
                         }
                     } else {
                         console.log(`   ⏭️ Skipping duplicate: ${rental.address}`);
@@ -1646,7 +1435,7 @@ class EnhancedBiWeeklyRentalAnalyzer {
                     continue;
                 }
 
-                // Enhanced database record with all fields including description analysis
+                // Enhanced database record with all fields
                 const dbRecord = {
                     listing_id: rental.id?.toString(),
                     address: rental.address,
@@ -1709,11 +1498,6 @@ class EnhancedBiWeeklyRentalAnalyzer {
                     comparison_method: rental.comparisonMethod || '',
                     reliability_score: parseInt(rental.reliabilityScore) || 0,
                     
-                    // NEW: Description analysis fields
-                    undervaluation_category: rental.undervaluationCategory || 'unknown',
-                    undervaluation_phrases: rental.undervaluationPhrases || [],
-                    category_confidence: parseInt(rental.categoryConfidence) || 0,
-                    
                     // Additional data
                     building_info: typeof rental.building === 'object' ? rental.building : {},
                     agents: Array.isArray(rental.agents) ? rental.agents : [],
@@ -1735,8 +1519,7 @@ class EnhancedBiWeeklyRentalAnalyzer {
                 if (error) {
                     console.error(`   ❌ Error saving rental ${rental.address}:`, error.message);
                 } else {
-                    const categoryDisplay = this.getCategoryDescription(rental.undervaluationCategory);
-                    console.log(`   ✅ Saved: ${rental.address} (${rental.discountPercent}% below market, Score: ${rental.score}) [${categoryDisplay.toUpperCase()}]`);
+                    console.log(`   ✅ Saved: ${rental.address} (${rental.discountPercent}% below market, Score: ${rental.score})`);
                     savedCount++;
                 }
             } catch (error) {
@@ -1744,7 +1527,7 @@ class EnhancedBiWeeklyRentalAnalyzer {
             }
         }
 
-        console.log(`   💾 Saved ${savedCount} new undervalued rentals with description analysis`);
+        console.log(`   💾 Saved ${savedCount} new undervalued rentals`);
         return savedCount;
     }
 
@@ -1786,27 +1569,6 @@ class EnhancedBiWeeklyRentalAnalyzer {
             return data;
         } catch (error) {
             console.error('❌ Error fetching rentals by neighborhood:', error.message);
-            return [];
-        }
-    }
-
-    /**
-     * ENHANCED: Get rentals by undervaluation category
-     */
-    async getRentalsByCategory(category, limit = 20) {
-        try {
-            const { data, error } = await this.supabase
-                .from('undervalued_rentals')
-                .select('*')
-                .eq('undervaluation_category', category)
-                .eq('status', 'active') // Only active listings
-                .order('category_confidence', { ascending: false })
-                .limit(limit);
-
-            if (error) throw error;
-            return data;
-        } catch (error) {
-            console.error('❌ Error fetching rentals by category:', error.message);
             return [];
         }
     }
@@ -1860,9 +1622,6 @@ class EnhancedBiWeeklyRentalAnalyzer {
             if (criteria.noFee) {
                 query = query.eq('no_fee', true);
             }
-            if (criteria.category) {
-                query = query.eq('undervaluation_category', criteria.category);
-            }
 
             const { data, error } = await query
                 .order('score', { ascending: false })
@@ -1887,21 +1646,10 @@ class EnhancedBiWeeklyRentalAnalyzer {
             console.log('✅ Enhanced rental database with deduplication is ready');
             console.log('💾 Core tables will be created via SQL schema');
             console.log('🏠 Basic rented listing detection enabled');
-            console.log('📝 Property description parsing for undervaluation reasons enabled');
             console.log('⚠️ Advanced database functions can be added later for enhanced features');
             console.log('\n💡 For full functionality, add these SQL functions to your database:');
             console.log('   - mark_likely_rented_listings()');
             console.log('   - cleanup_old_cache_entries()');
-            console.log('\n💡 Run this SQL to add description analysis columns:');
-            console.log(`
-ALTER TABLE undervalued_rentals 
-ADD COLUMN IF NOT EXISTS undervaluation_category VARCHAR(50) DEFAULT 'unknown',
-ADD COLUMN IF NOT EXISTS undervaluation_phrases TEXT[] DEFAULT '{}',
-ADD COLUMN IF NOT EXISTS category_confidence INTEGER DEFAULT 0;
-
-CREATE INDEX IF NOT EXISTS idx_undervalued_rentals_category ON undervalued_rentals(undervaluation_category);
-CREATE INDEX IF NOT EXISTS idx_undervalued_rentals_confidence ON undervalued_rentals(category_confidence);
-            `);
             
         } catch (error) {
             console.error('❌ Rental database setup error:', error.message);
@@ -1931,8 +1679,7 @@ async function main() {
         const rentals = await analyzer.getLatestUndervaluedRentals(limit);
         console.log(`🏠 Latest ${rentals.length} active undervalued rentals:`);
         rentals.forEach((rental, i) => {
-            const category = analyzer.getCategoryDescription(rental.undervaluation_category || 'unknown');
-            console.log(`${i + 1}. ${rental.address} - ${rental.monthly_rent.toLocaleString()}/month (${rental.discount_percent}% below market, Score: ${rental.score}) [${category.toUpperCase()}]`);
+            console.log(`${i + 1}. ${rental.address} - ${rental.monthly_rent.toLocaleString()}/month (${rental.discount_percent}% below market, Score: ${rental.score})`);
         });
         return;
     }
@@ -1942,8 +1689,7 @@ async function main() {
         const deals = await analyzer.getTopRentalDeals(limit);
         console.log(`🏆 Top ${deals.length} active rental deals:`);
         deals.forEach((deal, i) => {
-            const category = analyzer.getCategoryDescription(deal.undervaluation_category || 'unknown');
-            console.log(`${i + 1}. ${deal.address} - ${deal.monthly_rent.toLocaleString()}/month (${deal.discount_percent}% below market, Score: ${deal.score}) [${category.toUpperCase()}]`);
+            console.log(`${i + 1}. ${deal.address} - ${deal.monthly_rent.toLocaleString()}/month (${deal.discount_percent}% below market, Score: ${deal.score})`);
         });
         return;
     }
@@ -1957,26 +1703,7 @@ async function main() {
         const rentals = await analyzer.getRentalsByNeighborhood(neighborhood);
         console.log(`🏠 Active rentals in ${neighborhood}:`);
         rentals.forEach((rental, i) => {
-            const category = analyzer.getCategoryDescription(rental.undervaluation_category || 'unknown');
-            console.log(`${i + 1}. ${rental.address} - ${rental.monthly_rent.toLocaleString()}/month (Score: ${rental.score}) [${category.toUpperCase()}]`);
-        });
-        return;
-    }
-
-    if (args.includes('--category')) {
-        const category = args[args.indexOf('--category') + 1];
-        if (!category) {
-            console.error('❌ Available categories: motivated_landlord, poor_condition, concessions_incentives, vacancy_pressure, unusual_lease_terms, location_noise_issues, timing_flexibility');
-            return;
-        }
-        const rentals = await analyzer.getRentalsByCategory(category);
-        const categoryDisplay = analyzer.getCategoryDescription(category);
-        console.log(`📝 Active rentals with category "${categoryDisplay}":`);
-        rentals.forEach((rental, i) => {
-            console.log(`${i + 1}. ${rental.address} - ${rental.monthly_rent.toLocaleString()}/month (${rental.discount_percent}% below market, Confidence: ${rental.category_confidence}%)`);
-            if (rental.undervaluation_phrases && rental.undervaluation_phrases.length > 0) {
-                console.log(`   🔍 Key phrases: ${rental.undervaluation_phrases.slice(0, 3).join(', ')}`);
-            }
+            console.log(`${i + 1}. ${rental.address} - ${rental.monthly_rent.toLocaleString()}/month (Score: ${rental.score})`);
         });
         return;
     }
@@ -1985,8 +1712,7 @@ async function main() {
         const rentals = await analyzer.getRentalsByCriteria({ doorman: true, limit: 15 });
         console.log(`🚪 Active doorman building rentals:`);
         rentals.forEach((rental, i) => {
-            const category = analyzer.getCategoryDescription(rental.undervaluation_category || 'unknown');
-            console.log(`${i + 1}. ${rental.address} - ${rental.monthly_rent.toLocaleString()}/month (${rental.discount_percent}% below market) [${category.toUpperCase()}]`);
+            console.log(`${i + 1}. ${rental.address} - ${rental.monthly_rent.toLocaleString()}/month (${rental.discount_percent}% below market)`);
         });
         return;
     }
@@ -1995,17 +1721,16 @@ async function main() {
         const rentals = await analyzer.getRentalsByCriteria({ noFee: true, limit: 15 });
         console.log(`💰 Active no-fee rentals:`);
         rentals.forEach((rental, i) => {
-            const category = analyzer.getCategoryDescription(rental.undervaluation_category || 'unknown');
-            console.log(`${i + 1}. ${rental.address} - ${rental.monthly_rent.toLocaleString()}/month (${rental.discount_percent}% below market, Annual savings: ${rental.annual_savings.toLocaleString()}) [${category.toUpperCase()}]`);
+            console.log(`${i + 1}. ${rental.address} - ${rental.monthly_rent.toLocaleString()}/month (${rental.discount_percent}% below market, Annual savings: ${rental.annual_savings.toLocaleString()})`);
         });
         return;
     }
 
-    // Default: run bi-weekly rental analysis with smart deduplication and description parsing
-    console.log('🏠 Starting ENHANCED bi-weekly rental analysis with smart deduplication and description parsing...');
+    // Default: run bi-weekly rental analysis with smart deduplication
+    console.log('🏠 Starting FIXED enhanced bi-weekly rental analysis with smart deduplication...');
     const results = await analyzer.runBiWeeklyRentalRefresh();
     
-    console.log('\n🎉 Enhanced bi-weekly rental analysis with smart deduplication and description parsing completed!');
+    console.log('\n🎉 Enhanced bi-weekly rental analysis with smart deduplication completed!');
     
     if (results.summary && results.summary.apiCallsSaved > 0) {
         const efficiency = ((results.summary.apiCallsSaved / (results.summary.apiCallsUsed + results.summary.apiCallsSaved)) * 100).toFixed(1);
@@ -2013,7 +1738,7 @@ async function main() {
     }
     
     if (results.summary && results.summary.savedToDatabase) {
-        console.log(`📊 Check your Supabase 'undervalued_rentals' table for ${results.summary.savedToDatabase} new deals with undervaluation explanations!`);
+        console.log(`📊 Check your Supabase 'undervalued_rentals' table for ${results.summary.savedToDatabase} new deals!`);
     }
     
     return results;
@@ -2025,7 +1750,7 @@ module.exports = EnhancedBiWeeklyRentalAnalyzer;
 // Run if executed directly
 if (require.main === module) {
     main().catch(error => {
-        console.error('💥 Enhanced rental analyzer with deduplication and description parsing crashed:', error);
+        console.error('💥 Enhanced rental analyzer with deduplication crashed:', error);
         process.exit(1);
     });
 }
