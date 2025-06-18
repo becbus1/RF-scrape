@@ -1249,6 +1249,119 @@ class EnhancedBiWeeklySalesAnalyzer {
     }
 
     /**
+     * Parse property description to identify undervaluation reasons
+     */
+    parseDescriptionForUndervaluationReasons(description) {
+        if (!description || typeof description !== 'string') {
+            return {
+                category: 'unknown',
+                matchedPhrases: [],
+                confidence: 0
+            };
+        }
+
+        const lowerDesc = description.toLowerCase();
+        
+        // Define categories and their associated phrases
+        const categories = {
+            'motivated_seller': {
+                phrases: [
+                    'motivated seller', 'bring all offers', 'priced to sell', 'must sell',
+                    'price reduced', 'reduced price', 'seller motivated', 'quick sale',
+                    'make an offer', 'all offers considered', 'best offer', 'open to offers',
+                    'urgent sale', 'relocating', 'transferred', 'job relocation'
+                ],
+                weight: 1.0
+            },
+            'poor_condition': {
+                phrases: [
+                    'as-is', 'needs tlc', 'fixer upper', 'handyman special', 'needs work',
+                    'needs renovation', 'needs updating', 'original condition', 'gut renovation needed',
+                    'cosmetic work needed', 'sweat equity', 'investor special', 'diamond in the rough',
+                    'needs repairs', 'sold as is', 'bring your contractor', 'renovation opportunity'
+                ],
+                weight: 1.2
+            },
+            'legal_issue': {
+                phrases: [
+                    'short sale', 'foreclosure', 'bank-owned', 'estate sale', 'probate sale',
+                    'court ordered', 'judicial sale', 'reo', 'real estate owned', 'distressed sale',
+                    'bankruptcy', 'lender owned', 'sheriff sale', 'tax sale', 'inherited property'
+                ],
+                weight: 1.5
+            },
+            'cash_only': {
+                phrases: [
+                    'cash buyer', 'no financing', 'not mortgageable', 'cash only', 'all cash',
+                    'financing not available', 'no loans', 'cash sale only', 'no mortgage',
+                    'investor only', 'commercial loan only', 'hard money only'
+                ],
+                weight: 1.3
+            },
+            'location_issue': {
+                phrases: [
+                    'busy street', 'highway adjacent', 'train noise', 'airport noise', 'industrial area',
+                    'commercial zone', 'mixed use', 'ground floor', 'basement level', 'no elevator',
+                    'walk up', '6th floor', 'top floor', 'street level', 'construction nearby',
+                    'development nearby', 'noisy location', 'busy road'
+                ],
+                weight: 0.8
+            },
+            'timing_pressure': {
+                phrases: [
+                    'closing asap', 'quick closing', 'immediate occupancy', 'fast close',
+                    'close in 30 days', 'flexible closing', 'vacant', 'empty', 'move in ready',
+                    'immediate availability', 'closing flexibility', 'can close quickly'
+                ],
+                weight: 0.9
+            },
+            'market_conditions': {
+                phrases: [
+                    'price improvement', 'new to market', 'back on market', 'relisted',
+                    'contract fell through', 'buyer backed out', 'financing fell through',
+                    'market adjustment', 'competitive pricing', 'below market value'
+                ],
+                weight: 1.1
+            }
+        };
+
+        let bestMatch = {
+            category: 'unknown',
+            matchedPhrases: [],
+            confidence: 0,
+            totalWeight: 0
+        };
+
+        // Check each category
+        for (const [category, data] of Object.entries(categories)) {
+            const matchedPhrases = [];
+            let categoryScore = 0;
+
+            for (const phrase of data.phrases) {
+                if (lowerDesc.includes(phrase)) {
+                    matchedPhrases.push(phrase);
+                    categoryScore += data.weight;
+                }
+            }
+
+            if (matchedPhrases.length > 0 && categoryScore > bestMatch.totalWeight) {
+                bestMatch = {
+                    category,
+                    matchedPhrases,
+                    confidence: Math.min(100, (matchedPhrases.length * data.weight * 20)), // Scale to 0-100
+                    totalWeight: categoryScore
+                };
+            }
+        }
+
+        return {
+            category: bestMatch.category,
+            matchedPhrases: bestMatch.matchedPhrases,
+            confidence: Math.round(bestMatch.confidence)
+        };
+    }
+
+    /**
      * Analyze individual sale for undervaluation
      */
     analyzeSaleValue(sale, marketData, neighborhood) {
@@ -1290,6 +1403,9 @@ class EnhancedBiWeeklySalesAnalyzer {
             };
         }
 
+        // NEW: Parse description for undervaluation reasons
+        const descriptionAnalysis = this.parseDescriptionForUndervaluationReasons(sale.description);
+
         // Adjust undervaluation threshold based on reliability
         let undervaluationThreshold = 12; // 12% for sales (higher than rentals)
         if (reliabilityScore < 70) {
@@ -1327,7 +1443,11 @@ class EnhancedBiWeeklySalesAnalyzer {
             reliabilityScore,
             score,
             grade: this.calculateGrade(score),
-            reasoning: this.generateSalesReasoning(discountPercent, sale, marketData, comparisonMethod, reliabilityScore)
+            reasoning: this.generateSalesReasoning(discountPercent, sale, marketData, comparisonMethod, reliabilityScore),
+            // NEW: Description analysis results
+            undervaluationCategory: descriptionAnalysis.category,
+            undervaluationPhrases: descriptionAnalysis.matchedPhrases,
+            categoryConfidence: descriptionAnalysis.confidence
         };
     }
 
@@ -1518,6 +1638,11 @@ class EnhancedBiWeeklySalesAnalyzer {
                     comparison_method: sale.comparisonMethod || '',
                     reliability_score: parseInt(sale.reliabilityScore) || 0,
                     
+                    // NEW: Description analysis results
+                    undervaluation_category: sale.undervaluationCategory || 'unknown',
+                    undervaluation_phrases: Array.isArray(sale.undervaluationPhrases) ? sale.undervaluationPhrases : [],
+                    category_confidence: parseInt(sale.categoryConfidence) || 0,
+                    
                     // Additional data
                     building_info: typeof sale.building === 'object' ? sale.building : {},
                     agents: Array.isArray(sale.agents) ? sale.agents : [],
@@ -1539,7 +1664,9 @@ class EnhancedBiWeeklySalesAnalyzer {
                 if (error) {
                     console.error(`   ❌ Error saving sale ${sale.address}:`, error.message);
                 } else {
-                    console.log(`   ✅ Saved: ${sale.address} (${sale.discountPercent}% below market, Score: ${sale.score})`);
+                    const categoryInfo = sale.undervaluationCategory !== 'unknown' ? 
+                        ` [${sale.undervaluationCategory.replace('_', ' ').toUpperCase()}]` : '';
+                    console.log(`   ✅ Saved: ${sale.address} (${sale.discountPercent}% below market, Score: ${sale.score})${categoryInfo}`);
                     savedCount++;
                 }
 
