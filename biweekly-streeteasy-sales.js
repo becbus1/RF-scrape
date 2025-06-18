@@ -608,7 +608,7 @@ class EnhancedBiWeeklySalesAnalyzer {
         console.log('='.repeat(70));
 
         // Get today's neighborhood assignment
-        const todaysNeighborhoods = ['soho']; // Test with single neighborhood
+        const todaysNeighborhoods = ['tribeca']; // Test with single neighborhood
         
         if (todaysNeighborhoods.length === 0) {
             console.log('📅 No neighborhoods scheduled for today - analysis complete');
