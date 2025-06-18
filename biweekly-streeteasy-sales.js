@@ -160,9 +160,9 @@ class EnhancedBiWeeklySalesAnalyzer {
         }
     }
 
-    /**
-     * SMART DEDUPLICATION: Check which sale IDs we already have cached
-     * FIXED: Added comprehensive error handling
+   /**
+     * SMART DEDUPLICATION: Check which sale IDs we already have cached WITH COMPLETE DETAILS
+     * FIXED: Only count cache entries that have full property details (address, bedrooms, etc.)
      */
     async getExistingSaleIds(listingIds) {
         if (!listingIds || listingIds.length === 0) return [];
@@ -173,7 +173,7 @@ class EnhancedBiWeeklySalesAnalyzer {
 
             const { data, error } = await this.supabase
                 .from('sales_market_cache')
-                .select('listing_id')
+                .select('listing_id, address, bedrooms, bathrooms')
                 .in('listing_id', listingIds)
                 .gte('last_checked', sevenDaysAgo.toISOString());
 
@@ -182,8 +182,24 @@ class EnhancedBiWeeklySalesAnalyzer {
                 return [];
             }
 
-            const existingIds = data.map(row => row.listing_id);
-            console.log(`   💾 Cache lookup: ${existingIds.length}/${listingIds.length} sales found in cache`);
+            // CRITICAL FIX: Only return IDs that have COMPLETE details
+            const completeEntries = data.filter(row => 
+                row.address && 
+                row.address !== 'Address not available' && 
+                row.address !== 'Details unavailable' &&
+                row.address !== 'Fetch failed' &&
+                row.bedrooms !== null &&
+                row.bathrooms !== null
+            );
+
+            const existingIds = completeEntries.map(row => row.listing_id);
+            const incompleteCount = data.length - completeEntries.length;
+            
+            console.log(`   💾 Cache lookup: ${existingIds.length}/${listingIds.length} sales with COMPLETE details found in cache`);
+            if (incompleteCount > 0) {
+                console.log(`   🔄 ${incompleteCount} cached entries need detail fetching (incomplete data)`);
+            }
+            
             return existingIds;
         } catch (error) {
             console.warn('⚠️ Cache lookup failed, will fetch all details:', error.message);
