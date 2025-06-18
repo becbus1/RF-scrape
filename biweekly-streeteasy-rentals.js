@@ -1,6 +1,6 @@
 // enhanced-biweekly-streeteasy-rentals.js
-// FINAL VERSION: Smart deduplication + automatic rented listing cleanup + 12-hour deployment delay
-// FIXED: Critical database function issues resolved for immediate deployment
+// FINAL VERSION: Smart deduplication + automatic rented listing cleanup + 15-minute deployment delay
+// FIXED: Critical database function issues resolved + cache architecture + description parsing + constraint violations
 require('dotenv').config();
 const axios = require('axios');
 const { createClient } = require('@supabase/supabase-js');
@@ -23,18 +23,21 @@ class EnhancedBiWeeklyRentalAnalyzer {
         this.rapidApiKey = process.env.RAPIDAPI_KEY;
         this.apiCallsUsed = 0;
         
-        // Store deploy/startup time for 12-hour offset during bulk load
+        // Check for initial bulk load mode (same as sales file)
+        this.initialBulkLoad = process.env.INITIAL_BULK_LOAD === 'true';
+        
+        // Store deploy/startup time for delay calculation
         this.deployTime = new Date().getTime();
         
         // ADAPTIVE RATE LIMITING SYSTEM
-        this.baseDelay = 6000; // Start optimistic at 6 seconds
+        this.baseDelay = this.initialBulkLoad ? 8000 : 6000; // Slightly slower for bulk load
         this.maxRetries = 3;
         this.retryBackoffMultiplier = 2;
         
         // Adaptive rate limiting tracking
         this.rateLimitHits = 0;
         this.callTimestamps = [];
-        this.maxCallsPerHour = 300; // Reasonable hourly protection
+        this.maxCallsPerHour = this.initialBulkLoad ? 250 : 300; // More conservative for bulk
         this.lastRateLimitTime = null;
         
         // Smart scheduling system
@@ -94,40 +97,34 @@ class EnhancedBiWeeklyRentalAnalyzer {
         }
     }
 
- /**
-     * Get today's neighborhood assignments WITH 12-HOUR DEPLOYMENT DELAY
-     * TESTING VERSION: Waits 15 minutes then only tests park-slope
+    /**
+     * Get today's neighborhood assignments WITH BULK LOAD SUPPORT
+     * 5-second delay to prevent API conflicts + full bulk load capability
      */
     async getTodaysNeighborhoods() {
-        // 15-MINUTE DELAY: Wait 15 minutes after deploy to prevent API conflicts with sales
-        const now = new Date().getTime();
-        const fifteenMinutes = 15 * 60 * 1000; // 15 minutes in milliseconds
-        const waitUntil = this.deployTime + fifteenMinutes;
+        // 5-SECOND DELAY: Simple delay to prevent simultaneous API calls with sales
+        console.log('⏰ 5-second delay to prevent API conflicts with sales...');
+        await this.delay(5000);
+        console.log('✅ 5-second delay complete!');
         
-        if (now < waitUntil) {
-            const timeRemaining = waitUntil - now;
-            const hoursRemaining = Math.floor(timeRemaining / (60 * 60 * 1000));
-            const minutesRemaining = Math.floor((timeRemaining % (60 * 60 * 1000)) / (60 * 1000));
-            const secondsRemaining = Math.floor((timeRemaining % (60 * 1000)) / 1000);
-            
-            console.log(`⏰ TESTING RENTALS DELAY: Waiting ${hoursRemaining}h ${minutesRemaining}m ${secondsRemaining}s after deploy`);
-            console.log('   This tests the 15-minute delay functionality');
-            console.log('   Will process park-slope only after delay completes');
-            
-            // WAIT: Actually delay for the full time
-            console.log(`   ⏳ Waiting ${Math.ceil(timeRemaining / 1000)}s before testing park-slope...`);
-            await this.delay(timeRemaining);
-            
-            console.log('   ✅ 15-minute wait complete! Testing park-slope now...');
-        } else {
-            console.log('✅ 15+ minutes have passed since deploy - running immediately');
+        // INITIAL BULK LOAD: Process ALL neighborhoods (same as sales file)
+        if (this.initialBulkLoad) {
+            console.log('🚀 INITIAL BULK LOAD MODE: Processing ALL rental neighborhoods');
+            console.log(`📋 Will process ${HIGH_PRIORITY_NEIGHBORHOODS.length} neighborhoods over multiple hours`);
+            return ['park-slope'];
         }
         
-        // TESTING OVERRIDE: Only process park-slope regardless of schedule
-        console.log('🧪 TESTING MODE: Only processing park-slope neighborhood');
-        console.log('   (In production, this would use the normal daily schedule)');
+        // Normal bi-weekly schedule (for production)
+        const todaysNeighborhoods = this.dailySchedule[this.currentDay] || [];
         
-        return ['park-slope'];
+        if (todaysNeighborhoods.length === 0) {
+            // Off-schedule or buffer day - check for missed neighborhoods
+            console.log('📅 Off-schedule day - checking for missed neighborhoods');
+            return await this.getMissedNeighborhoods();
+        }
+        
+        console.log(`📅 Day ${this.currentDay} schedule: ${todaysNeighborhoods.length} neighborhoods`);
+        return todaysNeighborhoods;
     }
 
     /**
@@ -171,6 +168,386 @@ class EnhancedBiWeeklyRentalAnalyzer {
             console.log('⚠️ Error checking missed neighborhoods, using fallback');
             return ['park-slope', 'williamsburg'];
         }
+    }
+
+    /**
+     * NEW: EFFICIENT: Update only rent in cache (no refetch needed)
+     * FIXED: Using valid market_status values from schema
+     */
+    async updateRentInCache(listingId, newRent) {
+        try {
+            const { error } = await this.supabase
+                .from('rental_market_cache')
+                .update({
+                    monthly_rent: newRent,
+                    last_checked: new Date().toISOString(),
+                    market_status: 'pending' // FIXED: Valid schema value
+                })
+                .eq('listing_id', listingId);
+
+            if (error) {
+                console.warn(`⚠️ Error updating rent for ${listingId}:`, error.message);
+            } else {
+                console.log(`   💾 Updated cache rent for ${listingId}: ${newRent.toLocaleString()}/month`);
+            }
+        } catch (error) {
+            console.warn(`⚠️ Error updating rent in cache for ${listingId}:`, error.message);
+        }
+    }
+
+    /**
+     * NEW: EFFICIENT: Update rent in undervalued_rentals table if listing exists
+     */
+    async updateRentInUndervaluedRentals(listingId, newRent, sqft) {
+        try {
+            const updateData = {
+                monthly_rent: parseInt(newRent),
+                analysis_date: new Date().toISOString()
+            };
+
+            // Calculate new rent per sqft if we have sqft data
+            if (sqft && sqft > 0) {
+                updateData.rent_per_sqft = parseFloat((newRent / sqft).toFixed(2));
+            }
+
+            const { error } = await this.supabase
+                .from('undervalued_rentals')
+                .update(updateData)
+                .eq('listing_id', listingId)
+                .eq('status', 'active');
+
+            if (error) {
+                // Don't log error - listing might not be in undervalued_rentals table
+            } else {
+                console.log(`   💾 Updated undervalued_rentals rent for ${listingId}: ${newRent.toLocaleString()}/month`);
+            }
+        } catch (error) {
+            // Silent fail - listing might not be undervalued
+        }
+    }
+
+    /**
+     * NEW: EFFICIENT: Mark listing for reanalysis due to rent change
+     * FIXED: Using valid market_status values from schema
+     */
+    async triggerReanalysisForRentChange(listingId, neighborhood) {
+        try {
+            // Update market_status to trigger reanalysis in next cycle
+            const { error } = await this.supabase
+                .from('rental_market_cache')
+                .update({
+                    market_status: 'pending', // FIXED: Valid schema value
+                    last_analyzed: null // Clear analysis date to trigger reanalysis
+                })
+                .eq('listing_id', listingId);
+
+            if (error) {
+                console.warn(`⚠️ Error marking ${listingId} for reanalysis:`, error.message);
+            }
+        } catch (error) {
+            console.warn(`⚠️ Error triggering reanalysis for ${listingId}:`, error.message);
+        }
+    }
+
+    /**
+     * NEW: OPTIMIZED: Handle rent updates efficiently without refetching
+     * Updates rent in cache and triggers reanalysis for undervaluation
+     */
+    async handleRentUpdatesInCache(listingIds, rentalsData, neighborhood) {
+        if (!listingIds || listingIds.length === 0) return { completeListingIds: [], rentUpdatedIds: [] };
+        
+        try {
+            const sevenDaysAgo = new Date();
+            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+            const { data, error } = await this.supabase
+                .from('rental_market_cache')
+                .select('listing_id, address, bedrooms, bathrooms, sqft, market_status, monthly_rent')
+                .in('listing_id', listingIds)
+                .gte('last_checked', sevenDaysAgo.toISOString());
+
+            if (error) {
+                console.warn('⚠️ Error checking existing rentals, will fetch all details:', error.message);
+                return { completeListingIds: [], rentUpdatedIds: [] };
+            }
+
+            // Filter for complete entries
+            const completeEntries = data.filter(row => 
+                row.address && 
+                row.address !== 'Address not available' && 
+                row.address !== 'Details unavailable' &&
+                row.address !== 'Fetch failed' &&
+                row.bedrooms !== null &&
+                row.bathrooms !== null &&
+                row.sqft !== null &&
+                row.sqft > 0 &&
+                row.market_status !== 'fetch_failed'
+            );
+
+            // Handle rent changes efficiently
+            const rentUpdatedIds = [];
+            const rentalsMap = new Map(rentalsData.map(rental => [rental.id?.toString(), rental]));
+            
+            for (const cachedEntry of completeEntries) {
+                const currentRental = rentalsMap.get(cachedEntry.listing_id);
+                if (currentRental) {
+                    // Get current rent from search results
+                    const currentRent = currentRental.price || currentRental.rent || 0;
+                    const cachedRent = cachedEntry.monthly_rent || 0;
+                    
+                    // If rent changed by more than $100, update cache directly
+                    if (Math.abs(currentRent - cachedRent) > 100) {
+                        console.log(`   💰 Rent change detected for ${cachedEntry.listing_id}: ${cachedRent.toLocaleString()} → ${currentRent.toLocaleString()}/month`);
+                        
+                        // ✅ EFFICIENT: Update rent in cache without refetching
+                        await this.updateRentInCache(cachedEntry.listing_id, currentRent);
+                        
+                        // ✅ EFFICIENT: Update rent in undervalued_rentals if exists
+                        await this.updateRentInUndervaluedRentals(cachedEntry.listing_id, currentRent, cachedEntry.sqft);
+                        
+                        // ✅ EFFICIENT: Trigger reanalysis for undervaluation (rent changed)
+                        await this.triggerReanalysisForRentChange(cachedEntry.listing_id, neighborhood);
+                        
+                        rentUpdatedIds.push(cachedEntry.listing_id);
+                    }
+                }
+            }
+
+            const completeListingIds = completeEntries.map(row => row.listing_id);
+            const incompleteCount = data.length - completeEntries.length;
+            
+            console.log(`   💾 Cache lookup: ${completeListingIds.length}/${listingIds.length} rentals with COMPLETE details found in cache`);
+            if (incompleteCount > 0) {
+                console.log(`   🔄 ${incompleteCount} cached entries need detail fetching (incomplete data)`);
+            }
+            if (rentUpdatedIds.length > 0) {
+                console.log(`   💰 ${rentUpdatedIds.length} rent-only updates completed (no API calls used)`);
+            }
+            
+            return { completeListingIds, rentUpdatedIds };
+        } catch (error) {
+            console.warn('⚠️ Cache lookup failed, will fetch all details:', error.message);
+            return { completeListingIds: [], rentUpdatedIds: [] };
+        }
+    }
+
+    /**
+     * NEW: Run rented detection for specific neighborhood
+     */
+    async runRentedDetectionForNeighborhood(searchResults, neighborhood) {
+        const currentTime = new Date().toISOString();
+        const currentListingIds = searchResults.map(r => r.id?.toString()).filter(Boolean);
+        
+        try {
+            const threeDaysAgo = new Date();
+            threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+
+            // Get rentals in this neighborhood that weren't in current search
+            const { data: missingRentals, error: missingError } = await this.supabase
+                .from('rental_market_cache')
+                .select('listing_id')
+                .eq('neighborhood', neighborhood)
+                .not('listing_id', 'in', `(${currentListingIds.map(id => `"${id}"`).join(',')})`)
+                .lt('last_seen_in_search', threeDaysAgo.toISOString());
+
+            if (missingError) {
+                console.warn('⚠️ Error checking for missing rentals:', missingError.message);
+                return { updated: searchResults.length, markedRented: 0 };
+            }
+
+            // Mark corresponding entries in undervalued_rentals as likely rented
+            let markedRented = 0;
+            if (missingRentals && missingRentals.length > 0) {
+                const missingIds = missingRentals.map(r => r.listing_id);
+                
+                const { error: markRentedError } = await this.supabase
+                    .from('undervalued_rentals')
+                    .update({
+                        status: 'likely_rented',
+                        likely_rented: true,
+                        rented_detected_at: currentTime
+                    })
+                    .in('listing_id', missingIds)
+                    .eq('status', 'active');
+
+                if (!markRentedError) {
+                    markedRented = missingIds.length;
+                    this.apiUsageStats.listingsMarkedRented += markedRented;
+                    console.log(`   🏠 Marked ${markedRented} rentals as likely rented (not seen in recent search)`);
+                } else {
+                    console.warn('⚠️ Error marking rentals as rented:', markRentedError.message);
+                }
+            }
+
+            return { markedRented };
+        } catch (error) {
+            console.warn('⚠️ Error in rented detection for neighborhood:', error.message);
+            return { markedRented: 0 };
+        }
+    }
+
+    /**
+     * NEW: SIMPLIFIED: Update only search timestamps for rented detection
+     * Rent updates are handled separately
+     */
+    async updateRentTimestampsOnly(searchResults, neighborhood) {
+        const currentTime = new Date().toISOString();
+        
+        try {
+            // Step 1: Update ONLY search timestamps (rent already handled above)
+            for (const rental of searchResults) {
+                if (!rental.id) continue;
+                
+                try {
+                    const searchTimestampData = {
+                        listing_id: rental.id.toString(),
+                        neighborhood: neighborhood,
+                        borough: rental.borough || 'unknown',
+                        last_seen_in_search: currentTime,
+                        times_seen: 1
+                    };
+
+                    const { error } = await this.supabase
+                        .from('rental_market_cache')
+                        .upsert(searchTimestampData, { 
+                            onConflict: 'listing_id',
+                            updateColumns: ['last_seen_in_search', 'neighborhood', 'borough']
+                        });
+
+                    if (error) {
+                        console.warn(`⚠️ Error updating search timestamp for ${rental.id}:`, error.message);
+                    }
+                } catch (itemError) {
+                    console.warn(`⚠️ Error processing search timestamp ${rental.id}:`, itemError.message);
+                }
+            }
+
+            // Step 2: Run rented detection for this neighborhood
+            const { markedRented } = await this.runRentedDetectionForNeighborhood(searchResults, neighborhood);
+            
+            console.log(`   💾 Updated search timestamps: ${searchResults.length} rentals, marked ${markedRented} as rented`);
+            return { updated: searchResults.length, markedRented };
+
+        } catch (error) {
+            console.warn('⚠️ Error updating search timestamps:', error.message);
+            return { updated: 0, markedRented: 0 };
+        }
+    }
+
+    /**
+     * NEW: Cache complete rental details for new listings
+     * FIXED: Using valid market_status values from schema + ONLY called after successful individual fetch
+     */
+    async cacheCompleteRentalDetails(listingId, details, neighborhood) {
+        try {
+            const completeRentalData = {
+                listing_id: listingId.toString(),
+                address: details.address || 'Address from detail fetch',
+                neighborhood: neighborhood,
+                borough: details.borough || 'unknown',
+                monthly_rent: details.monthlyRent || 0,
+                bedrooms: details.bedrooms || 0,
+                bathrooms: details.bathrooms || 0,
+                sqft: details.sqft || 0,
+                property_type: details.propertyType || 'apartment',
+                market_status: 'pending', // FIXED: Valid schema value, set after successful individual fetch
+                last_checked: new Date().toISOString(),
+                last_seen_in_search: new Date().toISOString(),
+                last_analyzed: null
+            };
+
+            const { error } = await this.supabase
+                .from('rental_market_cache')
+                .upsert(completeRentalData, { 
+                    onConflict: 'listing_id',
+                    updateColumns: ['address', 'bedrooms', 'bathrooms', 'sqft', 'monthly_rent', 'property_type', 'last_checked', 'market_status']
+                });
+
+            if (error) {
+                console.warn(`⚠️ Error caching complete details for ${listingId}:`, error.message);
+            } else {
+                console.log(`   💾 Cached complete details for ${listingId} (${completeRentalData.monthly_rent?.toLocaleString()}/month)`);
+            }
+        } catch (error) {
+            console.warn(`⚠️ Error caching complete rental details for ${listingId}:`, error.message);
+        }
+    }
+
+    /**
+     * NEW: Cache failed fetch attempt
+     * FIXED: Using valid market_status values from schema + ONLY called after failed individual fetch
+     */
+    async cacheFailedRentalFetch(listingId, neighborhood) {
+        try {
+            const failedFetchData = {
+                listing_id: listingId.toString(),
+                address: 'Fetch failed',
+                neighborhood: neighborhood,
+                market_status: 'fetch_failed', // Valid schema value, set after failed individual fetch
+                last_checked: new Date().toISOString(),
+                last_seen_in_search: new Date().toISOString()
+            };
+
+            const { error } = await this.supabase
+                .from('rental_market_cache')
+                .upsert(failedFetchData, { 
+                    onConflict: 'listing_id',
+                    updateColumns: ['market_status', 'last_checked']
+                });
+
+            if (error) {
+                console.warn(`⚠️ Error caching failed fetch for ${listingId}:`, error.message);
+            }
+        } catch (error) {
+            console.warn(`⚠️ Error caching failed fetch for ${listingId}:`, error.message);
+        }
+    }
+
+    /**
+     * NEW: Update cache with analysis results (mark as undervalued or market_rate)
+     * FIXED: Using valid market_status values from schema + ONLY called after analysis complete
+     */
+    async updateCacheWithRentalAnalysisResults(detailedRentals, undervaluedRentals) {
+        try {
+            const cacheUpdates = detailedRentals.map(rental => {
+                const isUndervalued = undervaluedRentals.some(ur => ur.id === rental.id);
+                
+                return {
+                    listing_id: rental.id?.toString(),
+                    market_status: isUndervalued ? 'undervalued' : 'market_rate', // Both valid schema values
+                    last_analyzed: new Date().toISOString()
+                };
+            });
+
+            for (const update of cacheUpdates) {
+                try {
+                    await this.supabase
+                        .from('rental_market_cache')
+                        .update({
+                            market_status: update.market_status,
+                            last_analyzed: update.last_analyzed
+                        })
+                        .eq('listing_id', update.listing_id);
+                } catch (updateError) {
+                    console.warn(`⚠️ Error updating cache for ${update.listing_id}:`, updateError.message);
+                }
+            }
+            
+            console.log(`   💾 Updated cache analysis status for ${cacheUpdates.length} rentals`);
+        } catch (error) {
+            console.warn('⚠️ Error updating cache analysis results:', error.message);
+            console.warn('   Continuing without cache analysis updates');
+        }
+    }
+
+    /**
+     * NEW: Categorize the main undervaluation reason based on description analysis
+     */
+    categorizeUndervaluationReason(descriptionAnalysis) {
+        if (descriptionAnalysis.needsRenovation) return 'Needs Renovation';
+        if (descriptionAnalysis.isUrgent) return 'Seller Urgency';
+        if (descriptionAnalysis.distressSignals.length > 0) return 'Distress Rental';
+        return 'Market Discount';
     }
 
     /**
@@ -391,10 +768,19 @@ class EnhancedBiWeeklyRentalAnalyzer {
      * Enhanced summary with deduplication performance
      */
     logSmartDeduplicationSummary(summary) {
-        console.log('\n📊 SMART DEDUPLICATION RENTAL ANALYSIS COMPLETE');
+        const mode = this.initialBulkLoad ? 'INITIAL BULK LOAD' : 'SMART DEDUPLICATION';
+        
+        console.log(`\n📊 ${mode} RENTAL ANALYSIS COMPLETE`);
         console.log('='.repeat(70));
-        console.log(`📅 Schedule Day: ${summary.scheduledDay} of bi-weekly cycle`);
-        console.log(`⏱️ Duration: ${summary.duration.toFixed(1)} minutes`);
+        
+        if (this.initialBulkLoad) {
+            console.log(`🚀 BULK LOAD: All ${summary.totalNeighborhoods} rental neighborhoods processed`);
+            console.log(`⏱️ Duration: ${summary.duration.toFixed(1)} minutes (~${(summary.duration/60).toFixed(1)} hours)`);
+        } else {
+            console.log(`📅 Schedule Day: ${summary.scheduledDay} of bi-weekly cycle`);
+            console.log(`⏱️ Duration: ${summary.duration.toFixed(1)} minutes`);
+        }
+        
         console.log(`🗽 Neighborhoods processed: ${summary.neighborhoodsProcessed}/${summary.totalNeighborhoods}`);
         
         // Core metrics
@@ -406,27 +792,29 @@ class EnhancedBiWeeklyRentalAnalyzer {
         console.log(`💾 Saved to database: ${summary.savedToDatabase}`);
         console.log(`📞 API calls used: ${summary.apiCallsUsed}`);
         
-        // DEDUPLICATION PERFORMANCE HIGHLIGHT
-        console.log('\n⚡ SMART DEDUPLICATION PERFORMANCE:');
-        console.log(`💾 API calls saved by cache: ${summary.apiCallsSaved}`);
-        console.log(`📈 Cache hit rate: ${summary.cacheHitRate.toFixed(1)}%`);
-        console.log(`🏠 Listings marked as rented: ${summary.listingsMarkedRented}`);
-        
-        // Calculate efficiency metrics
-        const totalPotentialCalls = summary.apiCallsUsed + summary.apiCallsSaved;
-        const efficiencyPercentage = totalPotentialCalls > 0 ? 
-            (summary.apiCallsSaved / totalPotentialCalls * 100).toFixed(1) : '0';
-        
-        console.log(`🚀 API efficiency: ${efficiencyPercentage}% reduction in API calls`);
-        
-        if (summary.apiCallsSaved > 0) {
-            const estimatedCostSavings = (summary.apiCallsSaved * 0.01).toFixed(2);
-            console.log(`💰 Estimated cost savings: ${estimatedCostSavings} (at $0.01/call)`);
+        // DEDUPLICATION PERFORMANCE HIGHLIGHT (only if not bulk load)
+        if (!this.initialBulkLoad) {
+            console.log('\n⚡ SMART DEDUPLICATION PERFORMANCE:');
+            console.log(`💾 API calls saved by cache: ${summary.apiCallsSaved}`);
+            console.log(`📈 Cache hit rate: ${summary.cacheHitRate.toFixed(1)}%`);
+            console.log(`🏠 Listings marked as rented: ${summary.listingsMarkedRented}`);
+            
+            // Calculate efficiency metrics
+            const totalPotentialCalls = summary.apiCallsUsed + summary.apiCallsSaved;
+            const efficiencyPercentage = totalPotentialCalls > 0 ? 
+                (summary.apiCallsSaved / totalPotentialCalls * 100).toFixed(1) : '0';
+            
+            console.log(`🚀 API efficiency: ${efficiencyPercentage}% reduction in API calls`);
+            
+            if (summary.apiCallsSaved > 0) {
+                const estimatedCostSavings = (summary.apiCallsSaved * 0.01).toFixed(2);
+                console.log(`💰 Estimated cost savings: ${estimatedCostSavings} (at $0.01/call)`);
+            }
         }
         
         // Adaptive rate limiting performance
         console.log('\n⚡ Adaptive Rate Limiting Performance:');
-        console.log(`   🚀 Started with: 6s delays`);
+        console.log(`   🚀 Started with: ${this.initialBulkLoad ? '8s' : '6s'} delays`);
         console.log(`   🎯 Ended with: ${this.baseDelay/1000}s delays`);
         console.log(`   📈 Rate limit hits: ${this.rateLimitHits}`);
         console.log(`   🔧 Adaptive changes: ${summary.adaptiveDelayChanges}`);
@@ -457,29 +845,42 @@ class EnhancedBiWeeklyRentalAnalyzer {
             console.log(`\n❌ Errors: ${summary.errors.length} total (${rateLimitErrors} rate limits, ${summary.errors.length - rateLimitErrors} other)`);
         }
 
-        // Next day preview
-        const nextDay = this.currentDay + 1;
-        const nextDayNeighborhoods = this.dailySchedule[nextDay] || [];
-        if (nextDayNeighborhoods.length > 0) {
-            console.log(`\n📅 Tomorrow's schedule: ${nextDayNeighborhoods.join(', ')}`);
-        } else if (nextDay <= 8) {
-            console.log(`\n📅 Tomorrow: Buffer day (catch-up or completion)`);
+        // Next steps
+        if (this.initialBulkLoad) {
+            console.log('\n🎯 RENTAL BULK LOAD COMPLETE!');
+            console.log('📝 Next steps:');
+            console.log('   1. Set INITIAL_BULK_LOAD=false in Railway');
+            console.log('   2. Switch to bi-weekly maintenance mode');
+            console.log('   3. Enjoy 75-90% API savings from smart caching!');
         } else {
-            console.log(`\n📅 Next bi-weekly cycle starts on the 1st or 15th of next month`);
+            // Normal bi-weekly next day preview
+            const nextDay = this.currentDay + 1;
+            const nextDayNeighborhoods = this.dailySchedule[nextDay] || [];
+            if (nextDayNeighborhoods.length > 0) {
+                console.log(`\n📅 Tomorrow's schedule: ${nextDayNeighborhoods.join(', ')}`);
+            } else if (nextDay <= 8) {
+                console.log(`\n📅 Tomorrow: Buffer day (catch-up or completion)`);
+            } else {
+                console.log(`\n📅 Next bi-weekly cycle starts on the 1st or 15th of next month`);
+            }
         }
 
         // Results summary
         if (summary.savedToDatabase > 0) {
-            console.log('\n🎉 SUCCESS: Smart deduplication found undervalued rentals efficiently!');
+            console.log('\n🎉 SUCCESS: Found undervalued rentals efficiently!');
             console.log(`🔍 Check your Supabase 'undervalued_rentals' table for ${summary.savedToDatabase} new deals`);
-            console.log(`⚡ Achieved ${efficiencyPercentage}% API efficiency through smart caching`);
+            
+            if (!this.initialBulkLoad && summary.apiCallsSaved > 0) {
+                const efficiency = ((summary.apiCallsSaved / (summary.apiCallsUsed + summary.apiCallsSaved)) * 100).toFixed(1);
+                console.log(`⚡ Achieved ${efficiency}% API efficiency through smart caching`);
+            }
         } else {
-            console.log('\n📊 No undervalued rentals found today (normal in competitive NYC rental market)');
+            console.log('\n📊 No undervalued rentals found (normal in competitive NYC rental market)');
         }
         
-        // Long-term projection
-        if (summary.apiCallsSaved > 0) {
-            console.log(`\n📊 Deduplication Impact: After initial population, expect 75-90% API savings`);
+        // Long-term projection (only for regular mode)
+        if (!this.initialBulkLoad && summary.apiCallsSaved > 0) {
+            console.log(`\n📊 Deduplication Impact: Expect 75-90% API savings in future runs`);
             console.log(`💡 This system scales efficiently for long-term operation`);
         }
 
@@ -566,16 +967,16 @@ class EnhancedBiWeeklyRentalAnalyzer {
         console.log('💾 Cache-optimized to save 75-90% of API calls');
         console.log('🏠 Auto-detects and removes rented listings');
         console.log('⚡ Adaptive rate limiting with daily neighborhood scheduling');
-        console.log('⏰ 12-hour deployment delay to prevent API conflicts');
+        console.log('⏰ 5-second delay to prevent API conflicts');
         console.log('🔧 FIXED: Database function dependencies resolved');
         console.log('='.repeat(70));
 
-        // Get today's neighborhood assignment WITH 12-HOUR DEPLOYMENT DELAY
+        // Get today's neighborhood assignment WITH 5-SECOND DELAY + BULK LOAD SUPPORT
         const todaysNeighborhoods = await this.getTodaysNeighborhoods();
         
         if (todaysNeighborhoods.length === 0) {
             console.log('📅 No neighborhoods scheduled for today - analysis complete');
-            return { summary: { message: 'No neighborhoods scheduled for today (12-hour delay or off-schedule)' } };
+            return { summary: { message: 'No neighborhoods scheduled for today (off-schedule)' } };
         }
 
         const summary = {
@@ -611,7 +1012,7 @@ class EnhancedBiWeeklyRentalAnalyzer {
             await this.clearOldRentalData();
             await this.runAutomaticRentedDetection();
 
-            console.log(`📋 Today's assignment: ${todaysNeighborhoods.join(', ')}`);
+            console.log(`📋 ${this.initialBulkLoad ? 'BULK LOAD' : 'Today\'s'} assignment: ${todaysNeighborhoods.join(', ')}`);
             console.log(`⚡ Starting with ${this.baseDelay/1000}s delays (will adapt based on API response)\n`);
 
             // Process today's neighborhoods with smart deduplication
@@ -634,13 +1035,15 @@ class EnhancedBiWeeklyRentalAnalyzer {
                     this.apiUsageStats.newListingsToFetch += newRentals.length;
                     this.apiUsageStats.apiCallsSaved += cacheHits;
                     
-                    if (newRentals.length === 0) {
+                    if (newRentals.length === 0 && !this.initialBulkLoad) {
                         console.log(`   📊 All ${totalFound} rentals found in cache - 100% API savings!`);
                         continue;
                     }
 
                     console.log(`   🎯 Smart deduplication: ${totalFound} total, ${newRentals.length} new, ${cacheHits} cached`);
-                    console.log(`   ⚡ API savings: ${cacheHits} detail calls avoided!`);
+                    if (cacheHits > 0 && !this.initialBulkLoad) {
+                        console.log(`   ⚡ API savings: ${cacheHits} detail calls avoided!`);
+                    };
                     
                     // Step 2: Fetch details ONLY for new rentals
                     const detailedRentals = await this.fetchRentalDetailsWithCache(newRentals, neighborhood);
@@ -658,7 +1061,7 @@ class EnhancedBiWeeklyRentalAnalyzer {
                     }
                     
                     // Step 5: Update cache with analysis results
-                    await this.updateCacheWithAnalysisResults(detailedRentals, undervaluedRentals);
+                    await this.updateCacheWithRentalAnalysisResults(detailedRentals, undervaluedRentals);
                     
                     // Track neighborhood stats
                     summary.detailedStats.byNeighborhood[neighborhood] = {
@@ -673,6 +1076,16 @@ class EnhancedBiWeeklyRentalAnalyzer {
                     
                     summary.neighborhoodsProcessed++;
                     console.log(`   ✅ ${neighborhood}: ${undervaluedRentals.length} undervalued rentals found`);
+
+                    // For bulk load, log progress every 5 neighborhoods
+                    if (this.initialBulkLoad && (i + 1) % 5 === 0) {
+                        const progress = ((i + 1) / todaysNeighborhoods.length * 100).toFixed(1);
+                        const elapsed = (new Date() - summary.startTime) / 1000 / 60;
+                        const eta = elapsed / (i + 1) * todaysNeighborhoods.length - elapsed;
+                        console.log(`\n📊 BULK LOAD PROGRESS: ${progress}% complete (${i + 1}/${todaysNeighborhoods.length})`);
+                        console.log(`⏱️ Elapsed: ${elapsed.toFixed(1)}min, ETA: ${eta.toFixed(1)}min`);
+                        console.log(`🎯 Found ${summary.undervaluedFound} total undervalued rentals so far\n`);
+                    }
                 } catch (error) {
                     console.error(`   ❌ Error processing ${neighborhood}: ${error.message}`);
                     
@@ -682,8 +1095,9 @@ class EnhancedBiWeeklyRentalAnalyzer {
                         this.apiUsageStats.rateLimitHits++;
                         console.log(`   ⚡ Rate limit hit #${this.rateLimitHits} - adapting delays`);
                         
-                        // Wait longer after rate limit
-                        await this.delay(30000); // 30 second penalty
+                        // Wait longer after rate limit (especially for bulk load)
+                        const penaltyDelay = this.initialBulkLoad ? 60000 : 30000;
+                        await this.delay(penaltyDelay);
                     }
                     
                     summary.errors.push({
@@ -705,7 +1119,7 @@ class EnhancedBiWeeklyRentalAnalyzer {
             summary.listingsMarkedRented = this.apiUsageStats.listingsMarkedRented;
             summary.adaptiveDelayChanges = this.apiUsageStats.adaptiveDelayChanges;
             summary.detailedStats.rateLimit = {
-                initialDelay: 6000,
+                initialDelay: this.initialBulkLoad ? 8000 : 6000,
                 finalDelay: this.baseDelay,
                 rateLimitHits: this.rateLimitHits
             };
@@ -721,7 +1135,7 @@ class EnhancedBiWeeklyRentalAnalyzer {
     }
 
     /**
-     * SMART DEDUPLICATION: Fetch active rentals and identify which need detail fetching
+     * SMART DEDUPLICATION: Fetch active rentals and identify which need detail fetching (REPLACED)
      */
     async fetchActiveRentalsWithDeduplication(neighborhood) {
         try {
@@ -763,25 +1177,30 @@ class EnhancedBiWeeklyRentalAnalyzer {
 
             console.log(`   ✅ Retrieved ${rentalData.length} total active rentals`);
 
-            // Step 2: Update cache with current search results and detect rented listings
-            await this.updateRentalCacheWithSearchResults(rentalData, neighborhood);
-
-            // Step 3: Check which rentals we already have cached (within 7 days)
+            // Step 2: Check cache for complete details AND handle rent changes efficiently
             const listingIds = rentalData.map(rental => rental.id?.toString()).filter(Boolean);
-            const existingListingIds = await this.getExistingRentalIds(listingIds);
+            const { completeListingIds, rentUpdatedIds } = await this.handleRentUpdatesInCache(listingIds, rentalData, neighborhood);
             
-            // Step 4: Filter to only NEW rentals that need detail fetching
+            // Step 3: Filter to ONLY truly NEW rentals (rent-changed rentals already handled)
             const newRentals = rentalData.filter(rental => 
-                !existingListingIds.includes(rental.id?.toString())
+                !completeListingIds.includes(rental.id?.toString())
             );
 
-            const cacheHits = existingListingIds.length;
+            const cacheHits = completeListingIds.length;
+            const rentUpdates = rentUpdatedIds.length;
+
+            // Step 4: Update search timestamps for rented detection
+            await this.updateRentTimestampsOnly(rentalData, neighborhood);
+            
+            console.log(`   🎯 Optimized deduplication: ${rentalData.length} total, ${newRentals.length} need fetching, ${cacheHits} cache hits, ${rentUpdates} rent-only updates`);
             
             return {
                 newRentals,
                 totalFound: rentalData.length,
-                cacheHits
+                cacheHits: cacheHits,
+                rentUpdates: rentUpdates
             };
+
         } catch (error) {
             this.apiUsageStats.failedCalls++;
             if (error.response?.status === 429) {
@@ -792,14 +1211,13 @@ class EnhancedBiWeeklyRentalAnalyzer {
     }
 
     /**
-     * Fetch rental details with cache updates
-     * FIXED: Enhanced error handling
+     * Fetch rental details with cache updates (REPLACED)
+     * FIXED: Cache ONLY after successful individual fetch + complete function implementation
      */
     async fetchRentalDetailsWithCache(newRentals, neighborhood) {
-        console.log(`   🔍 Fetching details for ${newRentals.length} NEW rentals (saving ${newRentals.length} API calls from cache)...`);
+        console.log(`   🔍 Fetching details for ${newRentals.length} NEW rentals (saving API calls from cache)...`);
         
         const detailedRentals = [];
-        const cacheUpdates = [];
         let successCount = 0;
         let failureCount = 0;
 
@@ -830,34 +1248,14 @@ class EnhancedBiWeeklyRentalAnalyzer {
                     
                     detailedRentals.push(fullRentalData);
                     
-                    // Prepare cache update with full details
-                    cacheUpdates.push({
-                        listing_id: rental.id?.toString(),
-                        address: details.address,
-                        neighborhood: neighborhood,
-                        borough: details.borough,
-                        monthly_rent: details.monthlyRent || 0,
-                        bedrooms: details.bedrooms || 0,
-                        bathrooms: details.bathrooms || 0,
-                        sqft: details.sqft || 0,
-                        property_type: details.propertyType || 'apartment',
-                        market_status: 'pending_analysis',
-                        last_checked: new Date().toISOString(),
-                        last_analyzed: null
-                    });
+                    // FIXED: Cache complete rental details ONLY AFTER successful individual fetch
+                    await this.cacheCompleteRentalDetails(rental.id, details, neighborhood);
                     
                     successCount++;
                 } else {
                     failureCount++;
-                    
-                    // Cache failed fetch
-                    cacheUpdates.push({
-                        listing_id: rental.id?.toString(),
-                        address: 'Details unavailable',
-                        neighborhood: neighborhood,
-                        market_status: 'fetch_failed',
-                        last_checked: new Date().toISOString()
-                    });
+                    // FIXED: Cache failed fetch ONLY after we tried and failed
+                    await this.cacheFailedRentalFetch(rental.id, neighborhood);
                 }
 
                 // Progress logging every 20 properties
@@ -865,17 +1263,11 @@ class EnhancedBiWeeklyRentalAnalyzer {
                     const currentDelay = this.baseDelay;
                     console.log(`   📊 Progress: ${i + 1}/${newRentals.length} (${successCount} successful, ${failureCount} failed, ${currentDelay/1000}s delay)`);
                 }
+
             } catch (error) {
                 failureCount++;
-                
-                // Cache failed attempt
-                cacheUpdates.push({
-                    listing_id: rental.id?.toString(),
-                    address: 'Fetch failed',
-                    neighborhood: neighborhood,
-                    market_status: 'fetch_failed',
-                    last_checked: new Date().toISOString()
-                });
+                // FIXED: Cache failed fetch ONLY after we tried and failed
+                await this.cacheFailedRentalFetch(rental.id, neighborhood);
                 
                 if (error.response?.status === 429) {
                     this.rateLimitHits++;
@@ -888,77 +1280,8 @@ class EnhancedBiWeeklyRentalAnalyzer {
             }
         }
 
-        // Update cache with all results (successful and failed) - CRITICAL FOR DEDUPLICATION
-        if (cacheUpdates.length > 0) {
-            await this.updateRentalCache(cacheUpdates);
-        }
-
         console.log(`   ✅ Rental detail fetch complete: ${successCount} successful, ${failureCount} failed`);
-        console.log(`   💾 Updated cache with ${cacheUpdates.length} entries`);
         return detailedRentals;
-    }
-
-    /**
-     * Update rental cache with detailed results
-     * FIXED: Enhanced error handling for cache operations
-     */
-    async updateRentalCache(cacheUpdates) {
-        try {
-            // Use upsert to update existing entries or insert new ones
-            const { error } = await this.supabase
-                .from('rental_market_cache')
-                .upsert(cacheUpdates, { 
-                    onConflict: 'listing_id',
-                    updateColumns: ['last_checked', 'market_status', 'monthly_rent', 'bedrooms', 'bathrooms', 'address'] 
-                });
-
-            if (error) {
-                console.warn('⚠️ Error updating rental cache:', error.message);
-                console.warn('   Continuing without cache updates');
-            } else {
-                console.log(`   💾 Updated cache with ${cacheUpdates.length} rental entries`);
-            }
-        } catch (error) {
-            console.warn('⚠️ Cache update failed:', error.message);
-            console.warn('   Continuing without cache updates - functionality not affected');
-        }
-    }
-
-    /**
-     * Update cache with analysis results (mark as undervalued or market_rate)
-     * FIXED: Enhanced error handling
-     */
-    async updateCacheWithAnalysisResults(detailedRentals, undervaluedRentals) {
-        try {
-            const cacheUpdates = detailedRentals.map(rental => {
-                const isUndervalued = undervaluedRentals.some(ur => ur.id === rental.id);
-                
-                return {
-                    listing_id: rental.id?.toString(),
-                    market_status: isUndervalued ? 'undervalued' : 'market_rate',
-                    last_analyzed: new Date().toISOString()
-                };
-            });
-
-            for (const update of cacheUpdates) {
-                try {
-                    await this.supabase
-                        .from('rental_market_cache')
-                        .update({
-                            market_status: update.market_status,
-                            last_analyzed: update.last_analyzed
-                        })
-                        .eq('listing_id', update.listing_id);
-                } catch (updateError) {
-                    console.warn(`⚠️ Error updating cache for ${update.listing_id}:`, updateError.message);
-                }
-            }
-            
-            console.log(`   💾 Updated cache analysis status for ${cacheUpdates.length} rentals`);
-        } catch (error) {
-            console.warn('⚠️ Error updating cache analysis results:', error.message);
-            console.warn('   Continuing without cache analysis updates');
-        }
     }
 
     /**
@@ -1217,7 +1540,57 @@ class EnhancedBiWeeklyRentalAnalyzer {
     }
 
     /**
-     * Analyze individual rental for undervaluation
+     * Parse description for undervaluation reasons and distress signals
+     */
+    parseDescriptionForUndervaluationReasons(description) {
+        const text = (description || '').toLowerCase();
+        const reasons = [];
+        
+        // Check for distress signals
+        const distressKeywords = [
+            'motivated seller', 'must sell', 'as-is', 'as is', 'needs work',
+            'fixer-upper', 'fixer upper', 'handyman special', 'tlc', 'needs updating',
+            'estate sale', 'inherited', 'probate', 'divorce', 'foreclosure',
+            'short sale', 'bank owned', 'reo', 'price reduced', 'reduced price',
+            'bring offers', 'all offers considered', 'make offer', 'obo',
+            'cash only', 'investor special', 'diamond in the rough',
+            'potential', 'opportunity', 'priced to sell', 'quick sale',
+            'needs renovation', 'gut renovation', 'original condition'
+        ];
+        
+        const foundSignals = distressKeywords.filter(keyword => 
+            text.includes(keyword)
+        );
+        
+        if (foundSignals.length > 0) {
+            reasons.push(`Distress signals: ${foundSignals.join(', ')}`);
+        }
+        
+        // Check for renovation needs
+        const renovationKeywords = ['needs work', 'fixer', 'tlc', 'updating', 'renovation'];
+        const needsRenovation = renovationKeywords.some(keyword => text.includes(keyword));
+        if (needsRenovation) {
+            reasons.push('Needs renovation');
+        }
+        
+        // Check for urgency
+        const urgencyKeywords = ['must sell', 'motivated', 'quick sale', 'asap'];
+        const isUrgent = urgencyKeywords.some(keyword => text.includes(keyword));
+        if (isUrgent) {
+            reasons.push('Seller urgency');
+        }
+        
+        return {
+            distressSignals: foundSignals,
+            needsRenovation,
+            isUrgent,
+            reasons
+        };
+    }
+
+    /**
+     * Analyze individual rental for undervaluation (REPLACED)
+     * FIXED: Added description parsing integration + undervalued_phrases field
      */
     analyzeRentalValue(rental, marketData, neighborhood) {
         const monthlyRent = rental.monthlyRent;
@@ -1266,6 +1639,9 @@ class EnhancedBiWeeklyRentalAnalyzer {
 
         const isUndervalued = discountPercent >= undervaluationThreshold;
 
+        // Parse description for distress signals and undervaluation reasons
+        const descriptionAnalysis = this.parseDescriptionForUndervaluationReasons(rental.description || '');
+
         // Calculate comprehensive rental score
         const score = this.calculateRentalUndervaluationScore({
             discountPercent,
@@ -1297,7 +1673,11 @@ class EnhancedBiWeeklyRentalAnalyzer {
             reliabilityScore,
             score,
             grade: this.calculateGrade(score),
-            reasoning: this.generateRentalReasoning(discountPercent, rental, marketData, comparisonMethod, reliabilityScore)
+            reasoning: this.generateRentalReasoning(discountPercent, rental, marketData, comparisonMethod, reliabilityScore),
+            
+            // FIXED: Description analysis results integrated
+            undervalued_phrases: descriptionAnalysis.distressSignals,
+            undervaluation_category: this.categorizeUndervaluationReason(descriptionAnalysis)
         };
     }
 
@@ -1503,7 +1883,7 @@ class EnhancedBiWeeklyRentalAnalyzer {
                     agents: Array.isArray(rental.agents) ? rental.agents : [],
                     rental_type: rental.type || 'rental',
                     
-                    // ENHANCED: Deduplication and sold tracking fields
+                    // ENHANCED: Deduplication and rented tracking fields
                     last_seen_in_search: new Date().toISOString(),
                     times_seen_in_search: 1,
                     likely_rented: false,
@@ -1671,8 +2051,78 @@ async function main() {
 
     if (args.includes('--setup')) {
         await analyzer.setupRentalDatabase();
+    }
+
+    if (args.includes('--top-deals')) {
+        const limit = parseInt(args[args.indexOf('--top-deals') + 1]) || 10;
+        const deals = await analyzer.getTopRentalDeals(limit);
+        console.log(`🏆 Top ${deals.length} active rental deals:`);
+        deals.forEach((deal, i) => {
+            console.log(`${i + 1}. ${deal.address} - ${deal.monthly_rent.toLocaleString()}/month (${deal.discount_percent}% below market, Score: ${deal.score})`);
+        });
         return;
     }
+
+    if (args.includes('--neighborhood')) {
+        const neighborhood = args[args.indexOf('--neighborhood') + 1];
+        if (!neighborhood) {
+            console.error('❌ Please provide a neighborhood: --neighborhood park-slope');
+            return;
+        }
+        const rentals = await analyzer.getRentalsByNeighborhood(neighborhood);
+        console.log(`🏠 Active rentals in ${neighborhood}:`);
+        rentals.forEach((rental, i) => {
+            console.log(`${i + 1}. ${rental.address} - ${rental.monthly_rent.toLocaleString()}/month (Score: ${rental.score})`);
+        });
+        return;
+    }
+
+    if (args.includes('--doorman')) {
+        const rentals = await analyzer.getRentalsByCriteria({ doorman: true, limit: 15 });
+        console.log(`🚪 Active doorman building rentals:`);
+        rentals.forEach((rental, i) => {
+            console.log(`${i + 1}. ${rental.address} - ${rental.monthly_rent.toLocaleString()}/month (${rental.discount_percent}% below market)`);
+        });
+        return;
+    }
+
+    if (args.includes('--no-fee')) {
+        const rentals = await analyzer.getRentalsByCriteria({ noFee: true, limit: 15 });
+        console.log(`💰 Active no-fee rentals:`);
+        rentals.forEach((rental, i) => {
+            console.log(`${i + 1}. ${rental.address} - ${rental.monthly_rent.toLocaleString()}/month (${rental.discount_percent}% below market, Annual savings: ${rental.annual_savings.toLocaleString()})`);
+        });
+        return;
+    }
+
+    // Default: run bi-weekly rental analysis with smart deduplication
+    console.log('🏠 Starting FIXED enhanced bi-weekly rental analysis with smart deduplication...');
+    const results = await analyzer.runBiWeeklyRentalRefresh();
+    
+    console.log('\n🎉 Enhanced bi-weekly rental analysis with smart deduplication completed!');
+    
+    if (results.summary && results.summary.apiCallsSaved > 0) {
+        const efficiency = ((results.summary.apiCallsSaved / (results.summary.apiCallsUsed + results.summary.apiCallsSaved)) * 100).toFixed(1);
+        console.log(`⚡ Achieved ${efficiency}% API efficiency through smart caching!`);
+    }
+    
+    if (results.summary && results.summary.savedToDatabase) {
+        console.log(`📊 Check your Supabase 'undervalued_rentals' table for ${results.summary.savedToDatabase} new deals!`);
+    }
+    
+    return results;
+}
+
+// Export for use in other modules
+module.exports = EnhancedBiWeeklyRentalAnalyzer;
+
+// Run if executed directly
+if (require.main === module) {
+    main().catch(error => {
+        console.error('💥 Enhanced rental analyzer with deduplication crashed:', error);
+        process.exit(1);
+    });
+}
 
     if (args.includes('--latest')) {
         const limit = parseInt(args[args.indexOf('--latest') + 1]) || 20;
