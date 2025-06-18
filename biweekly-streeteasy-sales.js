@@ -814,19 +814,20 @@ class EnhancedBiWeeklySalesAnalyzer {
 
             console.log(`   ✅ Retrieved ${salesData.length} total active sales`);
 
-            // Step 2: Update cache with current search results and detect sold listings
-            await this.updateSalesCacheWithSearchResults(salesData, neighborhood);
-
-            // Step 3: Check which sales we already have cached (within 7 days)
+            // Step 2: Check which sales we already have cached WITH COMPLETE DETAILS (within 7 days)
             const listingIds = salesData.map(sale => sale.id?.toString()).filter(Boolean);
             const existingListingIds = await this.getExistingSaleIds(listingIds);
             
-            // Step 4: Filter to only NEW sales that need detail fetching
+            // Step 3: Filter to only NEW sales that need detail fetching
             const newSales = salesData.filter(sale => 
                 !existingListingIds.includes(sale.id?.toString())
             );
 
             const cacheHits = existingListingIds.length;
+
+            // Step 4: ONLY update cache with search results for sold detection
+            // DO NOT cache incomplete property details yet - wait for individual fetches
+            await this.updateSalesCacheSearchTimestamps(salesData, neighborhood);
             
             return {
                 newSales,
@@ -840,6 +841,96 @@ class EnhancedBiWeeklySalesAnalyzer {
                 this.apiUsageStats.rateLimitHits++;
             }
             throw error;
+        }
+    }
+
+    /**
+     * FIXED: Update only search timestamps for sold detection, NOT property details
+     * Property details will be updated after individual fetches
+     */
+    async updateSalesCacheSearchTimestamps(searchResults, neighborhood) {
+        const currentTime = new Date().toISOString();
+        const currentListingIds = searchResults.map(r => r.id?.toString()).filter(Boolean);
+        
+        try {
+            // Step 1: Update ONLY last_seen_in_search for existing cache entries
+            for (const sale of searchResults) {
+                if (!sale.id) continue;
+                
+                try {
+                    // Only update search timestamp - NOT property details (those come from individual fetch)
+                    const { error } = await this.supabase
+                        .from('sales_market_cache')
+                        .upsert({
+                            listing_id: sale.id.toString(),
+                            neighborhood: neighborhood,
+                            last_seen_in_search: currentTime,
+                            times_seen: 1 // Will be incremented if exists
+                        }, { 
+                            onConflict: 'listing_id',
+                            updateColumns: ['last_seen_in_search'] // ONLY update search timestamp
+                        });
+
+                    if (error) {
+                        console.warn(`⚠️ Error updating search timestamp for ${sale.id}:`, error.message);
+                    }
+                } catch (itemError) {
+                    console.warn(`⚠️ Error processing search timestamp ${sale.id}:`, itemError.message);
+                }
+            }
+
+            // Step 2: Mark sales in this neighborhood as likely sold if not seen in recent search
+            try {
+                const threeDaysAgo = new Date();
+                threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+
+                // Get sales in this neighborhood that weren't in current search
+                const { data: missingSales, error: missingError } = await this.supabase
+                    .from('sales_market_cache')
+                    .select('listing_id')
+                    .eq('neighborhood', neighborhood)
+                    .not('listing_id', 'in', `(${currentListingIds.map(id => `"${id}"`).join(',')})`)
+                    .lt('last_seen_in_search', threeDaysAgo.toISOString());
+
+                if (missingError) {
+                    console.warn('⚠️ Error checking for missing sales:', missingError.message);
+                    return { updated: searchResults.length, markedSold: 0 };
+                }
+
+                // Mark corresponding entries in undervalued_sales as likely sold
+                let markedSold = 0;
+                if (missingSales && missingSales.length > 0) {
+                    const missingIds = missingSales.map(r => r.listing_id);
+                    
+                    const { error: markSoldError } = await this.supabase
+                        .from('undervalued_sales')
+                        .update({
+                            status: 'likely_sold',
+                            likely_sold: true,
+                            sold_detected_at: currentTime
+                        })
+                        .in('listing_id', missingIds)
+                        .eq('status', 'active');
+
+                    if (!markSoldError) {
+                        markedSold = missingIds.length;
+                        this.apiUsageStats.listingsMarkedSold += markedSold;
+                        console.log(`   🏠 Marked ${markedSold} sales as likely sold (not seen in recent search)`);
+                    } else {
+                        console.warn('⚠️ Error marking sales as sold:', markSoldError.message);
+                    }
+                }
+
+                console.log(`   💾 Updated search timestamps: ${searchResults.length} sales, marked ${markedSold} as sold`);
+                return { updated: searchResults.length, markedSold };
+            } catch (markingError) {
+                console.warn('⚠️ Error in sales marking process:', markingError.message);
+                return { updated: searchResults.length, markedSold: 0 };
+            }
+
+        } catch (error) {
+            console.warn('⚠️ Error updating search timestamps:', error.message);
+            return { updated: 0, markedSold: 0 };
         }
     }
 
@@ -1487,7 +1578,8 @@ class EnhancedBiWeeklySalesAnalyzer {
     }
 
     /**
-     * Save undervalued sales to database with enhanced deduplication check
+     * Save undervalued sales to database with EXACT schema matching
+     * FIXED: Only use columns that actually exist in your Supabase table
      */
     async saveUndervaluedSalesToDatabase(undervaluedSales, neighborhood) {
         console.log(`   💾 Saving ${undervaluedSales.length} undervalued sales to database...`);
@@ -1526,77 +1618,71 @@ class EnhancedBiWeeklySalesAnalyzer {
                     continue;
                 }
 
-                // Enhanced database record with all fields - FIXED: Removed closed_at references
+                // FIXED: Database record matching your EXACT Supabase schema
                 const dbRecord = {
+                    // 🆔 Identifiers
                     listing_id: sale.id?.toString(),
+                    
+                    // 📍 Location
                     address: sale.address,
                     neighborhood: sale.neighborhood,
                     borough: sale.borough || 'unknown',
                     zipcode: sale.zipcode,
                     
-                    // Sales pricing - FIXED: Using sale_price to match what was working before
-                    sale_price: parseInt(sale.salePrice) || 0,
+                    // 💰 Pricing - FIXED: Using 'price' not 'sale_price' to match your schema
+                    price: parseInt(sale.salePrice) || 0,
                     price_per_sqft: sale.actualPricePerSqft ? parseFloat(sale.actualPricePerSqft.toFixed(2)) : null,
                     market_price_per_sqft: sale.marketPricePerSqft ? parseFloat(sale.marketPricePerSqft.toFixed(2)) : null,
                     discount_percent: parseFloat(sale.discountPercent.toFixed(2)),
                     potential_savings: parseInt(sale.potentialSavings) || 0,
                     
-                    // Property details
+                    // 🛏️ Property Specs
                     bedrooms: parseInt(sale.bedrooms) || 0,
                     bathrooms: sale.bathrooms ? parseFloat(sale.bathrooms) : null,
                     sqft: sale.sqft ? parseInt(sale.sqft) : null,
                     property_type: sale.propertyType || 'condo',
-                    
-                    // Sales terms - FIXED: Only listed_at (no closed_at)
-                    listing_status: sale.status || 'unknown',
                     listed_at: sale.listedAt ? new Date(sale.listedAt).toISOString() : null,
                     days_on_market: parseInt(sale.daysOnMarket) || 0,
-                    
-                    // Building features
-                    doorman_building: sale.doormanBuilding || false,
-                    elevator_building: sale.elevatorBuilding || false,
-                    pet_friendly: sale.petFriendly || false,
-                    laundry_available: sale.laundryAvailable || false,
-                    gym_available: sale.gymAvailable || false,
-                    rooftop_access: sale.rooftopAccess || false,
-                    
-                    // Building info
+                    monthly_hoa: sale.monthlyHoa ? parseFloat(sale.monthlyHoa) : null,
+                    monthly_tax: sale.monthlyTax ? parseFloat(sale.monthlyTax) : null,
                     built_in: sale.builtIn ? parseInt(sale.builtIn) : null,
-                    latitude: sale.latitude ? parseFloat(sale.latitude) : null,
-                    longitude: sale.longitude ? parseFloat(sale.longitude) : null,
                     
-                    // Media and description
+                    // 🖼️ Media
                     images: Array.isArray(sale.images) ? sale.images : [],
                     image_count: Array.isArray(sale.images) ? sale.images.length : 0,
                     videos: Array.isArray(sale.videos) ? sale.videos : [],
                     floorplans: Array.isArray(sale.floorplans) ? sale.floorplans : [],
+                    
+                    // 🏢 Other Property Details
                     description: typeof sale.description === 'string' ? 
                         sale.description.substring(0, 2000) : '',
-                    
-                    // Amenities
                     amenities: Array.isArray(sale.amenities) ? sale.amenities : [],
-                    amenity_count: Array.isArray(sale.amenities) ? sale.amenities.length : 0,
-                    
-                    // Analysis results
                     score: parseInt(sale.score) || 0,
                     grade: sale.grade || 'F',
                     reasoning: sale.reasoning || '',
+                    
+                    // 📊 Comparison & Evaluation
                     comparison_group: sale.comparisonGroup || '',
                     comparison_method: sale.comparisonMethod || '',
                     reliability_score: parseInt(sale.reliabilityScore) || 0,
                     
-                    // Additional data
+                    // 🧱 Building & Agent Info
                     building_info: typeof sale.building === 'object' ? sale.building : {},
                     agents: Array.isArray(sale.agents) ? sale.agents : [],
-                    sale_type: sale.type || 'sale',
                     
-                    // ENHANCED: Deduplication and sold tracking fields
+                    // 🔍 Market Activity - ENHANCED: Deduplication tracking
                     last_seen_in_search: new Date().toISOString(),
                     times_seen_in_search: 1,
                     likely_sold: false,
                     
+                    // 📅 Timestamps & Status
                     analysis_date: new Date().toISOString(),
-                    status: 'active'
+                    status: 'active',
+                    
+                    // ➕ Other
+                    amenity_count: Array.isArray(sale.amenities) ? sale.amenities.length : 0
+                    
+                    // REMOVED: All non-existent columns like doorman_building, elevator_building, etc.
                 };
 
                 const { error } = await this.supabase
@@ -1693,7 +1779,7 @@ class EnhancedBiWeeklySalesAnalyzer {
                 .eq('status', 'active'); // Only active listings
 
             if (criteria.maxPrice) {
-                query = query.lte('sale_price', criteria.maxPrice);
+                query = query.lte('price', criteria.maxPrice);
             }
             if (criteria.minBedrooms) {
                 query = query.gte('bedrooms', criteria.minBedrooms);
@@ -1764,7 +1850,7 @@ async function main() {
         const sales = await analyzer.getLatestUndervaluedSales(limit);
         console.log(`🏠 Latest ${sales.length} active undervalued sales:`);
         sales.forEach((sale, i) => {
-            console.log(`${i + 1}. ${sale.address} - ${sale.sale_price.toLocaleString()} (${sale.discount_percent}% below market, Score: ${sale.score})`);
+            console.log(`${i + 1}. ${sale.address} - ${sale.price.toLocaleString()} (${sale.discount_percent}% below market, Score: ${sale.score})`);
         });
         return;
     }
@@ -1774,7 +1860,7 @@ async function main() {
         const deals = await analyzer.getTopSalesDeals(limit);
         console.log(`🏆 Top ${deals.length} active sales deals:`);
         deals.forEach((deal, i) => {
-            console.log(`${i + 1}. ${deal.address} - ${deal.sale_price.toLocaleString()} (${deal.discount_percent}% below market, Score: ${deal.score})`);
+            console.log(`${i + 1}. ${deal.address} - ${deal.price.toLocaleString()} (${deal.discount_percent}% below market, Score: ${deal.score})`);
         });
         return;
     }
@@ -1788,7 +1874,7 @@ async function main() {
         const sales = await analyzer.getSalesByNeighborhood(neighborhood);
         console.log(`🏠 Active sales in ${neighborhood}:`);
         sales.forEach((sale, i) => {
-            console.log(`${i + 1}. ${sale.address} - ${sale.sale_price.toLocaleString()} (Score: ${sale.score})`);
+            console.log(`${i + 1}. ${sale.address} - ${sale.price.toLocaleString()} (Score: ${sale.score})`);
         });
         return;
     }
@@ -1797,7 +1883,7 @@ async function main() {
         const sales = await analyzer.getSalesByCriteria({ doorman: true, limit: 15 });
         console.log(`🚪 Active doorman building sales:`);
         sales.forEach((sale, i) => {
-            console.log(`${i + 1}. ${sale.address} - ${sale.sale_price.toLocaleString()} (${sale.discount_percent}% below market)`);
+            console.log(`${i + 1}. ${sale.address} - ${sale.price.toLocaleString()} (${sale.discount_percent}% below market)`);
         });
         return;
     }
