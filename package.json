@@ -8,6 +8,7 @@
     
     "sales": "node biweekly-streeteasy-sales.js",
     "rentals": "node biweekly-streeteasy-rentals.js",
+    "test-both": "node test-both-scripts.js",
     "sales-test": "node biweekly-streeteasy-sales.js --neighborhood park-slope",
     "rentals-test": "node biweekly-streeteasy-rentals.js --neighborhood williamsburg",
     
