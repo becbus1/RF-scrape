@@ -608,7 +608,7 @@ class EnhancedBiWeeklySalesAnalyzer {
         console.log('='.repeat(70));
 
         // Get today's neighborhood assignment
-        const todaysNeighborhoods = ['soho']; // Test with single neighborhood
+        const todaysNeighborhoods = ['dumbo']; // Test with single neighborhood
         
         if (todaysNeighborhoods.length === 0) {
             console.log('📅 No neighborhoods scheduled for today - analysis complete');
@@ -771,9 +771,9 @@ class EnhancedBiWeeklySalesAnalyzer {
         return { summary };
     }
 
-   /**
+      /**
      * SMART DEDUPLICATION: Fetch active sales and identify which need detail fetching
-     * OPTIMIZED: Price changes update cache directly without refetching
+     * FIXED: Now uses SEPARATE sold detection instead of caching basic data
      */
     async fetchActiveSalesWithDeduplication(neighborhood) {
         try {
@@ -815,22 +815,20 @@ class EnhancedBiWeeklySalesAnalyzer {
 
             console.log(`   ✅ Retrieved ${salesData.length} total active sales`);
 
-            // Step 2: Check cache for complete details AND handle price changes efficiently
+            // Step 2: FIXED CACHING ORDER - Run sold detection SEPARATE from caching
+            await this.runSoldDetectionForNeighborhood(salesData, neighborhood);
+
+            // Step 3: Check cache for complete details AND handle price changes efficiently
             const listingIds = salesData.map(sale => sale.id?.toString()).filter(Boolean);
             const { completeListingIds, priceUpdatedIds } = await this.handlePriceUpdatesInCache(listingIds, salesData, neighborhood);
             
-            // Step 3: Filter to ONLY truly NEW sales (price-changed sales already handled)
+            // Step 4: Filter to only NEW sales that need detail fetching
             const newSales = salesData.filter(sale => 
                 !completeListingIds.includes(sale.id?.toString())
             );
 
             const cacheHits = completeListingIds.length;
             const priceUpdates = priceUpdatedIds.length;
-
-            // Step 4: Update search timestamps for sold detection
-            await this.updateSearchTimestampsOnly(salesData, neighborhood);
-            
-            console.log(`   🎯 Optimized deduplication: ${salesData.length} total, ${newSales.length} need fetching, ${cacheHits} cache hits, ${priceUpdates} price-only updates`);
             
             return {
                 newSales,
@@ -849,175 +847,17 @@ class EnhancedBiWeeklySalesAnalyzer {
     }
 
     /**
-     * OPTIMIZED: Handle price updates efficiently without refetching
-     * Updates price in cache and triggers reanalysis for undervaluation
+     * FIXED CACHING ORDER: Run sold detection for neighborhood SEPARATE from caching
+     * This runs BEFORE individual fetches, but doesn't cache basic property data
      */
-    async handlePriceUpdatesInCache(listingIds, salesData, neighborhood) {
-        if (!listingIds || listingIds.length === 0) return { completeListingIds: [], priceUpdatedIds: [] };
-        
-        try {
-            const sevenDaysAgo = new Date();
-            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
-            const { data, error } = await this.supabase
-                .from('sales_market_cache')
-                .select('listing_id, address, bedrooms, bathrooms, sqft, market_status, sale_price, price')
-                .in('listing_id', listingIds)
-                .gte('last_checked', sevenDaysAgo.toISOString());
-
-            if (error) {
-                console.warn('⚠️ Error checking existing sales, will fetch all details:', error.message);
-                return { completeListingIds: [], priceUpdatedIds: [] };
-            }
-
-            // Filter for complete entries
-            const completeEntries = data.filter(row => 
-                row.address && 
-                row.address !== 'Address not available' && 
-                row.address !== 'Details unavailable' &&
-                row.address !== 'Fetch failed' &&
-                row.bedrooms !== null &&
-                row.bathrooms !== null &&
-                row.sqft !== null &&
-                row.sqft > 0 &&
-                row.market_status !== 'fetch_failed'
-            );
-
-            // Handle price changes efficiently
-            const priceUpdatedIds = [];
-            const salesMap = new Map(salesData.map(sale => [sale.id?.toString(), sale]));
-            
-            for (const cachedEntry of completeEntries) {
-                const currentSale = salesMap.get(cachedEntry.listing_id);
-                if (currentSale) {
-                    // Get current price from search results
-                    const currentPrice = currentSale.price || currentSale.salePrice || 0;
-                    const cachedPrice = cachedEntry.sale_price || cachedEntry.price || 0;
-                    
-                    // If price changed by more than $1000, update cache directly
-                    if (Math.abs(currentPrice - cachedPrice) > 1000) {
-                        console.log(`   💰 Price change detected for ${cachedEntry.listing_id}: ${cachedPrice.toLocaleString()} → ${currentPrice.toLocaleString()}`);
-                        
-                        // ✅ EFFICIENT: Update price in cache without refetching
-                        await this.updatePriceInCache(cachedEntry.listing_id, currentPrice);
-                        
-                        // ✅ EFFICIENT: Update price in undervalued_sales if exists
-                        await this.updatePriceInUndervaluedSales(cachedEntry.listing_id, currentPrice, cachedEntry.sqft);
-                        
-                        // ✅ EFFICIENT: Trigger reanalysis for undervaluation (price changed)
-                        await this.triggerReanalysisForPriceChange(cachedEntry.listing_id, neighborhood);
-                        
-                        priceUpdatedIds.push(cachedEntry.listing_id);
-                    }
-                }
-            }
-
-            const completeListingIds = completeEntries.map(row => row.listing_id);
-            const incompleteCount = data.length - completeEntries.length;
-            
-            console.log(`   💾 Cache lookup: ${completeListingIds.length}/${listingIds.length} sales with COMPLETE details found in cache`);
-            if (incompleteCount > 0) {
-                console.log(`   🔄 ${incompleteCount} cached entries need detail fetching (incomplete data)`);
-            }
-            if (priceUpdatedIds.length > 0) {
-                console.log(`   💰 ${priceUpdatedIds.length} price-only updates completed (no API calls used)`);
-            }
-            
-            return { completeListingIds, priceUpdatedIds };
-        } catch (error) {
-            console.warn('⚠️ Cache lookup failed, will fetch all details:', error.message);
-            return { completeListingIds: [], priceUpdatedIds: [] };
-        }
-    }
-
-    /**
-     * EFFICIENT: Update only price in cache (no refetch needed)
-     */
-    async updatePriceInCache(listingId, newPrice) {
-        try {
-            const { error } = await this.supabase
-                .from('sales_market_cache')
-                .update({
-                    sale_price: newPrice,
-                    price: newPrice, // Also update test column
-                    last_checked: new Date().toISOString(),
-                    market_status: 'pending_analysis' // Will trigger reanalysis
-                })
-                .eq('listing_id', listingId);
-
-            if (error) {
-                console.warn(`⚠️ Error updating price for ${listingId}:`, error.message);
-            } else {
-                console.log(`   💾 Updated cache price for ${listingId}: ${newPrice.toLocaleString()}`);
-            }
-        } catch (error) {
-            console.warn(`⚠️ Error updating price in cache for ${listingId}:`, error.message);
-        }
-    }
-
-    /**
-     * EFFICIENT: Update price in undervalued_sales table if listing exists
-     */
-    async updatePriceInUndervaluedSales(listingId, newPrice, sqft) {
-        try {
-            const updateData = {
-                price: parseInt(newPrice),
-                analysis_date: new Date().toISOString()
-            };
-
-            // Calculate new price per sqft if we have sqft data
-            if (sqft && sqft > 0) {
-                updateData.price_per_sqft = parseFloat((newPrice / sqft).toFixed(2));
-            }
-
-            const { error } = await this.supabase
-                .from('undervalued_sales')
-                .update(updateData)
-                .eq('listing_id', listingId)
-                .eq('status', 'active');
-
-            if (error) {
-                // Don't log error - listing might not be in undervalued_sales table
-            } else {
-                console.log(`   💾 Updated undervalued_sales price for ${listingId}: ${newPrice.toLocaleString()}`);
-            }
-        } catch (error) {
-            // Silent fail - listing might not be undervalued
-        }
-    }
-
-    /**
-     * EFFICIENT: Mark listing for reanalysis due to price change
-     */
-    async triggerReanalysisForPriceChange(listingId, neighborhood) {
-        try {
-            // Update market_status to trigger reanalysis in next cycle
-            const { error } = await this.supabase
-                .from('sales_market_cache')
-                .update({
-                    market_status: 'price_changed_pending_analysis',
-                    last_analyzed: null // Clear analysis date to trigger reanalysis
-                })
-                .eq('listing_id', listingId);
-
-            if (error) {
-                console.warn(`⚠️ Error marking ${listingId} for reanalysis:`, error.message);
-            }
-        } catch (error) {
-            console.warn(`⚠️ Error triggering reanalysis for ${listingId}:`, error.message);
-        }
-    }
-
-    /**
-     * SIMPLIFIED: Update only search timestamps for sold detection
-     * Price updates are handled separately above
-     */
-    async updateSearchTimestampsOnly(searchResults, neighborhood) {
+    async runSoldDetectionForNeighborhood(searchResults, neighborhood) {
         const currentTime = new Date().toISOString();
         const currentListingIds = searchResults.map(r => r.id?.toString()).filter(Boolean);
         
         try {
-            // Step 1: Update ONLY search timestamps (price already handled above)
+            console.log(`   🔍 Running sold detection for ${neighborhood}...`);
+
+            // Step 1: ONLY update search timestamps (no property details cached here)
             for (const sale of searchResults) {
                 if (!sale.id) continue;
                 
@@ -1093,18 +933,180 @@ class EnhancedBiWeeklySalesAnalyzer {
             }
 
         } catch (error) {
-            console.warn('⚠️ Error updating search timestamps:', error.message);
+            console.warn('⚠️ Error in sold detection:', error.message);
             return { updated: 0, markedSold: 0 };
         }
     }
 
     /**
-     * UNCHANGED: Fetch sales details for truly NEW listings only
+     * PRICE UPDATE OPTIMIZATION: Handle price updates efficiently without refetching
+     * FIXED: Only works on EXISTING complete cache entries (not new incomplete ones)
+     */
+    async handlePriceUpdatesInCache(listingIds, salesData, neighborhood) {
+        if (!listingIds || listingIds.length === 0) return { completeListingIds: [], priceUpdatedIds: [] };
+        
+        try {
+            const sevenDaysAgo = new Date();
+            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+            const { data, error } = await this.supabase
+                .from('sales_market_cache')
+                .select('listing_id, address, bedrooms, bathrooms, sqft, market_status, sale_price, price')
+                .in('listing_id', listingIds)
+                .gte('last_checked', sevenDaysAgo.toISOString());
+
+            if (error) {
+                console.warn('⚠️ Error checking existing sales, will fetch all details:', error.message);
+                return { completeListingIds: [], priceUpdatedIds: [] };
+            }
+
+            // CRITICAL: Filter for COMPLETE entries only (these were cached after successful individual fetches)
+            const completeEntries = data.filter(row => 
+                row.address && 
+                row.address !== 'Address not available' && 
+                row.address !== 'Details unavailable' &&
+                row.address !== 'Fetch failed' &&
+                row.bedrooms !== null &&
+                row.bathrooms !== null &&
+                row.sqft !== null &&
+                row.sqft > 0 &&
+                row.market_status !== 'fetch_failed'
+            );
+
+            // Handle price changes efficiently for COMPLETE entries only
+            const priceUpdatedIds = [];
+            const salesMap = new Map(salesData.map(sale => [sale.id?.toString(), sale]));
+            
+            for (const cachedEntry of completeEntries) {
+                const currentSale = salesMap.get(cachedEntry.listing_id);
+                if (currentSale) {
+                    // Get current price from search results
+                    const currentPrice = currentSale.price || currentSale.salePrice || 0;
+                    const cachedPrice = cachedEntry.sale_price || cachedEntry.price || 0;
+                    
+                    // If price changed by more than $1000, update cache directly
+                    if (Math.abs(currentPrice - cachedPrice) > 1000) {
+                        console.log(`   💰 Price change detected for ${cachedEntry.listing_id}: ${cachedPrice.toLocaleString()} → ${currentPrice.toLocaleString()}`);
+                        
+                        // ✅ EFFICIENT: Update price in cache without refetching
+                        await this.updatePriceInCache(cachedEntry.listing_id, currentPrice);
+                        
+                        // ✅ EFFICIENT: Update price in undervalued_sales if exists
+                        await this.updatePriceInUndervaluedSales(cachedEntry.listing_id, currentPrice, cachedEntry.sqft);
+                        
+                        // ✅ EFFICIENT: Trigger reanalysis for undervaluation (price changed)
+                        await this.triggerReanalysisForPriceChange(cachedEntry.listing_id, neighborhood);
+                        
+                        priceUpdatedIds.push(cachedEntry.listing_id);
+                    }
+                }
+            }
+
+            const completeListingIds = completeEntries.map(row => row.listing_id);
+            const incompleteCount = data.length - completeEntries.length;
+            
+            console.log(`   💾 Cache lookup: ${completeListingIds.length}/${listingIds.length} sales with COMPLETE details found in cache`);
+            if (incompleteCount > 0) {
+                console.log(`   🔄 ${incompleteCount} cached entries need detail fetching (incomplete data)`);
+            }
+            if (priceUpdatedIds.length > 0) {
+                console.log(`   💰 ${priceUpdatedIds.length} price-only updates completed (no API calls used)`);
+            }
+            
+            return { completeListingIds, priceUpdatedIds };
+        } catch (error) {
+            console.warn('⚠️ Cache lookup failed, will fetch all details:', error.message);
+            return { completeListingIds: [], priceUpdatedIds: [] };
+        }
+    }
+
+    /**
+     * EFFICIENT: Update only price in cache (no refetch needed)
+     */
+    async updatePriceInCache(listingId, newPrice) {
+        try {
+            const { error } = await this.supabase
+                .from('sales_market_cache')
+                .update({
+                    sale_price: newPrice,
+                    price: newPrice, // Also update price field
+                    last_checked: new Date().toISOString(),
+                    market_status: 'pending_analysis' // Will trigger reanalysis
+                })
+                .eq('listing_id', listingId);
+
+            if (error) {
+                console.warn(`⚠️ Error updating price for ${listingId}:`, error.message);
+            } else {
+                console.log(`   💾 Updated cache price for ${listingId}: ${newPrice.toLocaleString()}`);
+            }
+        } catch (error) {
+            console.warn(`⚠️ Error updating price in cache for ${listingId}:`, error.message);
+        }
+    }
+
+    /**
+     * EFFICIENT: Update price in undervalued_sales table if listing exists
+     */
+    async updatePriceInUndervaluedSales(listingId, newPrice, sqft) {
+        try {
+            const updateData = {
+                price: parseInt(newPrice),
+                analysis_date: new Date().toISOString()
+            };
+
+            // Calculate new price per sqft if we have sqft data
+            if (sqft && sqft > 0) {
+                updateData.price_per_sqft = parseFloat((newPrice / sqft).toFixed(2));
+            }
+
+            const { error } = await this.supabase
+                .from('undervalued_sales')
+                .update(updateData)
+                .eq('listing_id', listingId)
+                .eq('status', 'active');
+
+            if (error) {
+                // Don't log error - listing might not be in undervalued_sales table
+            } else {
+                console.log(`   💾 Updated undervalued_sales price for ${listingId}: ${newPrice.toLocaleString()}`);
+            }
+        } catch (error) {
+            // Silent fail - listing might not be undervalued
+        }
+    }
+
+    /**
+     * EFFICIENT: Mark listing for reanalysis due to price change
+     */
+    async triggerReanalysisForPriceChange(listingId, neighborhood) {
+        try {
+            // Update market_status to trigger reanalysis in next cycle
+            const { error } = await this.supabase
+                .from('sales_market_cache')
+                .update({
+                    market_status: 'price_changed_pending_analysis',
+                    last_analyzed: null // Clear analysis date to trigger reanalysis
+                })
+                .eq('listing_id', listingId);
+
+            if (error) {
+                console.warn(`⚠️ Error marking ${listingId} for reanalysis:`, error.message);
+            }
+        } catch (error) {
+            console.warn(`⚠️ Error triggering reanalysis for ${listingId}:`, error.message);
+        }
+    }
+
+    /**
+     * Fetch sales details with cache updates
+     * FIXED: Enhanced error handling + only cache AFTER successful individual fetches
      */
     async fetchSalesDetailsWithCache(newSales, neighborhood) {
-        console.log(`   🔍 Fetching details for ${newSales.length} truly NEW sales...`);
+        console.log(`   🔍 Fetching details for ${newSales.length} NEW sales (saving ${newSales.length} API calls from cache)...`);
         
         const detailedSales = [];
+        const cacheUpdates = [];
         let successCount = 0;
         let failureCount = 0;
 
@@ -1122,6 +1124,87 @@ class EnhancedBiWeeklySalesAnalyzer {
                 if (i > 0) {
                     await this.smartDelay();
                 }
+
+                const details = await this.fetchSaleDetails(sale.id);
+                
+                if (details && this.isValidSalesData(details)) {
+                    const fullSalesData = {
+                        ...sale,
+                        ...details,
+                        neighborhood: neighborhood,
+                        fetchedAt: new Date().toISOString()
+                    };
+                    
+                    detailedSales.push(fullSalesData);
+                    
+                    // FIXED: Prepare cache update with COMPLETE details ONLY AFTER successful fetch
+                    cacheUpdates.push({
+                        listing_id: sale.id?.toString(),
+                        address: details.address,
+                        neighborhood: neighborhood,
+                        borough: details.borough,
+                        sale_price: details.salePrice || 0,
+                        price: details.salePrice || 0, // Also update price field
+                        bedrooms: details.bedrooms || 0,
+                        bathrooms: details.bathrooms || 0,
+                        sqft: details.sqft || 0,
+                        property_type: details.propertyType || 'condo',
+                        market_status: 'pending_analysis',
+                        last_checked: new Date().toISOString(),
+                        last_analyzed: null
+                    });
+                    
+                    successCount++;
+                } else {
+                    failureCount++;
+                    
+                    // Cache failed fetch
+                    cacheUpdates.push({
+                        listing_id: sale.id?.toString(),
+                        address: 'Details unavailable',
+                        neighborhood: neighborhood,
+                        market_status: 'fetch_failed',
+                        last_checked: new Date().toISOString()
+                    });
+                }
+
+                // Progress logging every 20 properties
+                if ((i + 1) % 20 === 0) {
+                    const currentDelay = this.baseDelay;
+                    console.log(`   📊 Progress: ${i + 1}/${newSales.length} (${successCount} successful, ${failureCount} failed, ${currentDelay/1000}s delay)`);
+                }
+            } catch (error) {
+                failureCount++;
+                
+                // Cache failed attempt
+                cacheUpdates.push({
+                    listing_id: sale.id?.toString(),
+                    address: 'Fetch failed',
+                    neighborhood: neighborhood,
+                    market_status: 'fetch_failed',
+                    last_checked: new Date().toISOString()
+                });
+                
+                if (error.response?.status === 429) {
+                    this.rateLimitHits++;
+                    console.log(`   ⚡ Rate limit hit #${this.rateLimitHits} for ${sale.id}, adapting...`);
+                    this.baseDelay = Math.min(25000, this.baseDelay * 1.5);
+                    await this.delay(this.baseDelay * 2);
+                } else {
+                    console.log(`   ⚠️ Failed to get details for ${sale.id}: ${error.message}`);
+                }
+            }
+        }
+
+        // FIXED: Update cache with all results (successful and failed) - CRITICAL FOR DEDUPLICATION
+        if (cacheUpdates.length > 0) {
+            await this.updateSalesCache(cacheUpdates);
+        }
+
+        console.log(`   ✅ Sales detail fetch complete: ${successCount} successful, ${failureCount} failed`);
+        console.log(`   💾 Updated cache with ${cacheUpdates.length} entries`);
+        return detailedSales;
+    }
 
                 const details = await this.fetchSaleDetails(sale.id);
                 
