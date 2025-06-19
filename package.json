@@ -2,9 +2,12 @@
   "name": "nyc-hybrid-property-finder",
   "version": "2.0.0",
   "description": "Hybrid system using Redfin's public data + targeted scraping to find undervalued NYC properties",
-  "main": "biweekly-streeteasy-sales.js",
+  "main": "railway-sequential-runner.js",
   "scripts": {
-    "start": "node biweekly-streeteasy-sales.js",
+    "start": "node railway-sequential-runner.js",
+    
+    "both": "node railway-sequential-runner.js",
+    "sequential": "node railway-sequential-runner.js",
     
     "sales": "node biweekly-streeteasy-sales.js",
     "rentals": "node biweekly-streeteasy-rentals.js",
@@ -50,7 +53,9 @@
     "streeteasy",
     "rentals",
     "sales",
-    "biweekly-analysis"
+    "biweekly-analysis",
+    "railway-deployment",
+    "sequential-runner"
   ],
   "author": "Your Name",
   "license": "MIT",
@@ -90,6 +95,12 @@
       "neighborhoods_per_day": 3,
       "cache_duration_days": 30,
       "undervaluation_threshold": 10
+    },
+    "railway_deployment": {
+      "entry_point": "railway-sequential-runner.js",
+      "sequential_execution": true,
+      "inter_script_delay_minutes": 2,
+      "bulk_load_support": true
     }
   }
 }
