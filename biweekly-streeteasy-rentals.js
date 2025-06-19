@@ -2051,78 +2051,8 @@ async function main() {
 
     if (args.includes('--setup')) {
         await analyzer.setupRentalDatabase();
-    }
-
-    if (args.includes('--top-deals')) {
-        const limit = parseInt(args[args.indexOf('--top-deals') + 1]) || 10;
-        const deals = await analyzer.getTopRentalDeals(limit);
-        console.log(`🏆 Top ${deals.length} active rental deals:`);
-        deals.forEach((deal, i) => {
-            console.log(`${i + 1}. ${deal.address} - ${deal.monthly_rent.toLocaleString()}/month (${deal.discount_percent}% below market, Score: ${deal.score})`);
-        });
         return;
     }
-
-    if (args.includes('--neighborhood')) {
-        const neighborhood = args[args.indexOf('--neighborhood') + 1];
-        if (!neighborhood) {
-            console.error('❌ Please provide a neighborhood: --neighborhood park-slope');
-            return;
-        }
-        const rentals = await analyzer.getRentalsByNeighborhood(neighborhood);
-        console.log(`🏠 Active rentals in ${neighborhood}:`);
-        rentals.forEach((rental, i) => {
-            console.log(`${i + 1}. ${rental.address} - ${rental.monthly_rent.toLocaleString()}/month (Score: ${rental.score})`);
-        });
-        return;
-    }
-
-    if (args.includes('--doorman')) {
-        const rentals = await analyzer.getRentalsByCriteria({ doorman: true, limit: 15 });
-        console.log(`🚪 Active doorman building rentals:`);
-        rentals.forEach((rental, i) => {
-            console.log(`${i + 1}. ${rental.address} - ${rental.monthly_rent.toLocaleString()}/month (${rental.discount_percent}% below market)`);
-        });
-        return;
-    }
-
-    if (args.includes('--no-fee')) {
-        const rentals = await analyzer.getRentalsByCriteria({ noFee: true, limit: 15 });
-        console.log(`💰 Active no-fee rentals:`);
-        rentals.forEach((rental, i) => {
-            console.log(`${i + 1}. ${rental.address} - ${rental.monthly_rent.toLocaleString()}/month (${rental.discount_percent}% below market, Annual savings: ${rental.annual_savings.toLocaleString()})`);
-        });
-        return;
-    }
-
-    // Default: run bi-weekly rental analysis with smart deduplication
-    console.log('🏠 Starting FIXED enhanced bi-weekly rental analysis with smart deduplication...');
-    const results = await analyzer.runBiWeeklyRentalRefresh();
-    
-    console.log('\n🎉 Enhanced bi-weekly rental analysis with smart deduplication completed!');
-    
-    if (results.summary && results.summary.apiCallsSaved > 0) {
-        const efficiency = ((results.summary.apiCallsSaved / (results.summary.apiCallsUsed + results.summary.apiCallsSaved)) * 100).toFixed(1);
-        console.log(`⚡ Achieved ${efficiency}% API efficiency through smart caching!`);
-    }
-    
-    if (results.summary && results.summary.savedToDatabase) {
-        console.log(`📊 Check your Supabase 'undervalued_rentals' table for ${results.summary.savedToDatabase} new deals!`);
-    }
-    
-    return results;
-}
-
-// Export for use in other modules
-module.exports = EnhancedBiWeeklyRentalAnalyzer;
-
-// Run if executed directly
-if (require.main === module) {
-    main().catch(error => {
-        console.error('💥 Enhanced rental analyzer with deduplication crashed:', error);
-        process.exit(1);
-    });
-}
 
     if (args.includes('--latest')) {
         const limit = parseInt(args[args.indexOf('--latest') + 1]) || 20;
