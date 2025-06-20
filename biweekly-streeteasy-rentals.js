@@ -1,6 +1,7 @@
 // enhanced-biweekly-streeteasy-rentals.js
-// FINAL VERSION: Smart deduplication + automatic rented listing cleanup + 15-minute deployment delay
-// FIXED: Critical database function issues resolved + cache architecture + description parsing + constraint violations
+// FINAL VERSION: Smart deduplication + ADVANCED MULTI-FACTOR VALUATION + automatic rented listing cleanup
+// NEW: Sophisticated bed/bath/amenity-based valuation instead of simple price per sqft
+// THRESHOLD: Only properties 25%+ below true market value are flagged as undervalued
 require('dotenv').config();
 const axios = require('axios');
 const { createClient } = require('@supabase/supabase-js');
@@ -13,6 +14,941 @@ const HIGH_PRIORITY_NEIGHBORHOODS = [
     'long-island-city', 'astoria', 'sunnyside'
 ];
 
+// Advanced Multi-Factor Rental Valuation Algorithm
+// SOPHISTICATED APPROACH: Uses specific bed/bath combinations + amenities + adjustments
+// Moves beyond simple price per sqft to true market value assessment
+class AdvancedRentalValuationEngine {
+    constructor() {
+        // Valuation hierarchy - most specific to least specific
+        this.VALUATION_METHODS = {
+            EXACT_MATCH: 'exact_bed_bath_amenity_match',      // Same beds/baths + similar amenities
+            BED_BATH_SPECIFIC: 'bed_bath_specific_pricing',    // Same beds/baths + amenity adjustments  
+            BED_SPECIFIC: 'bed_specific_with_adjustments',     // Same bedrooms + bath/amenity adjustments
+            PRICE_PER_SQFT_FALLBACK: 'price_per_sqft_fallback' // Last resort
+        };
+
+        // Minimum sample sizes for each method
+        this.MIN_SAMPLES = {
+            EXACT_MATCH: 3,
+            BED_BATH_SPECIFIC: 8,
+            BED_SPECIFIC: 12,
+            PRICE_PER_SQFT_FALLBACK: 20
+        };
+
+        // NYC amenity value adjustments (based on 2025 market data)
+        // Structure: { manhattan: {type: 'percentage'/'fixed', value: number}, outer: {type: 'percentage'/'fixed', value: number} }
+        this.AMENITY_VALUES = {
+            // Building amenities
+            'doorman_full_time': {
+                manhattan: { type: 'percentage', value: 37.5 }, // 35-40% average
+                outer: { type: 'percentage', value: 25 }         // 20-30% average
+            },
+            'doorman_part_time': {
+                manhattan: { type: 'percentage', value: 15 },
+                outer: { type: 'percentage', value: 15 }
+            },
+            'doorman': { // Default to full-time if type not specified
+                manhattan: { type: 'percentage', value: 37.5 },
+                outer: { type: 'percentage', value: 25 }
+            },
+            'concierge': { // Included in doorman premium, small additional if ultra-luxury
+                manhattan: { type: 'percentage', value: 3 },
+                outer: { type: 'percentage', value: 2 }
+            },
+            'elevator': {
+                manhattan: { type: 'fixed', value: 100 },
+                outer: { type: 'fixed', value: 75 }
+            },
+            'no_elevator': { // Walk-up penalty
+                manhattan: { type: 'fixed', value: -100 },
+                outer: { type: 'fixed', value: -100 }
+            },
+            
+            // In-unit amenities  
+            'washer_dryer': {
+                manhattan: { type: 'fixed', value: 100 },
+                outer: { type: 'fixed', value: 75 }
+            },
+            'dishwasher': {
+                manhattan: { type: 'fixed', value: 40 },
+                outer: { type: 'fixed', value: 30 }
+            },
+            'central_air': {
+                manhattan: { type: 'fixed', value: 75 },
+                outer: { type: 'fixed', value: 75 }
+            },
+            'balcony': {
+                manhattan: { type: 'fixed', value: 250 },
+                outer: { type: 'fixed', value: 150 }
+            },
+            'terrace': {
+                manhattan: { type: 'fixed', value: 400 },
+                outer: { type: 'fixed', value: 300 }
+            },
+            'private_outdoor_space': {
+                manhattan: { type: 'fixed', value: 400 },
+                outer: { type: 'fixed', value: 300 }
+            },
+            
+            // Building facilities
+            'gym': {
+                manhattan: { type: 'fixed', value: 100 },
+                outer: { type: 'fixed', value: 75 }
+            },
+            'fitness_center': {
+                manhattan: { type: 'fixed', value: 100 },
+                outer: { type: 'fixed', value: 75 }
+            },
+            'pool': {
+                manhattan: { type: 'fixed', value: 150 },
+                outer: { type: 'fixed', value: 100 }
+            },
+            'roof_deck': {
+                manhattan: { type: 'fixed', value: 50 },
+                outer: { type: 'fixed', value: 25 }
+            },
+            'laundry_room': {
+                manhattan: { type: 'fixed', value: 25 },
+                outer: { type: 'fixed', value: 25 }
+            },
+            'parking': {
+                manhattan: { type: 'fixed', value: 300 },
+                outer: { type: 'fixed', value: 150 }
+            },
+            'bike_storage': {
+                manhattan: { type: 'fixed', value: 5 },
+                outer: { type: 'fixed', value: 5 }
+            },
+            
+            // Pet and lifestyle
+            'pet_friendly': {
+                manhattan: { type: 'fixed', value: 50 },
+                outer: { type: 'fixed', value: 50 }
+            },
+            'no_fee': {
+                manhattan: { type: 'fixed', value: 100 },
+                outer: { type: 'fixed', value: 100 }
+            },
+            
+            // Condition and quality (percentage-based)
+            'newly_renovated': {
+                manhattan: { type: 'percentage', value: 7.5 }, // 5-10% average
+                outer: { type: 'percentage', value: 7.5 }
+            },
+            'luxury_finishes': {
+                manhattan: { type: 'percentage', value: 5 },
+                outer: { type: 'percentage', value: 5 }
+            },
+            'hardwood_floors': {
+                manhattan: { type: 'fixed', value: 50 },
+                outer: { type: 'fixed', value: 50 }
+            },
+            'high_ceilings': {
+                manhattan: { type: 'percentage', value: 5 },
+                outer: { type: 'percentage', value: 5 }
+            },
+            'exposed_brick': {
+                manhattan: { type: 'fixed', value: 50 },
+                outer: { type: 'fixed', value: 50 }
+            },
+            
+            // Negative factors
+            'studio_layout': {
+                manhattan: { type: 'percentage', value: -25 }, // -20 to -30% average
+                outer: { type: 'percentage', value: -25 }
+            },
+            'no_natural_light': {
+                manhattan: { type: 'percentage', value: -15 }, // -10 to -20% average
+                outer: { type: 'percentage', value: -15 }
+            },
+            'noisy_location': {
+                manhattan: { type: 'percentage', value: -10 }, // -5 to -15% average
+                outer: { type: 'percentage', value: -10 }
+            },
+            'ground_floor': {
+                manhattan: { type: 'percentage', value: -7.5 }, // -5 to -10% average
+                outer: { type: 'percentage', value: -7.5 }
+            }
+        };
+
+        // Bathroom adjustment factors (fixed dollar amounts)
+        this.BATHROOM_ADJUSTMENTS = {
+            0.5: -200,  // Half bath deficit
+            1.0: 0,     // Baseline
+            1.5: 150,   // Extra half bath
+            2.0: 300,   // Full second bathroom
+            2.5: 400,   // Two and a half baths
+            3.0: 500    // Three full bathrooms
+        };
+
+        // Square footage adjustments per bedroom category
+        this.SQFT_ADJUSTMENTS = {
+            'studio': { baseline: 450, per_sqft_over: 2.0, per_sqft_under: -2.5 },
+            '1bed': { baseline: 650, per_sqft_over: 2.0, per_sqft_under: -2.5 },
+            '2bed': { baseline: 900, per_sqft_over: 1.8, per_sqft_under: -2.2 },
+            '3bed': { baseline: 1200, per_sqft_over: 1.5, per_sqft_under: -2.0 }
+        };
+    }
+
+    /**
+     * Determine if a property is in Manhattan based on neighborhood or borough
+     */
+    isManhattan(targetProperty) {
+        const borough = (targetProperty.borough || '').toLowerCase();
+        const neighborhood = (targetProperty.neighborhood || '').toLowerCase();
+        
+        // Check borough first
+        if (borough.includes('manhattan') || borough.includes('new york')) {
+            return true;
+        }
+        
+        // Check for Manhattan neighborhood indicators
+        const manhattanIndicators = [
+            'village', 'soho', 'tribeca', 'chelsea', 'midtown', 'upper', 'lower',
+            'financial', 'chinatown', 'little italy', 'gramercy', 'murray hill',
+            'hell', 'harlem', 'washington heights', 'inwood'
+        ];
+        
+        return manhattanIndicators.some(indicator => neighborhood.includes(indicator));
+    }
+
+    /**
+     * Calculate amenity value using location-specific and type-aware adjustments
+     */
+    calculateLocationAwareAmenityValue(amenities, targetProperty, baseRent = 0) {
+        const isManhattan = this.isManhattan(targetProperty);
+        let totalAdjustment = 0;
+        const appliedAdjustments = [];
+
+        amenities.forEach(amenity => {
+            const amenityConfig = this.AMENITY_VALUES[amenity];
+            if (!amenityConfig) return;
+
+            const locationConfig = isManhattan ? amenityConfig.manhattan : amenityConfig.outer;
+            let adjustment = 0;
+
+            if (locationConfig.type === 'percentage') {
+                // Percentage adjustment requires base rent
+                if (baseRent > 0) {
+                    adjustment = (baseRent * locationConfig.value) / 100;
+                    appliedAdjustments.push(`${amenity}: +${locationConfig.value}% (${isManhattan ? 'Manhattan' : 'Outer'}) = ${Math.round(adjustment)}`);
+                }
+            } else if (locationConfig.type === 'fixed') {
+                adjustment = locationConfig.value;
+                appliedAdjustments.push(`${amenity}: ${adjustment} (${isManhattan ? 'Manhattan' : 'Outer'})`);
+            }
+
+            totalAdjustment += adjustment;
+        });
+
+        return {
+            totalAdjustment: Math.round(totalAdjustment),
+            breakdown: appliedAdjustments,
+            isManhattan: isManhattan
+        };
+    }
+
+    /**
+     * MAIN VALUATION ENGINE: Calculate true market value using multiple factors
+     */
+    calculateTrueMarketValue(targetProperty, comparableProperties, neighborhood) {
+        console.log(`   🎯 ADVANCED VALUATION: ${targetProperty.address || 'Property'}`);
+        console.log(`   📊 Analyzing against ${comparableProperties.length} comparables in ${neighborhood}`);
+
+        // Step 1: Try most specific valuation method first
+        const valuationResult = this.selectBestValuationMethod(targetProperty, comparableProperties);
+        
+        if (!valuationResult.success) {
+            return {
+                success: false,
+                estimatedMarketRent: 0,
+                method: 'insufficient_data',
+                confidence: 0,
+                reasoning: valuationResult.reason
+            };
+        }
+
+        // Step 2: Calculate base market value using selected method
+        const baseMarketValue = this.calculateBaseMarketValue(
+            targetProperty, 
+            valuationResult.comparables, 
+            valuationResult.method
+        );
+
+        // Step 3: Apply detailed adjustments for property-specific factors
+        const adjustedMarketValue = this.applyDetailedAdjustments(
+            targetProperty,
+            baseMarketValue,
+            valuationResult.comparables,
+            valuationResult.method
+        );
+
+        // Step 4: Calculate confidence score based on data quality
+        const confidence = this.calculateConfidenceScore(
+            valuationResult.comparables.length,
+            valuationResult.method,
+            targetProperty,
+            comparableProperties
+        );
+
+        console.log(`   💰 Base value: $${baseMarketValue.baseValue.toLocaleString()}`);
+        console.log(`   🔧 Adjustments: $${(adjustedMarketValue.totalAdjustments > 0 ? '+' : '')}${adjustedMarketValue.totalAdjustments.toLocaleString()}`);
+        console.log(`   🎯 Est. market rent: $${adjustedMarketValue.finalValue.toLocaleString()}`);
+        console.log(`   📊 Method: ${valuationResult.method} (${confidence}% confidence)`);
+
+        return {
+            success: true,
+            estimatedMarketRent: adjustedMarketValue.finalValue,
+            baseMarketRent: baseMarketValue.baseValue,
+            totalAdjustments: adjustedMarketValue.totalAdjustments,
+            adjustmentBreakdown: adjustedMarketValue.adjustments,
+            method: valuationResult.method,
+            confidence: confidence,
+            comparablesUsed: valuationResult.comparables.length,
+            reasoning: this.generateValuationReasoning(targetProperty, baseMarketValue, adjustedMarketValue, valuationResult)
+        };
+    }
+
+    /**
+     * Select the best valuation method based on available comparable data
+     */
+    selectBestValuationMethod(targetProperty, comparables) {
+        const beds = targetProperty.bedrooms || 0;
+        const baths = targetProperty.bathrooms || 0;
+        
+        // Method 1: Exact bed/bath match with similar amenities
+        const exactMatches = comparables.filter(comp => 
+            comp.bedrooms === beds && 
+            Math.abs(comp.bathrooms - baths) <= 0.5 &&
+            this.hasReasonableDataQuality(comp)
+        );
+        
+        if (exactMatches.length >= this.MIN_SAMPLES.EXACT_MATCH) {
+            console.log(`   ✅ Using EXACT_MATCH: ${exactMatches.length} properties with ${beds}BR/${baths}BA`);
+            return {
+                success: true,
+                method: this.VALUATION_METHODS.EXACT_MATCH,
+                comparables: exactMatches
+            };
+        }
+
+        // Method 2: Same bed/bath count (broader amenity tolerance)
+        const bedBathMatches = comparables.filter(comp => 
+            comp.bedrooms === beds && 
+            comp.bathrooms >= (baths - 0.5) && comp.bathrooms <= (baths + 0.5) &&
+            this.hasReasonableDataQuality(comp)
+        );
+        
+        if (bedBathMatches.length >= this.MIN_SAMPLES.BED_BATH_SPECIFIC) {
+            console.log(`   ✅ Using BED_BATH_SPECIFIC: ${bedBathMatches.length} properties with ${beds}BR/${baths}±0.5BA`);
+            return {
+                success: true,
+                method: this.VALUATION_METHODS.BED_BATH_SPECIFIC,
+                comparables: bedBathMatches
+            };
+        }
+
+        // Method 3: Same bedroom count (will adjust for bathroom differences)
+        const bedMatches = comparables.filter(comp => 
+            comp.bedrooms === beds &&
+            this.hasReasonableDataQuality(comp)
+        );
+        
+        if (bedMatches.length >= this.MIN_SAMPLES.BED_SPECIFIC) {
+            console.log(`   ⚠️ Using BED_SPECIFIC: ${bedMatches.length} properties with ${beds}BR (will adjust for bath differences)`);
+            return {
+                success: true,
+                method: this.VALUATION_METHODS.BED_SPECIFIC,
+                comparables: bedMatches
+            };
+        }
+
+        // Method 4: Price per sqft fallback (least preferred)
+        const sqftComparables = comparables.filter(comp => 
+            comp.sqft > 0 && comp.monthlyRent > 0 &&
+            this.hasReasonableDataQuality(comp)
+        );
+        
+        if (sqftComparables.length >= this.MIN_SAMPLES.PRICE_PER_SQFT_FALLBACK) {
+            console.log(`   ⚠️ Using PRICE_PER_SQFT_FALLBACK: ${sqftComparables.length} properties (least accurate method)`);
+            return {
+                success: true,
+                method: this.VALUATION_METHODS.PRICE_PER_SQFT_FALLBACK,
+                comparables: sqftComparables
+            };
+        }
+
+        // Insufficient data
+        return {
+            success: false,
+            reason: `Insufficient comparable data: ${comparables.length} total, need min ${this.MIN_SAMPLES.BED_BATH_SPECIFIC} for ${beds}BR/${baths}BA`
+        };
+    }
+
+    /**
+     * Calculate base market value using the selected method
+     */
+    calculateBaseMarketValue(targetProperty, comparables, method) {
+        switch (method) {
+            case this.VALUATION_METHODS.EXACT_MATCH:
+            case this.VALUATION_METHODS.BED_BATH_SPECIFIC:
+                return this.calculateBedBathBasedValue(targetProperty, comparables);
+                
+            case this.VALUATION_METHODS.BED_SPECIFIC:
+                return this.calculateBedroomBasedValue(targetProperty, comparables);
+                
+            case this.VALUATION_METHODS.PRICE_PER_SQFT_FALLBACK:
+                return this.calculateSqftBasedValue(targetProperty, comparables);
+                
+            default:
+                throw new Error(`Unknown valuation method: ${method}`);
+        }
+    }
+
+    /**
+     * Method 1 & 2: Bed/Bath specific pricing (most accurate)
+     */
+    calculateBedBathBasedValue(targetProperty, comparables) {
+        const rents = comparables.map(comp => comp.monthlyRent).sort((a, b) => a - b);
+        const median = this.calculateMedian(rents);
+        
+        // Use median as most stable central tendency
+        return {
+            baseValue: median,
+            method: 'bed_bath_median',
+            dataPoints: rents.length,
+            rentRange: { min: Math.min(...rents), max: Math.max(...rents) }
+        };
+    }
+
+    /**
+     * Method 3: Bedroom-based with bathroom adjustments
+     */
+    calculateBedroomBasedValue(targetProperty, comparables) {
+        const targetBaths = targetProperty.bathrooms || 1;
+        
+        // Calculate base rent for this bedroom count
+        const rents = comparables.map(comp => comp.monthlyRent);
+        const medianRent = this.calculateMedian(rents);
+        
+        // Find typical bathroom count for this bedroom category
+        const bathCounts = comparables.map(comp => comp.bathrooms || 1);
+        const typicalBathCount = this.calculateMedian(bathCounts);
+        
+        // Adjust base rent for bathroom difference
+        const bathDifference = targetBaths - typicalBathCount;
+        const bathAdjustment = this.calculateBathroomAdjustment(bathDifference);
+        
+        return {
+            baseValue: medianRent + bathAdjustment,
+            method: 'bedroom_based_with_bath_adjustment',
+            dataPoints: rents.length,
+            bathAdjustment: bathAdjustment,
+            typicalBathCount: typicalBathCount
+        };
+    }
+
+    /**
+     * Method 4: Price per sqft fallback (least preferred)
+     */
+    calculateSqftBasedValue(targetProperty, comparables) {
+        const targetSqft = targetProperty.sqft || 0;
+        
+        if (targetSqft === 0) {
+            // Estimate sqft based on bedroom count
+            const bedrooms = targetProperty.bedrooms || 0;
+            const estimatedSqft = this.estimateSquareFootage(bedrooms);
+            console.log(`   ⚠️ No sqft data, estimating ${estimatedSqft} sqft for ${bedrooms}BR`);
+            targetProperty.sqft = estimatedSqft; // Temporary for calculation
+        }
+        
+        // Calculate median price per sqft
+        const pricesPerSqft = comparables
+            .filter(comp => comp.sqft > 0)
+            .map(comp => comp.monthlyRent / comp.sqft);
+            
+        const medianPricePerSqft = this.calculateMedian(pricesPerSqft);
+        
+        return {
+            baseValue: medianPricePerSqft * targetProperty.sqft,
+            method: 'price_per_sqft',
+            dataPoints: pricesPerSqft.length,
+            medianPricePerSqft: medianPricePerSqft
+        };
+    }
+
+    /**
+     * Apply detailed adjustments for property-specific factors
+     */
+    applyDetailedAdjustments(targetProperty, baseValue, comparables, method) {
+        const adjustments = [];
+        let totalAdjustment = 0;
+
+        // 1. Amenity adjustments (most important)
+        const amenityAdjustment = this.calculateAmenityAdjustments(targetProperty, comparables);
+        if (amenityAdjustment.totalAdjustment !== 0) {
+            adjustments.push({
+                category: 'amenities',
+                amount: amenityAdjustment.totalAdjustment,
+                details: amenityAdjustment.breakdown
+            });
+            totalAdjustment += amenityAdjustment.totalAdjustment;
+        }
+
+        // 2. Square footage adjustments (for bed/bath methods)
+        if (method !== this.VALUATION_METHODS.PRICE_PER_SQFT_FALLBACK) {
+            const sqftAdjustment = this.calculateSquareFootageAdjustment(targetProperty, comparables);
+            if (sqftAdjustment !== 0) {
+                adjustments.push({
+                    category: 'square_footage',
+                    amount: sqftAdjustment,
+                    details: `${targetProperty.sqft} sqft vs comparable average`
+                });
+                totalAdjustment += sqftAdjustment;
+            }
+        }
+
+        // 3. Condition and quality adjustments
+        const qualityAdjustment = this.calculateQualityAdjustments(targetProperty);
+        if (qualityAdjustment !== 0) {
+            adjustments.push({
+                category: 'quality_condition',
+                amount: qualityAdjustment,
+                details: 'Based on listing description and photos'
+            });
+            totalAdjustment += qualityAdjustment;
+        }
+
+        // 4. Location micro-adjustments within neighborhood
+        const locationAdjustment = this.calculateLocationAdjustments(targetProperty);
+        if (locationAdjustment !== 0) {
+            adjustments.push({
+                category: 'micro_location',
+                amount: locationAdjustment,
+                details: 'Street-level location factors'
+            });
+            totalAdjustment += locationAdjustment;
+        }
+
+        return {
+            finalValue: Math.round(baseValue.baseValue + totalAdjustment),
+            totalAdjustments: totalAdjustment,
+            adjustments: adjustments
+        };
+    }
+
+    /**
+     * Calculate amenity-based adjustments compared to comparable properties using location-aware pricing
+     */
+    calculateAmenityAdjustments(targetProperty, comparables) {
+        const targetAmenities = this.normalizeAmenities(targetProperty.amenities || []);
+        
+        // Add description-based amenities
+        const descriptionAmenities = this.extractAmenitiesFromDescription(targetProperty.description || '');
+        const allTargetAmenities = [...new Set([...targetAmenities, ...descriptionAmenities])];
+        
+        // Calculate average amenity value of comparables (using their base rents)
+        const comparableAmenityValues = comparables.map(comp => {
+            const compAmenities = this.normalizeAmenities(comp.amenities || []);
+            const compDescAmenities = this.extractAmenitiesFromDescription(comp.description || '');
+            const allCompAmenities = [...new Set([...compAmenities, ...compDescAmenities])];
+            
+            const amenityAnalysis = this.calculateLocationAwareAmenityValue(
+                allCompAmenities, 
+                comp, 
+                comp.monthlyRent || 0
+            );
+            return amenityAnalysis.totalAdjustment;
+        });
+        
+        const avgComparableAmenityValue = comparableAmenityValues.reduce((a, b) => a + b, 0) / comparableAmenityValues.length;
+        
+        // Calculate target property amenity value (using estimated market rent for percentage calculations)
+        const estimatedBaseRent = this.estimateBaseRentForAmenityCalculation(targetProperty, comparables);
+        const targetAmenityAnalysis = this.calculateLocationAwareAmenityValue(
+            allTargetAmenities, 
+            targetProperty, 
+            estimatedBaseRent
+        );
+        
+        const adjustment = targetAmenityAnalysis.totalAdjustment - avgComparableAmenityValue;
+
+        return {
+            totalAdjustment: Math.round(adjustment),
+            targetAmenityValue: targetAmenityAnalysis.totalAdjustment,
+            avgComparableAmenityValue: avgComparableAmenityValue,
+            breakdown: targetAmenityAnalysis.breakdown,
+            isManhattan: targetAmenityAnalysis.isManhattan
+        };
+    }
+
+    /**
+     * Estimate base rent for amenity percentage calculations
+     */
+    estimateBaseRentForAmenityCalculation(targetProperty, comparables) {
+        // Use median rent of comparables as estimate for percentage-based amenity calculations
+        const comparableRents = comparables.map(comp => comp.monthlyRent).filter(rent => rent > 0);
+        if (comparableRents.length === 0) return 3000; // Fallback for NYC
+        
+        const sortedRents = comparableRents.sort((a, b) => a - b);
+        return sortedRents[Math.floor(sortedRents.length / 2)];
+    }
+
+    /**
+     * Extract amenities from property description text
+     */
+    extractAmenitiesFromDescription(description) {
+        const text = description.toLowerCase();
+        const foundAmenities = [];
+        
+        // Check for amenities mentioned in description
+        const amenityDetectionRules = {
+            'doorman_full_time': ['full time doorman', 'full-time doorman', '24 hour doorman', '24/7 doorman'],
+            'doorman_part_time': ['part time doorman', 'part-time doorman', 'virtual doorman'],
+            'doorman': ['doorman'], // Fallback if no specific type found
+            'concierge': ['concierge'],
+            'elevator': ['elevator', 'lift'],
+            'no_elevator': ['walk up', 'walk-up', 'no elevator', 'walkup'],
+            'washer_dryer': ['washer/dryer', 'washer dryer', 'w/d', 'laundry in unit', 'in-unit laundry'],
+            'dishwasher': ['dishwasher'],
+            'central_air': ['central air', 'central a/c', 'central ac'],
+            'balcony': ['balcony', 'private balcony'],
+            'terrace': ['terrace', 'private terrace'],
+            'gym': ['gym', 'fitness center', 'fitness room'],
+            'pool': ['pool', 'swimming pool'],
+            'roof_deck': ['roof deck', 'rooftop', 'roof top'],
+            'parking': ['parking', 'garage parking', 'parking space'],
+            'pet_friendly': ['pets allowed', 'pet friendly', 'pet ok', 'dogs allowed', 'cats allowed'],
+            'no_fee': ['no fee', 'no broker fee', 'fee free'],
+            'newly_renovated': ['newly renovated', 'gut renovated', 'completely renovated'],
+            'luxury_finishes': ['luxury finishes', 'high-end finishes', 'luxury fixtures'],
+            'hardwood_floors': ['hardwood floors', 'hardwood', 'wood floors'],
+            'high_ceilings': ['high ceilings', 'vaulted ceilings', '10 foot ceilings', '11 foot ceilings'],
+            'exposed_brick': ['exposed brick', 'brick walls'],
+            'no_natural_light': ['no windows', 'no natural light', 'basement', 'airshaft'],
+            'noisy_location': ['busy street', 'noisy', 'traffic'],
+            'ground_floor': ['ground floor', 'first floor', 'garden level']
+        };
+        
+        // Check each amenity against description
+        for (const [amenity, keywords] of Object.entries(amenityDetectionRules)) {
+            if (keywords.some(keyword => text.includes(keyword))) {
+                foundAmenities.push(amenity);
+            }
+        }
+        
+        return foundAmenities;
+    }
+
+    /**
+     * Calculate square footage adjustments for bed/bath-based valuations
+     */
+    calculateSquareFootageAdjustment(targetProperty, comparables) {
+        const targetSqft = targetProperty.sqft || 0;
+        const bedrooms = targetProperty.bedrooms || 0;
+        
+        if (targetSqft === 0) return 0;
+        
+        // Calculate average sqft for comparables
+        const comparableSqfts = comparables
+            .filter(comp => comp.sqft > 0)
+            .map(comp => comp.sqft);
+            
+        if (comparableSqfts.length === 0) return 0;
+        
+        const avgComparableSqft = comparableSqfts.reduce((a, b) => a + b, 0) / comparableSqfts.length;
+        const sqftDifference = targetSqft - avgComparableSqft;
+        
+        // Get baseline sqft expectations for this bedroom count
+        const bedroomKey = bedrooms === 0 ? 'studio' : `${bedrooms}bed`;
+        const sqftStandards = this.SQFT_ADJUSTMENTS[bedroomKey] || this.SQFT_ADJUSTMENTS['1bed'];
+        
+        // Calculate adjustment based on how much over/under average
+        let adjustment = 0;
+        if (sqftDifference > 0) {
+            // Above average sqft
+            adjustment = sqftDifference * sqftStandards.per_sqft_over;
+        } else {
+            // Below average sqft  
+            adjustment = sqftDifference * Math.abs(sqftStandards.per_sqft_under);
+        }
+        
+        return Math.round(adjustment);
+    }
+
+    /**
+     * Calculate quality and condition adjustments
+     */
+    calculateQualityAdjustments(targetProperty) {
+        let adjustment = 0;
+        const description = (targetProperty.description || '').toLowerCase();
+        
+        // Positive quality indicators
+        if (description.includes('newly renovated') || description.includes('gut renovated')) {
+            adjustment += this.AMENITY_VALUES.newly_renovated || 300;
+        }
+        if (description.includes('luxury') || description.includes('high-end')) {
+            adjustment += this.AMENITY_VALUES.luxury_finishes || 250;
+        }
+        if (description.includes('hardwood') || description.includes('wood floors')) {
+            adjustment += this.AMENITY_VALUES.hardwood_floors || 150;
+        }
+        
+        // Negative quality indicators
+        if (description.includes('needs work') || description.includes('tlc')) {
+            adjustment -= 200;
+        }
+        if (description.includes('as-is') || description.includes('fixer')) {
+            adjustment -= 300;
+        }
+        
+        return adjustment;
+    }
+
+    /**
+     * Calculate micro-location adjustments within neighborhood
+     */
+    calculateLocationAdjustments(targetProperty) {
+        let adjustment = 0;
+        const address = (targetProperty.address || '').toLowerCase();
+        const description = (targetProperty.description || '').toLowerCase();
+        
+        // Street-level factors
+        if (description.includes('quiet street') || description.includes('tree-lined')) {
+            adjustment += 100;
+        }
+        if (description.includes('busy street') || description.includes('noisy')) {
+            adjustment -= 150;
+        }
+        if (description.includes('ground floor') && !description.includes('garden')) {
+            adjustment -= 100;
+        }
+        
+        return adjustment;
+    }
+
+    /**
+     * Normalize and standardize amenity names
+     */
+    normalizeAmenities(amenities) {
+        const normalized = [];
+        const amenityText = amenities.join(' ').toLowerCase();
+        
+        // Map common variations to standard names
+        const amenityMappings = {
+            'doorman': ['doorman', 'full time doorman', 'full-time doorman'],
+            'elevator': ['elevator', 'lift'],
+            'washer_dryer': ['washer/dryer', 'washer dryer', 'w/d', 'laundry in unit'],
+            'dishwasher': ['dishwasher', 'dish washer'],
+            'central_air': ['central air', 'central a/c', 'central ac'],
+            'balcony': ['balcony', 'private balcony'],
+            'terrace': ['terrace', 'private terrace', 'roof terrace'],
+            'gym': ['gym', 'fitness center', 'fitness room'],
+            'pool': ['pool', 'swimming pool'],
+            'roof_deck': ['roof deck', 'rooftop', 'roof top'],
+            'parking': ['parking', 'garage parking', 'parking space'],
+            'pet_friendly': ['pets allowed', 'pet friendly', 'pet ok', 'dogs allowed', 'cats allowed']
+        };
+        
+        // Check for each standard amenity
+        for (const [standardName, variations] of Object.entries(amenityMappings)) {
+            if (variations.some(variation => amenityText.includes(variation))) {
+                normalized.push(standardName);
+            }
+        }
+        
+        return [...new Set(normalized)]; // Remove duplicates
+    }
+
+    /**
+     * Calculate total amenity value (kept for backward compatibility, but now location-aware)
+     */
+    calculateAmenityValue(amenities, targetProperty = null, baseRent = 0) {
+        if (targetProperty) {
+            // Use new location-aware calculation
+            const analysis = this.calculateLocationAwareAmenityValue(amenities, targetProperty, baseRent);
+            return analysis.totalAdjustment;
+        } else {
+            // Fallback to outer borough fixed values for backward compatibility
+            return amenities.reduce((total, amenity) => {
+                const amenityConfig = this.AMENITY_VALUES[amenity];
+                if (!amenityConfig) return total;
+                
+                const outerConfig = amenityConfig.outer;
+                if (outerConfig.type === 'fixed') {
+                    return total + outerConfig.value;
+                } else {
+                    // Can't calculate percentage without base rent, use fixed equivalent
+                    return total + (baseRent > 0 ? (baseRent * outerConfig.value / 100) : 0);
+                }
+            }, 0);
+        }
+    }
+
+    /**
+     * Calculate bathroom adjustment amount
+     */
+    calculateBathroomAdjustment(bathDifference) {
+        // Convert bathroom difference to adjustment amount
+        return bathDifference * 200; // $200 per 0.5 bathroom difference
+    }
+
+    /**
+     * Estimate square footage based on bedroom count
+     */
+    estimateSquareFootage(bedrooms) {
+        const estimates = {
+            0: 450,  // Studio
+            1: 650,  // 1BR
+            2: 900,  // 2BR
+            3: 1200, // 3BR
+            4: 1500  // 4BR+
+        };
+        return estimates[bedrooms] || estimates[1];
+    }
+
+    /**
+     * Calculate confidence score based on data quality and method used
+     */
+    calculateConfidenceScore(comparablesCount, method, targetProperty, allComparables) {
+        let confidence = 0;
+        
+        // Base confidence from method used
+        switch (method) {
+            case this.VALUATION_METHODS.EXACT_MATCH:
+                confidence = 95;
+                break;
+            case this.VALUATION_METHODS.BED_BATH_SPECIFIC:
+                confidence = 85;
+                break;
+            case this.VALUATION_METHODS.BED_SPECIFIC:
+                confidence = 75;
+                break;
+            case this.VALUATION_METHODS.PRICE_PER_SQFT_FALLBACK:
+                confidence = 60;
+                break;
+        }
+        
+        // Adjust based on sample size
+        if (comparablesCount >= 20) confidence += 5;
+        else if (comparablesCount >= 15) confidence += 3;
+        else if (comparablesCount >= 10) confidence += 1;
+        else if (comparablesCount < 5) confidence -= 10;
+        
+        // Adjust based on data completeness
+        const hasGoodSqftData = (targetProperty.sqft || 0) > 0;
+        const hasAmenityData = (targetProperty.amenities || []).length > 0;
+        
+        if (hasGoodSqftData) confidence += 5;
+        if (hasAmenityData) confidence += 5;
+        
+        return Math.min(100, Math.max(0, confidence));
+    }
+
+    /**
+     * Generate detailed reasoning for the valuation
+     */
+    generateValuationReasoning(targetProperty, baseValue, adjustedValue, valuationResult) {
+        const reasons = [];
+        
+        reasons.push(`Base value: $${baseValue.baseValue.toLocaleString()} (${valuationResult.method})`);
+        reasons.push(`${valuationResult.comparables.length} comparable properties used`);
+        
+        if (adjustedValue.adjustments.length > 0) {
+            adjustedValue.adjustments.forEach(adj => {
+                const sign = adj.amount > 0 ? '+' : '';
+                reasons.push(`${adj.category}: ${sign}$${adj.amount.toLocaleString()}`);
+            });
+        }
+        
+        return reasons.join('; ');
+    }
+
+    /**
+     * Check if a comparable has reasonable data quality
+     */
+    hasReasonableDataQuality(comparable) {
+        return comparable.monthlyRent > 0 &&
+               comparable.monthlyRent <= 50000 &&
+               comparable.bedrooms !== undefined &&
+               comparable.bathrooms !== undefined &&
+               (comparable.daysOnMarket || 0) <= 120; // Not stale
+    }
+
+    /**
+     * Calculate median value from array
+     */
+    calculateMedian(values) {
+        const sorted = [...values].sort((a, b) => a - b);
+        const mid = Math.floor(sorted.length / 2);
+        return sorted.length % 2 === 0 
+            ? (sorted[mid - 1] + sorted[mid]) / 2 
+            : sorted[mid];
+    }
+
+    /**
+     * MAIN INTERFACE: Analyze rental for undervaluation using advanced multi-factor approach
+     */
+    analyzeRentalUndervaluation(targetProperty, comparableProperties, neighborhood, options = {}) {
+        const threshold = options.undervaluationThreshold || 25; // NEW: Raised to 25% for only the BEST deals
+        
+        console.log(`\n🎯 ADVANCED VALUATION: ${targetProperty.address || 'Property'}`);
+        console.log(`   📊 Rent: $${targetProperty.monthlyRent.toLocaleString()} | ${targetProperty.bedrooms}BR/${targetProperty.bathrooms}BA | ${targetProperty.sqft || 'N/A'} sqft`);
+        
+        // Get true market value using advanced multi-factor analysis
+        const valuation = this.calculateTrueMarketValue(targetProperty, comparableProperties, neighborhood);
+        
+        if (!valuation.success) {
+            return {
+                isUndervalued: false,
+                discountPercent: 0,
+                estimatedMarketRent: 0,
+                actualRent: targetProperty.monthlyRent,
+                confidence: 0,
+                method: 'insufficient_data',
+                reasoning: valuation.reasoning
+            };
+        }
+        
+        // Calculate actual discount percentage
+        const actualRent = targetProperty.monthlyRent;
+        const estimatedMarketRent = valuation.estimatedMarketRent;
+        const discountPercent = ((estimatedMarketRent - actualRent) / estimatedMarketRent) * 100;
+        
+        // Determine if truly undervalued - NEW: Only 25%+ below market with method-appropriate confidence
+        // Confidence thresholds adjusted per valuation method:
+        // - Exact/Bed-Bath methods: 70% minimum (high accuracy methods)
+        // - Bed-specific method: 60% minimum (good accuracy with adjustments)  
+        // - Price per sqft fallback: 50% minimum (lower accuracy but still useful)
+        let minConfidenceThreshold = 50; // Default for price per sqft
+        if (valuation.method === 'exact_bed_bath_amenity_match' || valuation.method === 'bed_bath_specific_pricing') {
+            minConfidenceThreshold = 70; // Higher standard for best methods
+        } else if (valuation.method === 'bed_specific_with_adjustments') {
+            minConfidenceThreshold = 60; // Medium standard for adjusted method
+        }
+        
+        const isUndervalued = discountPercent >= threshold && valuation.confidence >= minConfidenceThreshold;
+        
+        console.log(`   💰 Actual rent: $${actualRent.toLocaleString()}`);
+        console.log(`   🎯 Market value: $${estimatedMarketRent.toLocaleString()}`);
+        console.log(`   📊 Discount: ${discountPercent.toFixed(1)}%`);
+        console.log(`   ✅ Undervalued: ${isUndervalued ? 'YES' : 'NO'} (${threshold}% threshold, ${valuation.confidence}% confidence)`);
+        
+        return {
+            isUndervalued,
+            discountPercent: Math.round(discountPercent * 10) / 10,
+            estimatedMarketRent: estimatedMarketRent,
+            actualRent: actualRent,
+            potentialMonthlySavings: Math.round(estimatedMarketRent - actualRent),
+            confidence: valuation.confidence,
+            method: valuation.method,
+            comparablesUsed: valuation.comparablesUsed,
+            adjustmentBreakdown: valuation.adjustmentBreakdown,
+            reasoning: valuation.reasoning
+        };
+    }
+}
+
 class EnhancedBiWeeklyRentalAnalyzer {
     constructor() {
         this.supabase = createClient(
@@ -22,6 +958,9 @@ class EnhancedBiWeeklyRentalAnalyzer {
         
         this.rapidApiKey = process.env.RAPIDAPI_KEY;
         this.apiCallsUsed = 0;
+        
+        // Initialize the advanced valuation engine
+        this.valuationEngine = new AdvancedRentalValuationEngine();
         
         // Check for initial bulk load mode (same as sales file)
         this.initialBulkLoad = process.env.INITIAL_BULK_LOAD === 'true';
@@ -111,7 +1050,7 @@ class EnhancedBiWeeklyRentalAnalyzer {
         if (this.initialBulkLoad) {
             console.log('🚀 INITIAL BULK LOAD MODE: Processing ALL rental neighborhoods');
             console.log(`📋 Will process ${HIGH_PRIORITY_NEIGHBORHOODS.length} neighborhoods over multiple hours`);
-            return ['park-slope'];
+            return ['soho']
         }
         
         // Normal bi-weekly schedule (for production)
@@ -541,148 +1480,6 @@ class EnhancedBiWeeklyRentalAnalyzer {
     }
 
     /**
-     * NEW: Categorize the main undervaluation reason based on description analysis
-     */
-    categorizeUndervaluationReason(descriptionAnalysis) {
-        if (descriptionAnalysis.needsRenovation) return 'Needs Renovation';
-        if (descriptionAnalysis.isUrgent) return 'Seller Urgency';
-        if (descriptionAnalysis.distressSignals.length > 0) return 'Distress Rental';
-        return 'Market Discount';
-    }
-
-    /**
-     * SMART DEDUPLICATION: Check which rental IDs we already have cached
-     * FIXED: Added comprehensive error handling
-     */
-    async getExistingRentalIds(listingIds) {
-        if (!listingIds || listingIds.length === 0) return [];
-        
-        try {
-            const sevenDaysAgo = new Date();
-            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
-            const { data, error } = await this.supabase
-                .from('rental_market_cache')
-                .select('listing_id')
-                .in('listing_id', listingIds)
-                .gte('last_checked', sevenDaysAgo.toISOString());
-
-            if (error) {
-                console.warn('⚠️ Error checking existing rentals, will fetch all details:', error.message);
-                return [];
-            }
-
-            const existingIds = data.map(row => row.listing_id);
-            console.log(`   💾 Cache lookup: ${existingIds.length}/${listingIds.length} rentals found in cache`);
-            return existingIds;
-        } catch (error) {
-            console.warn('⚠️ Cache lookup failed, will fetch all details:', error.message);
-            return [];
-        }
-    }
-
-    /**
-     * UPDATE cache with current search results and mark missing as rented
-     * FIXED: Added comprehensive error handling
-     */
-    async updateRentalCacheWithSearchResults(searchResults, neighborhood) {
-        const currentTime = new Date().toISOString();
-        const currentListingIds = searchResults.map(r => r.id?.toString()).filter(Boolean);
-        
-        try {
-            // Step 1: Update existing cache entries for rentals we found in search
-            for (const rental of searchResults) {
-                if (!rental.id) continue;
-                
-                try {
-                    const cacheData = {
-                        listing_id: rental.id.toString(),
-                        address: rental.address || 'Address not available',
-                        neighborhood: neighborhood,
-                        borough: rental.borough || 'unknown',
-                        monthly_rent: rental.price || rental.rent || 0,
-                        bedrooms: rental.bedrooms || rental.beds || 0,
-                        bathrooms: rental.bathrooms || rental.baths || 0,
-                        sqft: rental.sqft || rental.square_feet || 0,
-                        property_type: rental.propertyType || rental.type || 'apartment',
-                        market_status: 'pending', // Will be updated after analysis
-                        last_seen_in_search: currentTime,
-                        last_checked: currentTime,
-                        times_seen: 1 // Will be incremented if exists
-                    };
-
-                    // Upsert to cache (insert new or update existing)
-                    const { error } = await this.supabase
-                        .from('rental_market_cache')
-                        .upsert(cacheData, { 
-                            onConflict: 'listing_id',
-                            updateColumns: ['last_seen_in_search', 'last_checked', 'monthly_rent'] 
-                        });
-
-                    if (error) {
-                        console.warn(`⚠️ Error updating cache for ${rental.id}:`, error.message);
-                    }
-                } catch (itemError) {
-                    console.warn(`⚠️ Error processing cache item ${rental.id}:`, itemError.message);
-                }
-            }
-
-            // Step 2: Mark rentals in this neighborhood as likely rented if not seen in recent search
-            // FIXED: Added proper error handling for missing tables
-            try {
-                const threeDaysAgo = new Date();
-                threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
-
-                // Get rentals in this neighborhood that weren't in current search
-                const { data: missingRentals, error: missingError } = await this.supabase
-                    .from('rental_market_cache')
-                    .select('listing_id')
-                    .eq('neighborhood', neighborhood)
-                    .not('listing_id', 'in', `(${currentListingIds.map(id => `"${id}"`).join(',')})`)
-                    .lt('last_seen_in_search', threeDaysAgo.toISOString());
-
-                if (missingError) {
-                    console.warn('⚠️ Error checking for missing rentals:', missingError.message);
-                    return { updated: searchResults.length, markedRented: 0 };
-                }
-
-                // Mark corresponding entries in undervalued_rentals as likely rented
-                let markedRented = 0;
-                if (missingRentals && missingRentals.length > 0) {
-                    const missingIds = missingRentals.map(r => r.listing_id);
-                    
-                    const { error: markRentedError } = await this.supabase
-                        .from('undervalued_rentals')
-                        .update({
-                            status: 'likely_rented',
-                            likely_rented: true,
-                            rented_detected_at: currentTime
-                        })
-                        .in('listing_id', missingIds)
-                        .eq('status', 'active');
-
-                    if (!markRentedError) {
-                        markedRented = missingIds.length;
-                        this.apiUsageStats.listingsMarkedRented += markedRented;
-                        console.log(`   🏠 Marked ${markedRented} rentals as likely rented (not seen in recent search)`);
-                    } else {
-                        console.warn('⚠️ Error marking rentals as rented:', markRentedError.message);
-                    }
-                }
-
-                console.log(`   💾 Updated cache: ${searchResults.length} rentals, marked ${markedRented} as rented`);
-                return { updated: searchResults.length, markedRented };
-            } catch (markingError) {
-                console.warn('⚠️ Error in rental marking process:', markingError.message);
-                return { updated: searchResults.length, markedRented: 0 };
-            }
-        } catch (error) {
-            console.warn('⚠️ Error updating rental cache:', error.message);
-            return { updated: 0, markedRented: 0 };
-        }
-    }
-
-    /**
      * Clear old rental data with enhanced cleanup
      * FIXED: Graceful degradation for missing database functions
      */
@@ -876,6 +1673,7 @@ class EnhancedBiWeeklyRentalAnalyzer {
             }
         } else {
             console.log('\n📊 No undervalued rentals found (normal in competitive NYC rental market)');
+            console.log('💡 Try adjusting criteria or neighborhoods - 25% threshold is very strict for NYC');
         }
         
         // Long-term projection (only for regular mode)
@@ -960,10 +1758,11 @@ class EnhancedBiWeeklyRentalAnalyzer {
     }
 
     /**
-     * Main bi-weekly rental refresh with SMART DEDUPLICATION
+     * Main bi-weekly rental refresh with SMART DEDUPLICATION + ADVANCED VALUATION
      */
     async runBiWeeklyRentalRefresh() {
-        console.log('\n🏠 SMART DEDUPLICATION BI-WEEKLY RENTAL ANALYSIS');
+        console.log('\n🏠 ADVANCED MULTI-FACTOR RENTAL ANALYSIS');
+        console.log('🎯 NEW: 25% threshold using bed/bath/amenity valuation engine');
         console.log('💾 Cache-optimized to save 75-90% of API calls');
         console.log('🏠 Auto-detects and removes rented listings');
         console.log('⚡ Adaptive rate limiting with daily neighborhood scheduling');
@@ -1050,8 +1849,8 @@ class EnhancedBiWeeklyRentalAnalyzer {
                     summary.totalDetailsAttempted += newRentals.length;
                     summary.totalDetailsFetched += detailedRentals.length;
                     
-                    // Step 3: Analyze for undervaluation
-                    const undervaluedRentals = this.analyzeForRentalUndervaluation(detailedRentals, neighborhood);
+                    // Step 3: ADVANCED MULTI-FACTOR ANALYSIS for undervaluation
+                    const undervaluedRentals = this.analyzeForAdvancedRentalUndervaluation(detailedRentals, neighborhood);
                     summary.undervaluedFound += undervaluedRentals.length;
                     
                     // Step 4: Save to database
@@ -1075,7 +1874,7 @@ class EnhancedBiWeeklyRentalAnalyzer {
                     };
                     
                     summary.neighborhoodsProcessed++;
-                    console.log(`   ✅ ${neighborhood}: ${undervaluedRentals.length} undervalued rentals found`);
+                    console.log(`   ✅ ${neighborhood}: ${undervaluedRentals.length} undervalued rentals found (25% threshold)`);
 
                     // For bulk load, log progress every 5 neighborhoods
                     if (this.initialBulkLoad && (i + 1) % 5 === 0) {
@@ -1135,7 +1934,7 @@ class EnhancedBiWeeklyRentalAnalyzer {
     }
 
     /**
-     * SMART DEDUPLICATION: Fetch active rentals and identify which need detail fetching (REPLACED)
+     * SMART DEDUPLICATION: Fetch active rentals and identify which need detail fetching
      */
     async fetchActiveRentalsWithDeduplication(neighborhood) {
         try {
@@ -1211,7 +2010,7 @@ class EnhancedBiWeeklyRentalAnalyzer {
     }
 
     /**
-     * Fetch rental details with cache updates (REPLACED)
+     * Fetch rental details with cache updates
      * FIXED: Cache ONLY after successful individual fetch + complete function implementation
      */
     async fetchRentalDetailsWithCache(newRentals, neighborhood) {
@@ -1419,307 +2218,91 @@ class EnhancedBiWeeklyRentalAnalyzer {
     }
 
     /**
-     * Analyze rentals for TRUE undervaluation using complete data
+     * NEW: ADVANCED MULTI-FACTOR ANALYSIS for undervaluation using the sophisticated engine
      */
-    analyzeForRentalUndervaluation(detailedRentals, neighborhood) {
-        if (detailedRentals.length < 3) {
-            console.log(`   ⚠️ Not enough rentals (${detailedRentals.length}) for comparison in ${neighborhood}`);
+    analyzeForAdvancedRentalUndervaluation(detailedRentals, neighborhood) {
+        if (detailedRentals.length < 5) {
+            console.log(`   ⚠️ Not enough rentals (${detailedRentals.length}) for advanced multi-factor analysis in ${neighborhood}`);
             return [];
         }
 
-        console.log(`   🧮 Analyzing ${detailedRentals.length} rentals for undervaluation...`);
+        console.log(`   🎯 ADVANCED MULTI-FACTOR ANALYSIS: ${detailedRentals.length} rentals using bed/bath/amenity engine...`);
 
-        // Group rentals by bedroom count for better comparisons
-        const rentalsByBeds = this.groupRentalsByBedrooms(detailedRentals);
-        
         const undervaluedRentals = [];
 
-        for (const [bedrooms, rentals] of Object.entries(rentalsByBeds)) {
-            if (rentals.length < 2) continue;
-
-            // Calculate rental market benchmarks for this bedroom count
-            const marketData = this.calculateRentalMarketBenchmarks(rentals);
-            
-            console.log(`   📊 ${bedrooms}: ${rentals.length} found, median ${marketData.medianRent.toLocaleString()}/month`);
-
-            // Find undervalued rentals in this bedroom group
-            for (const rental of rentals) {
-                const analysis = this.analyzeRentalValue(rental, marketData, neighborhood);
+        // Analyze each rental using the advanced valuation engine
+        for (const rental of detailedRentals) {
+            try {
+                // Use the advanced valuation engine with 25% threshold
+                const analysis = this.valuationEngine.analyzeRentalUndervaluation(
+                    rental, 
+                    detailedRentals, 
+                    neighborhood,
+                    { undervaluationThreshold: 25 } // NEW: Only 25%+ below market flagged
+                );
                 
                 if (analysis.isUndervalued) {
                     undervaluedRentals.push({
                         ...rental,
-                        ...analysis,
-                        comparisonGroup: `${bedrooms} in ${neighborhood}`,
-                        marketBenchmarks: marketData
+                        // Advanced analysis results
+                        discountPercent: analysis.discountPercent,
+                        estimatedMarketRent: analysis.estimatedMarketRent,
+                        actualRent: analysis.actualRent,
+                        potentialMonthlySavings: analysis.potentialMonthlySavings,
+                        confidence: analysis.confidence,
+                        valuationMethod: analysis.method,
+                        comparablesUsed: analysis.comparablesUsed,
+                        adjustmentBreakdown: analysis.adjustmentBreakdown,
+                        reasoning: analysis.reasoning,
+                        
+                        // Generate advanced score based on multiple factors
+                        score: this.calculateAdvancedRentalScore(analysis),
+                        grade: this.calculateGrade(this.calculateAdvancedRentalScore(analysis)),
+                        comparisonGroup: `${rental.bedrooms}BR/${rental.bathrooms}BA in ${neighborhood}`,
+                        comparisonMethod: analysis.method
                     });
                 }
+            } catch (error) {
+                console.warn(`   ⚠️ Error analyzing ${rental.address}: ${error.message}`);
             }
         }
 
         // Sort by discount percentage (best deals first)
         undervaluedRentals.sort((a, b) => b.discountPercent - a.discountPercent);
 
-        console.log(`   🎯 Found ${undervaluedRentals.length} undervalued rentals`);
+        console.log(`   🎯 Found ${undervaluedRentals.length} undervalued rentals (25% threshold with advanced valuation)`);
         return undervaluedRentals;
     }
 
     /**
-     * Group rentals by bedroom count
+     * Calculate advanced rental score based on multi-factor analysis
      */
-    groupRentalsByBedrooms(rentals) {
-        const grouped = {};
-        
-        rentals.forEach(rental => {
-            const beds = rental.bedrooms || 0;
-            const key = beds === 0 ? 'studio' : `${beds}bed`;
-            
-            if (!grouped[key]) {
-                grouped[key] = [];
-            }
-            grouped[key].push(rental);
-        });
-
-        return grouped;
-    }
-
-    /**
-     * Calculate rental market benchmarks for a group of similar rentals
-     */
-    calculateRentalMarketBenchmarks(rentals) {
-        const rents = rentals.map(r => r.monthlyRent).filter(r => r > 0).sort((a, b) => a - b);
-        const rentsPerSqft = rentals
-            .filter(r => r.sqft > 0)
-            .map(r => r.monthlyRent / r.sqft)
-            .sort((a, b) => a - b);
-
-        const daysOnMarket = rentals.map(r => r.daysOnMarket || 0).filter(d => d > 0);
-
-        // Calculate rent by bed/bath combinations for rentals without sqft
-        const rentPerBedBath = {};
-        rentals.forEach(rental => {
-            const beds = rental.bedrooms || 0;
-            const baths = rental.bathrooms || 0;
-            const key = `${beds}bed_${baths}bath`;
-            
-            if (!rentPerBedBath[key]) {
-                rentPerBedBath[key] = [];
-            }
-            rentPerBedBath[key].push(rental.monthlyRent);
-        });
-
-        // Calculate medians for each bed/bath combination
-        const bedBathMedians = {};
-        for (const [combo, rentArray] of Object.entries(rentPerBedBath)) {
-            if (rentArray.length >= 2) {
-                const sorted = rentArray.sort((a, b) => a - b);
-                bedBathMedians[combo] = {
-                    median: sorted[Math.floor(sorted.length / 2)],
-                    count: sorted.length,
-                    min: Math.min(...sorted),
-                    max: Math.max(...sorted)
-                };
-            }
-        }
-
-        return {
-            count: rentals.length,
-            medianRent: rents[Math.floor(rents.length / 2)] || 0,
-            avgRent: rents.reduce((a, b) => a + b, 0) / rents.length || 0,
-            medianRentPerSqft: rentsPerSqft.length > 0 ? rentsPerSqft[Math.floor(rentsPerSqft.length / 2)] : 0,
-            avgRentPerSqft: rentsPerSqft.reduce((a, b) => a + b, 0) / rentsPerSqft.length || 0,
-            avgDaysOnMarket: daysOnMarket.reduce((a, b) => a + b, 0) / daysOnMarket.length || 0,
-            rentRange: {
-                min: Math.min(...rents),
-                max: Math.max(...rents)
-            },
-            rentPerBedBath: bedBathMedians,
-            sqftDataAvailable: rentsPerSqft.length,
-            totalRentals: rentals.length
-        };
-    }
-
-    /**
-     * Parse description for undervaluation reasons and distress signals
-     */
-    parseDescriptionForUndervaluationReasons(description) {
-        const text = (description || '').toLowerCase();
-        const reasons = [];
-        
-        // Check for distress signals
-        const distressKeywords = [
-            'motivated seller', 'must sell', 'as-is', 'as is', 'needs work',
-            'fixer-upper', 'fixer upper', 'handyman special', 'tlc', 'needs updating',
-            'estate sale', 'inherited', 'probate', 'divorce', 'foreclosure',
-            'short sale', 'bank owned', 'reo', 'price reduced', 'reduced price',
-            'bring offers', 'all offers considered', 'make offer', 'obo',
-            'cash only', 'investor special', 'diamond in the rough',
-            'potential', 'opportunity', 'priced to sell', 'quick sale',
-            'needs renovation', 'gut renovation', 'original condition'
-        ];
-        
-        const foundSignals = distressKeywords.filter(keyword => 
-            text.includes(keyword)
-        );
-        
-        if (foundSignals.length > 0) {
-            reasons.push(`Distress signals: ${foundSignals.join(', ')}`);
-        }
-        
-        // Check for renovation needs
-        const renovationKeywords = ['needs work', 'fixer', 'tlc', 'updating', 'renovation'];
-        const needsRenovation = renovationKeywords.some(keyword => text.includes(keyword));
-        if (needsRenovation) {
-            reasons.push('Needs renovation');
-        }
-        
-        // Check for urgency
-        const urgencyKeywords = ['must sell', 'motivated', 'quick sale', 'asap'];
-        const isUrgent = urgencyKeywords.some(keyword => text.includes(keyword));
-        if (isUrgent) {
-            reasons.push('Seller urgency');
-        }
-        
-        return {
-            distressSignals: foundSignals,
-            needsRenovation,
-            isUrgent,
-            reasons
-        };
-    }
-
-    /**
-     * Analyze individual rental for undervaluation (REPLACED)
-     * FIXED: Added description parsing integration + undervalued_phrases field
-     */
-    analyzeRentalValue(rental, marketData, neighborhood) {
-        const monthlyRent = rental.monthlyRent;
-        const sqft = rental.sqft || 0;
-        const beds = rental.bedrooms || 0;
-        const baths = rental.bathrooms || 0;
-        const rentPerSqft = sqft > 0 ? monthlyRent / sqft : rental.rentPerSqft || 0;
-
-        // Calculate how far below market this rental is
-        let discountPercent = 0;
-        let comparisonMethod = '';
-        let reliabilityScore = 0;
-
-        if (rentPerSqft > 0 && marketData.medianRentPerSqft > 0) {
-            // BEST: Use rent per sqft comparison (most accurate)
-            discountPercent = ((marketData.medianRentPerSqft - rentPerSqft) / marketData.medianRentPerSqft) * 100;
-            comparisonMethod = 'rent per sqft';
-            reliabilityScore = 95;
-        } else if (marketData.rentPerBedBath && marketData.rentPerBedBath[`${beds}bed_${baths}bath`]) {
-            // GOOD: Use bed/bath specific rent comparison
-            const bedBathKey = `${beds}bed_${baths}bath`;
-            const comparableRent = marketData.rentPerBedBath[bedBathKey].median;
-            discountPercent = ((comparableRent - monthlyRent) / comparableRent) * 100;
-            comparisonMethod = `${beds}bed/${baths}bath rent comparison`;
-            reliabilityScore = 80;
-        } else if (marketData.medianRent > 0) {
-            // FALLBACK: Use total rent comparison within bedroom group (least accurate)
-            discountPercent = ((marketData.medianRent - monthlyRent) / marketData.medianRent) * 100;
-            comparisonMethod = 'total rent (bedroom group)';
-            reliabilityScore = 60;
-        } else {
-            return {
-                isUndervalued: false,
-                discountPercent: 0,
-                comparisonMethod: 'insufficient data',
-                reliabilityScore: 0,
-                reasoning: 'Not enough comparable rentals for analysis'
-            };
-        }
-
-        // Adjust undervaluation threshold based on reliability
-        let undervaluationThreshold = 8; // Lower threshold for rentals (8%)
-        if (reliabilityScore < 70) {
-            undervaluationThreshold = 12; // Require bigger discount for less reliable comparisons
-        }
-
-        const isUndervalued = discountPercent >= undervaluationThreshold;
-
-        // Parse description for distress signals and undervaluation reasons
-        const descriptionAnalysis = this.parseDescriptionForUndervaluationReasons(rental.description || '');
-
-        // Calculate comprehensive rental score
-        const score = this.calculateRentalUndervaluationScore({
-            discountPercent,
-            daysOnMarket: rental.daysOnMarket || 0,
-            hasImages: (rental.images || []).length > 0,
-            hasDescription: (rental.description || '').length > 100,
-            bedrooms: rental.bedrooms || 0,
-            bathrooms: rental.bathrooms || 0,
-            sqft: sqft,
-            amenities: rental.amenities || [],
-            neighborhood: neighborhood,
-            reliabilityScore: reliabilityScore,
-            doormanBuilding: rental.doormanBuilding,
-            elevatorBuilding: rental.elevatorBuilding,
-            noFee: rental.noFee,
-            petFriendly: rental.petFriendly,
-            laundryAvailable: rental.laundryAvailable,
-            gymAvailable: rental.gymAvailable
-        });
-
-        return {
-            isUndervalued,
-            discountPercent: Math.round(discountPercent * 10) / 10,
-            marketRentPerSqft: marketData.medianRentPerSqft,
-            actualRentPerSqft: rentPerSqft,
-            potentialMonthlySavings: Math.round((marketData.medianRent - monthlyRent)),
-            annualSavings: Math.round((marketData.medianRent - monthlyRent) * 12),
-            comparisonMethod,
-            reliabilityScore,
-            score,
-            grade: this.calculateGrade(score),
-            reasoning: this.generateRentalReasoning(discountPercent, rental, marketData, comparisonMethod, reliabilityScore),
-            
-            // FIXED: Description analysis results integrated
-            undervalued_phrases: descriptionAnalysis.distressSignals,
-            undervaluation_category: this.categorizeUndervaluationReason(descriptionAnalysis)
-        };
-    }
-
-    /**
-     * Calculate comprehensive rental undervaluation score
-     */
-    calculateRentalUndervaluationScore(factors) {
+    calculateAdvancedRentalScore(analysis) {
         let score = 0;
 
-        // Base score from discount percentage (0-50 points)
-        score += Math.min(factors.discountPercent * 2.5, 50);
+        // Base score from discount percentage (0-50 points) - weighted higher for 25%+ deals
+        score += Math.min(analysis.discountPercent * 1.8, 50);
 
-        // Days on market bonus (0-15 points)
-        if (factors.daysOnMarket <= 3) score += 15;
-        else if (factors.daysOnMarket <= 14) score += 10;
-        else if (factors.daysOnMarket <= 30) score += 5;
+        // Confidence bonus (0-20 points) - critical for advanced analysis
+        if (analysis.confidence >= 90) score += 20;
+        else if (analysis.confidence >= 80) score += 15;
+        else if (analysis.confidence >= 70) score += 10;
+        else score += 5;
 
-        // Rental quality bonuses
-        if (factors.hasImages) score += 5;
-        if (factors.hasDescription) score += 3;
-        if (factors.bedrooms >= 2) score += 5;
-        if (factors.bathrooms >= 2) score += 3;
-        if (factors.sqft >= 800) score += 8;
-        if (factors.amenities.length >= 5) score += 5;
+        // Valuation method quality bonus (0-15 points)
+        if (analysis.method === 'exact_bed_bath_amenity_match') score += 15;
+        else if (analysis.method === 'bed_bath_specific_pricing') score += 12;
+        else if (analysis.method === 'bed_specific_with_adjustments') score += 8;
+        else if (analysis.method === 'price_per_sqft_fallback') score += 5;
 
-        // Premium building bonuses
-        if (factors.doormanBuilding) score += 8;
-        if (factors.elevatorBuilding) score += 5;
-        if (factors.laundryAvailable) score += 3;
-        if (factors.gymAvailable) score += 4;
-        if (factors.petFriendly) score += 2;
+        // Comparable count bonus (0-10 points)
+        if (analysis.comparablesUsed >= 15) score += 10;
+        else if (analysis.comparablesUsed >= 10) score += 7;
+        else if (analysis.comparablesUsed >= 5) score += 5;
 
-        // No fee bonus (saves thousands in broker fees)
-        if (factors.noFee) score += 10;
-
-        // Neighborhood bonus for high-demand rental areas
-        const premiumRentalNeighborhoods = ['west-village', 'soho', 'tribeca', 'dumbo', 'williamsburg', 'long-island-city'];
-        if (premiumRentalNeighborhoods.includes(factors.neighborhood)) score += 10;
-
-        // Reliability bonus
-        if (factors.reliabilityScore >= 90) score += 5;
-        else if (factors.reliabilityScore < 70) score -= 5;
+        // Savings magnitude bonus (0-5 points)
+        if (analysis.potentialMonthlySavings >= 1000) score += 5;
+        else if (analysis.potentialMonthlySavings >= 500) score += 3;
 
         return Math.min(100, Math.max(0, Math.round(score)));
     }
@@ -1738,45 +2321,7 @@ class EnhancedBiWeeklyRentalAnalyzer {
     }
 
     /**
-     * Generate human-readable reasoning for rentals
-     */
-    generateRentalReasoning(discountPercent, rental, marketData, comparisonMethod, reliabilityScore) {
-        const reasons = [];
-        
-        reasons.push(`${discountPercent.toFixed(1)}% below market rent (${comparisonMethod})`);
-        
-        if (rental.daysOnMarket <= 7) {
-            reasons.push(`fresh listing (${rental.daysOnMarket} days)`);
-        } else if (rental.daysOnMarket > 30) {
-            reasons.push(`longer on market (${rental.daysOnMarket} days)`);
-        }
-        
-        if ((rental.images || []).length > 0) {
-            reasons.push(`${rental.images.length} photos available`);
-        }
-        
-        if (rental.doormanBuilding) {
-            reasons.push('doorman building');
-        }
-        
-        if (rental.elevatorBuilding) {
-            reasons.push('elevator building');
-        }
-        
-        if (rental.noFee) {
-            reasons.push('no broker fee');
-        }
-        
-        const totalAmenities = (rental.amenities || []).length;
-        if (totalAmenities > 0) {
-            reasons.push(`${totalAmenities} amenities`);
-        }
-
-        return reasons.join('; ');
-    }
-
-    /**
-     * Save undervalued rentals to database with enhanced deduplication check
+     * Save undervalued rentals to database with enhanced deduplication check and advanced valuation data
      */
     async saveUndervaluedRentalsToDatabase(undervaluedRentals, neighborhood) {
         console.log(`   💾 Saving ${undervaluedRentals.length} undervalued rentals to database...`);
@@ -1815,7 +2360,7 @@ class EnhancedBiWeeklyRentalAnalyzer {
                     continue;
                 }
 
-                // Enhanced database record with all fields
+                // Enhanced database record with advanced valuation data
                 const dbRecord = {
                     listing_id: rental.id?.toString(),
                     address: rental.address,
@@ -1823,13 +2368,13 @@ class EnhancedBiWeeklyRentalAnalyzer {
                     borough: rental.borough || 'unknown',
                     zipcode: rental.zipcode,
                     
-                    // Rental pricing
+                    // Advanced rental pricing analysis
                     monthly_rent: parseInt(rental.monthlyRent) || 0,
-                    rent_per_sqft: rental.actualRentPerSqft ? parseFloat(rental.actualRentPerSqft.toFixed(2)) : null,
-                    market_rent_per_sqft: rental.marketRentPerSqft ? parseFloat(rental.marketRentPerSqft.toFixed(2)) : null,
+                    rent_per_sqft: rental.actualRent && rental.sqft > 0 ? parseFloat((rental.actualRent / rental.sqft).toFixed(2)) : null,
+                    market_rent_per_sqft: rental.estimatedMarketRent && rental.sqft > 0 ? parseFloat((rental.estimatedMarketRent / rental.sqft).toFixed(2)) : null,
                     discount_percent: parseFloat(rental.discountPercent.toFixed(2)),
                     potential_monthly_savings: parseInt(rental.potentialMonthlySavings) || 0,
-                    annual_savings: parseInt(rental.annualSavings) || 0,
+                    annual_savings: parseInt((rental.potentialMonthlySavings || 0) * 12),
                     
                     // Property details
                     bedrooms: parseInt(rental.bedrooms) || 0,
@@ -1870,13 +2415,13 @@ class EnhancedBiWeeklyRentalAnalyzer {
                     amenities: Array.isArray(rental.amenities) ? rental.amenities : [],
                     amenity_count: Array.isArray(rental.amenities) ? rental.amenities.length : 0,
                     
-                    // Analysis results
+                    // Advanced analysis results
                     score: parseInt(rental.score) || 0,
                     grade: rental.grade || 'F',
                     reasoning: rental.reasoning || '',
                     comparison_group: rental.comparisonGroup || '',
-                    comparison_method: rental.comparisonMethod || '',
-                    reliability_score: parseInt(rental.reliabilityScore) || 0,
+                    comparison_method: rental.valuationMethod || rental.comparisonMethod || '',
+                    reliability_score: parseInt(rental.confidence) || 0,
                     
                     // Additional data
                     building_info: typeof rental.building === 'object' ? rental.building : {},
@@ -1899,7 +2444,7 @@ class EnhancedBiWeeklyRentalAnalyzer {
                 if (error) {
                     console.error(`   ❌ Error saving rental ${rental.address}:`, error.message);
                 } else {
-                    console.log(`   ✅ Saved: ${rental.address} (${rental.discountPercent}% below market, Score: ${rental.score})`);
+                    console.log(`   ✅ Saved: ${rental.address} (${rental.discountPercent}% below market, Score: ${rental.score}, Method: ${rental.valuationMethod})`);
                     savedCount++;
                 }
             } catch (error) {
@@ -1907,7 +2452,7 @@ class EnhancedBiWeeklyRentalAnalyzer {
             }
         }
 
-        console.log(`   💾 Saved ${savedCount} new undervalued rentals`);
+        console.log(`   💾 Saved ${savedCount} new undervalued rentals using advanced multi-factor analysis`);
         return savedCount;
     }
 
@@ -2037,7 +2582,7 @@ class EnhancedBiWeeklyRentalAnalyzer {
     }
 }
 
-// CLI interface for rentals with enhanced deduplication features
+// CLI interface for rentals with enhanced deduplication features and advanced valuation
 async function main() {
     const args = process.argv.slice(2);
     
@@ -2057,7 +2602,7 @@ async function main() {
     if (args.includes('--latest')) {
         const limit = parseInt(args[args.indexOf('--latest') + 1]) || 20;
         const rentals = await analyzer.getLatestUndervaluedRentals(limit);
-        console.log(`🏠 Latest ${rentals.length} active undervalued rentals:`);
+        console.log(`🏠 Latest ${rentals.length} active undervalued rentals (25% threshold):`);
         rentals.forEach((rental, i) => {
             console.log(`${i + 1}. ${rental.address} - ${rental.monthly_rent.toLocaleString()}/month (${rental.discount_percent}% below market, Score: ${rental.score})`);
         });
@@ -2067,7 +2612,7 @@ async function main() {
     if (args.includes('--top-deals')) {
         const limit = parseInt(args[args.indexOf('--top-deals') + 1]) || 10;
         const deals = await analyzer.getTopRentalDeals(limit);
-        console.log(`🏆 Top ${deals.length} active rental deals:`);
+        console.log(`🏆 Top ${deals.length} active rental deals (25% threshold):`);
         deals.forEach((deal, i) => {
             console.log(`${i + 1}. ${deal.address} - ${deal.monthly_rent.toLocaleString()}/month (${deal.discount_percent}% below market, Score: ${deal.score})`);
         });
@@ -2081,7 +2626,7 @@ async function main() {
             return;
         }
         const rentals = await analyzer.getRentalsByNeighborhood(neighborhood);
-        console.log(`🏠 Active rentals in ${neighborhood}:`);
+        console.log(`🏠 Active rentals in ${neighborhood} (25% threshold):`);
         rentals.forEach((rental, i) => {
             console.log(`${i + 1}. ${rental.address} - ${rental.monthly_rent.toLocaleString()}/month (Score: ${rental.score})`);
         });
@@ -2090,7 +2635,7 @@ async function main() {
 
     if (args.includes('--doorman')) {
         const rentals = await analyzer.getRentalsByCriteria({ doorman: true, limit: 15 });
-        console.log(`🚪 Active doorman building rentals:`);
+        console.log(`🚪 Active doorman building rentals (25% threshold):`);
         rentals.forEach((rental, i) => {
             console.log(`${i + 1}. ${rental.address} - ${rental.monthly_rent.toLocaleString()}/month (${rental.discount_percent}% below market)`);
         });
@@ -2099,18 +2644,18 @@ async function main() {
 
     if (args.includes('--no-fee')) {
         const rentals = await analyzer.getRentalsByCriteria({ noFee: true, limit: 15 });
-        console.log(`💰 Active no-fee rentals:`);
+        console.log(`💰 Active no-fee rentals (25% threshold):`);
         rentals.forEach((rental, i) => {
             console.log(`${i + 1}. ${rental.address} - ${rental.monthly_rent.toLocaleString()}/month (${rental.discount_percent}% below market, Annual savings: ${rental.annual_savings.toLocaleString()})`);
         });
         return;
     }
 
-    // Default: run bi-weekly rental analysis with smart deduplication
-    console.log('🏠 Starting FIXED enhanced bi-weekly rental analysis with smart deduplication...');
+    // Default: run bi-weekly rental analysis with advanced multi-factor valuation
+    console.log('🏠 Starting ADVANCED bi-weekly rental analysis with 25% threshold and multi-factor valuation...');
     const results = await analyzer.runBiWeeklyRentalRefresh();
     
-    console.log('\n🎉 Enhanced bi-weekly rental analysis with smart deduplication completed!');
+    console.log('\n🎉 Advanced bi-weekly rental analysis with smart deduplication completed!');
     
     if (results.summary && results.summary.apiCallsSaved > 0) {
         const efficiency = ((results.summary.apiCallsSaved / (results.summary.apiCallsUsed + results.summary.apiCallsSaved)) * 100).toFixed(1);
@@ -2119,6 +2664,7 @@ async function main() {
     
     if (results.summary && results.summary.savedToDatabase) {
         console.log(`📊 Check your Supabase 'undervalued_rentals' table for ${results.summary.savedToDatabase} new deals!`);
+        console.log(`🎯 All properties are 25%+ below market using advanced bed/bath/amenity valuation`);
     }
     
     return results;
@@ -2130,7 +2676,7 @@ module.exports = EnhancedBiWeeklyRentalAnalyzer;
 // Run if executed directly
 if (require.main === module) {
     main().catch(error => {
-        console.error('💥 Enhanced rental analyzer with deduplication crashed:', error);
+        console.error('💥 Enhanced rental analyzer with advanced valuation crashed:', error);
         process.exit(1);
     });
 }
