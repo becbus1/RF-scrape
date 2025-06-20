@@ -860,7 +860,7 @@ class AdvancedSalesValuationEngine {
      * MAIN INTERFACE: Analyze sale for undervaluation using advanced multi-factor approach
      */
     analyzeSalesUndervaluation(targetProperty, comparableProperties, neighborhood, options = {}) {
-        const threshold = options.undervaluationThreshold || 25; // NEW: Raised to 25% for only the BEST deals
+        const threshold = options.undervaluationThreshold || 10; // NEW: Lowered to 10% for more realistic results
         
         console.log(`\n🎯 ADVANCED VALUATION: ${targetProperty.address || 'Property'}`);
         console.log(`   📊 Price: ${targetProperty.salePrice.toLocaleString()} | ${targetProperty.bedrooms}BR/${targetProperty.bathrooms}BA | ${targetProperty.sqft || 'N/A'} sqft`);
@@ -885,7 +885,7 @@ class AdvancedSalesValuationEngine {
         const estimatedMarketPrice = valuation.estimatedMarketPrice;
         const discountPercent = ((estimatedMarketPrice - actualPrice) / estimatedMarketPrice) * 100;
         
-        // Determine if truly undervalued - NEW: Only 25%+ below market with method-appropriate confidence
+        // Determine if truly undervalued - NEW: Only 10%+ below market with method-appropriate confidence
         // Confidence thresholds adjusted per valuation method:
         // - Exact/Bed-Bath methods: 70% minimum (high accuracy methods)
         // - Bed-specific method: 60% minimum (good accuracy with adjustments)  
@@ -1011,7 +1011,7 @@ class EnhancedBiWeeklySalesAnalyzer {
         if (this.initialBulkLoad) {
             console.log('🚀 INITIAL BULK LOAD MODE: Processing ALL sales neighborhoods');
             console.log(`📋 Will process ${HIGH_PRIORITY_NEIGHBORHOODS.length} neighborhoods over multiple hours`);
-            return ['dumbo']
+            return [dumbo];
         }
         
         // Normal bi-weekly schedule (for production)
@@ -1626,7 +1626,7 @@ class EnhancedBiWeeklySalesAnalyzer {
             }
         } else {
             console.log('\n📊 No undervalued sales found (normal in competitive NYC sales market)');
-            console.log('💡 Try adjusting criteria or neighborhoods - 25% threshold is very strict for NYC');
+            console.log('💡 Try adjusting criteria or neighborhoods - 10% threshold is realistic for NYC');
         }
         
         // Long-term projection (only for regular mode)
@@ -1715,7 +1715,7 @@ class EnhancedBiWeeklySalesAnalyzer {
      */
     async runBiWeeklySalesRefresh() {
         console.log('\n🏠 ADVANCED MULTI-FACTOR SALES ANALYSIS');
-        console.log('🎯 NEW: 25% threshold using bed/bath/amenity valuation engine');
+        console.log('🎯 NEW: 10% threshold using bed/bath/amenity valuation engine');
         console.log('💾 Cache-optimized to save 75-90% of API calls');
         console.log('🏠 Auto-detects and removes sold listings');
         console.log('⚡ Adaptive rate limiting with daily neighborhood scheduling');
@@ -1826,7 +1826,7 @@ class EnhancedBiWeeklySalesAnalyzer {
                     };
                     
                     summary.neighborhoodsProcessed++;
-                    console.log(`   ✅ ${neighborhood}: ${undervaluedSales.length} undervalued sales found (25% threshold)`);
+                    console.log(`   ✅ ${neighborhood}: ${undervaluedSales.length} undervalued sales found (10% threshold)`);
 
                     // For bulk load, log progress every 5 neighborhoods
                     if (this.initialBulkLoad && (i + 1) % 5 === 0) {
@@ -2181,12 +2181,12 @@ class EnhancedBiWeeklySalesAnalyzer {
         // Analyze each sale using the advanced valuation engine
         for (const sale of detailedSales) {
             try {
-                // Use the advanced valuation engine with 25% threshold
+                // Use the advanced valuation engine with 10% threshold
                 const analysis = this.valuationEngine.analyzeSalesUndervaluation(
                     sale, 
                     detailedSales, 
                     neighborhood,
-                    { undervaluationThreshold: 25 } // NEW: Only 25%+ below market flagged
+                    { undervaluationThreshold: 10 } // NEW: Only 10%+ below market flagged
                 );
                 
                 if (analysis.isUndervalued) {
@@ -2205,7 +2205,7 @@ class EnhancedBiWeeklySalesAnalyzer {
                         
                         // Generate advanced score based on multiple factors
                         score: this.calculateAdvancedSalesScore(analysis),
-                        grade: this.calculateGrade(this.calculateAdvancedSalesScore(analysis)),
+                        grade: this.calculateGradeFromDiscount(analysis.discountPercent), // NEW: Discount-based grading
                         comparisonGroup: `${sale.bedrooms}BR/${sale.bathrooms}BA in ${neighborhood}`,
                         comparisonMethod: analysis.method
                     });
@@ -2218,14 +2218,37 @@ class EnhancedBiWeeklySalesAnalyzer {
         // Sort by discount percentage (best deals first)
         undervaluedSales.sort((a, b) => b.discountPercent - a.discountPercent);
 
-        console.log(`   🎯 Found ${undervaluedSales.length} undervalued sales (25% threshold with advanced valuation)`);
+        console.log(`   🎯 Found ${undervaluedSales.length} undervalued sales (10% threshold with advanced valuation)`);
         return undervaluedSales;
     }
 
     /**
      * Calculate advanced sales score based on multi-factor analysis
+     * NOTE: This is now the composite score for internal ranking within grades
      */
     calculateAdvancedSalesScore(analysis) {
+        return this.calculateCompositeScore(analysis);
+    }
+
+    /**
+     * Calculate letter grade from discount percentage (NEW: More realistic grading starting from 10%)
+     * Based on actual discount % rather than composite score to prevent grade inflation
+     */
+    calculateGradeFromDiscount(discountPercent) {
+        if (discountPercent >= 25) return 'A+';        // 25%+ off = True unicorns  
+        if (discountPercent >= 20) return 'A';         // 20-24% off = Excellent deals
+        if (discountPercent >= 17) return 'A-';        // 17-19% off = Very good deals  
+        if (discountPercent >= 15) return 'B+';        // 15-16% off = Good deals
+        if (discountPercent >= 12) return 'B';         // 12-14% off = Solid deals
+        if (discountPercent >= 10) return 'B-';        // 10-11% off = Decent deals
+        return 'C';                                     // <10% = Doesn't qualify
+    }
+
+    /**
+     * Calculate composite score from multiple factors (kept for internal ranking)
+     * This score helps rank properties within the same grade level
+     */
+    calculateCompositeScore(analysis) {
         let score = 0;
 
         // Base score from discount percentage (0-50 points) - weighted higher for 25%+ deals
@@ -2253,19 +2276,6 @@ class EnhancedBiWeeklySalesAnalyzer {
         else if (analysis.potentialProfit >= 100000) score += 3;
 
         return Math.min(100, Math.max(0, Math.round(score)));
-    }
-
-    /**
-     * Calculate letter grade from score
-     */
-    calculateGrade(score) {
-        if (score >= 85) return 'A+';
-        if (score >= 75) return 'A';
-        if (score >= 65) return 'B+';
-        if (score >= 55) return 'B';
-        if (score >= 45) return 'C+';
-        if (score >= 35) return 'C';
-        return 'D';
     }
 
     /**
@@ -2544,7 +2554,7 @@ async function main() {
     if (args.includes('--latest')) {
         const limit = parseInt(args[args.indexOf('--latest') + 1]) || 20;
         const sales = await analyzer.getLatestUndervaluedSales(limit);
-        console.log(`🏠 Latest ${sales.length} active undervalued sales (25% threshold):`);
+        console.log(`🏠 Latest ${sales.length} active undervalued sales (10% threshold):`);
         sales.forEach((sale, i) => {
             console.log(`${i + 1}. ${sale.address} - ${sale.sale_price.toLocaleString()} (${sale.discount_percent}% below market, Score: ${sale.score})`);
         });
@@ -2554,7 +2564,7 @@ async function main() {
     if (args.includes('--top-deals')) {
         const limit = parseInt(args[args.indexOf('--top-deals') + 1]) || 10;
         const deals = await analyzer.getTopSaleDeals(limit);
-        console.log(`🏆 Top ${deals.length} active sale deals (25% threshold):`);
+        console.log(`🏆 Top ${deals.length} active sale deals (10% threshold):`);
         deals.forEach((deal, i) => {
             console.log(`${i + 1}. ${deal.address} - ${deal.sale_price.toLocaleString()} (${deal.discount_percent}% below market, Score: ${deal.score})`);
         });
@@ -2577,7 +2587,7 @@ async function main() {
 
     if (args.includes('--doorman')) {
         const sales = await analyzer.getSalesByCriteria({ doorman: true, limit: 15 });
-        console.log(`🚪 Active doorman building sales (25% threshold):`);
+        console.log(`🚪 Active doorman building sales (10% threshold):`);
         sales.forEach((sale, i) => {
             console.log(`${i + 1}. ${sale.address} - ${sale.sale_price.toLocaleString()} (${sale.discount_percent}% below market)`);
         });
@@ -2585,7 +2595,7 @@ async function main() {
     }
 
     // Default: run bi-weekly sales analysis with advanced multi-factor valuation
-    console.log('🏠 Starting ADVANCED bi-weekly sales analysis with 25% threshold and multi-factor valuation...');
+    console.log('🏠 Starting ADVANCED bi-weekly sales analysis with 10% threshold and multi-factor valuation...');
     const results = await analyzer.runBiWeeklySalesRefresh();
     
     console.log('\n🎉 Advanced bi-weekly sales analysis with smart deduplication completed!');
@@ -2597,7 +2607,7 @@ async function main() {
     
     if (results.summary && results.summary.savedToDatabase) {
         console.log(`📊 Check your Supabase 'undervalued_sales' table for ${results.summary.savedToDatabase} new deals!`);
-        console.log(`🎯 All properties are 25%+ below market using advanced bed/bath/amenity valuation`);
+        console.log(`🎯 All properties are 10%+ below market using advanced bed/bath/amenity valuation`);
     }
     
     return results;
