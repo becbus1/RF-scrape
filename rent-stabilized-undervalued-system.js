@@ -5,6 +5,11 @@
 require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
 
+// DHCR File parsing dependencies (install these)
+const Papa = require('papaparse');     // npm install papaparse
+const pdf = require('pdf-parse');      // npm install pdf-parse  
+const XLSX = require('xlsx');          // npm install xlsx
+
 class RentStabilizedUndervaluedDetector {
     constructor() {
         this.supabase = createClient(
@@ -985,21 +990,385 @@ class RentStabilizedUndervaluedDetector {
     }
 
     /**
-     * Load rent-stabilized buildings database
+     * Load rent-stabilized buildings database (with DHCR file parsing)
      */
     async loadRentStabilizedBuildings() {
         try {
+            // First try to load from database
             const { data, error } = await this.supabase
                 .from('rent_stabilized_buildings')
                 .select('*');
             
             if (error) throw error;
             
+            // If database is empty, try to parse DHCR files
+            if (!data || data.length === 0) {
+                console.log('📁 No buildings in database, checking for DHCR files...');
+                const parsedBuildings = await this.parseDHCRFiles();
+                
+                if (parsedBuildings.length > 0) {
+                    await this.saveDHCRBuildingsToDatabase(parsedBuildings);
+                    return parsedBuildings;
+                }
+            }
+            
             return data || [];
             
         } catch (error) {
             console.error('Failed to load stabilized buildings:', error.message);
             return [];
+        }
+    }
+
+    /**
+     * Parse DHCR files from data/dhcr/ directory
+     */
+    async parseDHCRFiles() {
+        const fs = require('fs').promises;
+        const path = require('path');
+        const Papa = require('papaparse'); // Add this dependency
+        const pdf = require('pdf-parse'); // Add this dependency
+        
+        try {
+            const dhcrDir = path.join(process.cwd(), 'data', 'dhcr');
+            const buildings = [];
+            
+            console.log(`📂 Scanning DHCR directory: ${dhcrDir}`);
+            
+            // Check if directory exists
+            try {
+                await fs.access(dhcrDir);
+            } catch (error) {
+                console.log('📁 Creating data/dhcr directory...');
+                await fs.mkdir(dhcrDir, { recursive: true });
+                console.log('💡 Place DHCR files in data/dhcr/ directory');
+                return [];
+            }
+            
+            const files = await fs.readdir(dhcrDir);
+            console.log(`📄 Found ${files.length} files in DHCR directory`);
+            
+            for (const file of files) {
+                const filePath = path.join(dhcrDir, file);
+                const ext = path.extname(file).toLowerCase();
+                
+                try {
+                    console.log(`📖 Processing ${file}...`);
+                    
+                    if (ext === '.csv') {
+                        const csvBuildings = await this.parseDHCRCSV(filePath);
+                        buildings.push(...csvBuildings);
+                        console.log(`   ✅ Parsed ${csvBuildings.length} buildings from CSV`);
+                        
+                    } else if (ext === '.pdf') {
+                        const pdfBuildings = await this.parseDHCRPDF(filePath);
+                        buildings.push(...pdfBuildings);
+                        console.log(`   ✅ Parsed ${pdfBuildings.length} buildings from PDF`);
+                        
+                    } else if (ext === '.xlsx' || ext === '.xls') {
+                        const excelBuildings = await this.parseDHCRExcel(filePath);
+                        buildings.push(...excelBuildings);
+                        console.log(`   ✅ Parsed ${excelBuildings.length} buildings from Excel`);
+                        
+                    } else {
+                        console.log(`   ⚠️ Skipping unsupported file type: ${ext}`);
+                    }
+                    
+                } catch (error) {
+                    console.error(`   ❌ Error parsing ${file}:`, error.message);
+                    continue;
+                }
+            }
+            
+            // Remove duplicates by address
+            const uniqueBuildings = this.deduplicateBuildings(buildings);
+            console.log(`🏢 Total unique buildings parsed: ${uniqueBuildings.length}`);
+            
+            return uniqueBuildings;
+            
+        } catch (error) {
+            console.error('Failed to parse DHCR files:', error.message);
+            return [];
+        }
+    }
+
+    /**
+     * Parse DHCR CSV file
+     */
+    async parseDHCRCSV(filePath) {
+        const fs = require('fs').promises;
+        const Papa = require('papaparse');
+        
+        try {
+            const csvContent = await fs.readFile(filePath, 'utf8');
+            
+            const parsed = Papa.parse(csvContent, {
+                header: true,
+                skipEmptyLines: true,
+                transformHeader: (header) => header.toLowerCase().replace(/[^a-z0-9]/g, '_')
+            });
+            
+            if (parsed.errors.length > 0) {
+                console.warn(`   ⚠️ CSV parsing warnings:`, parsed.errors.slice(0, 3));
+            }
+            
+            return parsed.data.map(row => this.normalizeBuildingData(row, 'csv'));
+            
+        } catch (error) {
+            console.error(`Failed to parse CSV ${filePath}:`, error.message);
+            return [];
+        }
+    }
+
+    /**
+     * Parse DHCR PDF file
+     */
+    async parseDHCRPDF(filePath) {
+        const fs = require('fs').promises;
+        const pdf = require('pdf-parse');
+        
+        try {
+            const pdfBuffer = await fs.readFile(filePath);
+            const data = await pdf(pdfBuffer);
+            
+            // Extract building data from PDF text using patterns
+            const buildings = this.extractBuildingsFromPDFText(data.text);
+            
+            return buildings.map(building => this.normalizeBuildingData(building, 'pdf'));
+            
+        } catch (error) {
+            console.error(`Failed to parse PDF ${filePath}:`, error.message);
+            return [];
+        }
+    }
+
+    /**
+     * Parse DHCR Excel file
+     */
+    async parseDHCRExcel(filePath) {
+        const fs = require('fs').promises;
+        const XLSX = require('xlsx'); // You'll need to add this dependency
+        
+        try {
+            const workbook = XLSX.readFile(filePath);
+            const sheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[sheetName];
+            
+            const jsonData = XLSX.utils.sheet_to_json(worksheet, {
+                header: 1,
+                defval: ''
+            });
+            
+            // Convert to objects with headers
+            if (jsonData.length < 2) return [];
+            
+            const headers = jsonData[0].map(h => 
+                h.toString().toLowerCase().replace(/[^a-z0-9]/g, '_')
+            );
+            
+            const buildings = jsonData.slice(1).map(row => {
+                const building = {};
+                headers.forEach((header, index) => {
+                    building[header] = row[index] || '';
+                });
+                return this.normalizeBuildingData(building, 'excel');
+            });
+            
+            return buildings;
+            
+        } catch (error) {
+            console.error(`Failed to parse Excel ${filePath}:`, error.message);
+            return [];
+        }
+    }
+
+    /**
+     * Extract building data from PDF text using patterns
+     */
+    extractBuildingsFromPDFText(text) {
+        const buildings = [];
+        const lines = text.split('\n');
+        
+        // Common DHCR PDF patterns
+        const addressPattern = /^\s*(\d+)\s+([A-Z\s]+(?:STREET|ST|AVENUE|AVE|ROAD|RD|PLACE|PL|BOULEVARD|BLVD))/i;
+        const boroughPattern = /(MANHATTAN|BROOKLYN|QUEENS|BRONX|STATEN ISLAND)/i;
+        
+        let currentBuilding = null;
+        
+        for (const line of lines) {
+            const trimmedLine = line.trim();
+            if (!trimmedLine) continue;
+            
+            // Try to match address pattern
+            const addressMatch = trimmedLine.match(addressPattern);
+            if (addressMatch) {
+                // Save previous building if exists
+                if (currentBuilding && currentBuilding.address) {
+                    buildings.push(currentBuilding);
+                }
+                
+                // Start new building
+                currentBuilding = {
+                    address: `${addressMatch[1]} ${addressMatch[2]}`.trim(),
+                    house_number: addressMatch[1],
+                    street_name: addressMatch[2].trim()
+                };
+                
+                // Check if borough is on same line
+                const boroughMatch = trimmedLine.match(boroughPattern);
+                if (boroughMatch) {
+                    currentBuilding.borough = boroughMatch[1];
+                }
+            } else if (currentBuilding) {
+                // Try to extract additional info for current building
+                const boroughMatch = trimmedLine.match(boroughPattern);
+                if (boroughMatch && !currentBuilding.borough) {
+                    currentBuilding.borough = boroughMatch[1];
+                }
+                
+                // Look for unit count, year built, etc.
+                const unitMatch = trimmedLine.match(/(\d+)\s*UNITS?/i);
+                if (unitMatch) {
+                    currentBuilding.total_units = parseInt(unitMatch[1]);
+                }
+                
+                const yearMatch = trimmedLine.match(/BUILT[:\s]*(\d{4})/i);
+                if (yearMatch) {
+                    currentBuilding.year_built = parseInt(yearMatch[1]);
+                }
+            }
+        }
+        
+        // Don't forget the last building
+        if (currentBuilding && currentBuilding.address) {
+            buildings.push(currentBuilding);
+        }
+        
+        return buildings;
+    }
+
+    /**
+     * Normalize building data from different sources
+     */
+    normalizeBuildingData(rawData, source) {
+        // Common field mappings
+        const fieldMappings = {
+            // Address fields
+            address: ['address', 'building_address', 'street_address', 'full_address'],
+            house_number: ['house_number', 'house_num', 'building_number', 'bldg_num'],
+            street_name: ['street_name', 'street', 'street_address'],
+            borough: ['borough', 'boro', 'county'],
+            zip_code: ['zip_code', 'zip', 'postal_code'],
+            
+            // Building details
+            total_units: ['total_units', 'units', 'unit_count', 'number_of_units'],
+            year_built: ['year_built', 'built_year', 'construction_year'],
+            dhcr_registered: ['dhcr_registered', 'registered', 'dhcr_status'],
+            
+            // DHCR specific
+            building_id: ['building_id', 'bldg_id', 'dhcr_id'],
+            registration_year: ['registration_year', 'reg_year']
+        };
+        
+        const normalized = {
+            source: source,
+            parsed_at: new Date().toISOString()
+        };
+        
+        // Apply field mappings
+        for (const [standardField, possibleFields] of Object.entries(fieldMappings)) {
+            for (const field of possibleFields) {
+                if (rawData[field] !== undefined && rawData[field] !== '') {
+                    let value = rawData[field];
+                    
+                    // Type conversions
+                    if (['total_units', 'year_built'].includes(standardField)) {
+                        value = parseInt(value) || 0;
+                    } else if (standardField === 'dhcr_registered') {
+                        value = ['true', 'yes', '1', 'registered'].includes(
+                            value.toString().toLowerCase()
+                        );
+                    } else if (typeof value === 'string') {
+                        value = value.trim();
+                    }
+                    
+                    normalized[standardField] = value;
+                    break;
+                }
+            }
+        }
+        
+        // Ensure we have an address
+        if (!normalized.address && normalized.house_number && normalized.street_name) {
+            normalized.address = `${normalized.house_number} ${normalized.street_name}`;
+        }
+        
+        // Set default values
+        if (!normalized.dhcr_registered) {
+            normalized.dhcr_registered = true; // Assume true if in DHCR file
+        }
+        
+        return normalized;
+    }
+
+    /**
+     * Remove duplicate buildings by address
+     */
+    deduplicateBuildings(buildings) {
+        const seen = new Map();
+        const unique = [];
+        
+        for (const building of buildings) {
+            if (!building.address) continue;
+            
+            const normalizedAddress = this.normalizeAddress(building.address);
+            const key = `${normalizedAddress}_${building.borough || ''}`;
+            
+            if (!seen.has(key)) {
+                seen.set(key, true);
+                unique.push(building);
+            }
+        }
+        
+        return unique;
+    }
+
+    /**
+     * Save parsed DHCR buildings to database
+     */
+    async saveDHCRBuildingsToDatabase(buildings) {
+        if (buildings.length === 0) return;
+        
+        try {
+            console.log(`💾 Saving ${buildings.length} DHCR buildings to database...`);
+            
+            // Insert in batches to avoid size limits
+            const batchSize = 500;
+            let saved = 0;
+            
+            for (let i = 0; i < buildings.length; i += batchSize) {
+                const batch = buildings.slice(i, i + batchSize);
+                
+                const { error } = await this.supabase
+                    .from('rent_stabilized_buildings')
+                    .upsert(batch, { 
+                        onConflict: 'address,borough',
+                        ignoreDuplicates: false 
+                    });
+                
+                if (error) {
+                    console.error(`Batch ${Math.floor(i/batchSize) + 1} failed:`, error.message);
+                    continue;
+                }
+                
+                saved += batch.length;
+                console.log(`   ✅ Saved batch ${Math.floor(i/batchSize) + 1}: ${saved}/${buildings.length} buildings`);
+            }
+            
+            console.log(`🎉 Successfully saved ${saved} DHCR buildings to database`);
+            
+        } catch (error) {
+            console.error('Failed to save DHCR buildings:', error.message);
         }
     }
 
