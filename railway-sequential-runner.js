@@ -15,8 +15,8 @@ const fs = require('fs').promises;
 const path = require('path');
 const axios = require('axios');
 
-// Import the rent-stabilized system
-const RentStabilizedSystem = require('./rent-stabilized-undervalued-system');
+// Import the rent-stabilized system (use correct class name)
+const RentStabilizedUndervaluedDetector = require('./rent-stabilized-undervalued-system');
 
 class CorrectedRailwayRunner {
     constructor() {
@@ -43,7 +43,7 @@ class CorrectedRailwayRunner {
             await this.ensureDHCRFiles();
             
             // Step 3: Initialize the rent-stabilized system
-            const system = new RentStabilizedSystem();
+            const system = new RentStabilizedUndervaluedDetector();
             
             // Step 4: Setup database if needed
             await this.setupDatabaseIfNeeded(system);
@@ -240,23 +240,20 @@ using pre-configured high-value areas for rent-stabilized apartments.
         console.log(`📍 Targeting ${neighborhoods.length} neighborhoods:`, neighborhoods.slice(0, 5).join(', ') + 
                    (neighborhoods.length > 5 ? ` (+${neighborhoods.length - 5} more)` : ''));
 
-        // Configure the analysis
+        // Configure the analysis with correct parameter structure
         const analysisConfig = {
             neighborhoods: neighborhoods,
-            mode: process.env.INITIAL_BULK_LOAD === 'true' ? 'bulk_load' : 'priority_update',
             maxListingsPerNeighborhood: parseInt(process.env.MAX_LISTINGS_PER_NEIGHBORHOOD) || 100,
-            confidenceThreshold: parseInt(process.env.RENT_STABILIZED_CONFIDENCE_THRESHOLD) || 70,
-            undervaluationThreshold: parseInt(process.env.UNDERVALUATION_THRESHOLD) || 15
+            testMode: process.env.TEST_NEIGHBORHOOD ? true : false
         };
 
         console.log('⚙️ Analysis Configuration:');
-        console.log(`   🎯 Mode: ${analysisConfig.mode}`);
-        console.log(`   📊 Confidence threshold: ${analysisConfig.confidenceThreshold}%`);
-        console.log(`   💰 Undervaluation threshold: ${analysisConfig.undervaluationThreshold}%`);
+        console.log(`   🎯 Neighborhoods: ${neighborhoods.length}`);
         console.log(`   📈 Max listings per neighborhood: ${analysisConfig.maxListingsPerNeighborhood}`);
+        console.log(`   🧪 Test mode: ${analysisConfig.testMode}`);
 
-        // Run the analysis
-        const results = await system.runRentStabilizedAnalysis(analysisConfig);
+        // Run the analysis using the correct method name
+        const results = await system.findUndervaluedRentStabilizedListings(analysisConfig);
         
         this.results.analysisResults = results;
         return results;
@@ -282,12 +279,9 @@ using pre-configured high-value areas for rent-stabilized apartments.
         // Priority 3: Try to get neighborhoods from DHCR data
         try {
             console.log('📄 Attempting to get neighborhoods from DHCR data...');
-            const dhcrNeighborhoods = await system.getDHCRBasedNeighborhoods();
-            
-            if (dhcrNeighborhoods && dhcrNeighborhoods.length > 0) {
-                console.log(`✅ Found ${dhcrNeighborhoods.length} neighborhoods from DHCR data`);
-                return dhcrNeighborhoods;
-            }
+            // Note: The current system doesn't have getDHCRBasedNeighborhoods method
+            // So we'll skip this for now and go to fallback
+            console.log('⚠️ DHCR-based neighborhood detection not implemented yet');
         } catch (error) {
             console.warn('⚠️ Could not get DHCR-based neighborhoods:', error.message);
         }
