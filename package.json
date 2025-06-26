@@ -1,106 +1,114 @@
 {
-  "name": "nyc-hybrid-property-finder",
-  "version": "2.0.0",
-  "description": "Hybrid system using Redfin's public data + targeted scraping to find undervalued NYC properties",
-  "main": "railway-sequential-runner.js",
-  "scripts": {
-    "start": "node railway-sequential-runner.js",
-    
-    "both": "node railway-sequential-runner.js",
-    "sequential": "node railway-sequential-runner.js",
-    
-    "sales": "node biweekly-streeteasy-sales.js",
-    "rentals": "node biweekly-streeteasy-rentals.js",
-    "test-both": "node test-both-scripts.js",
-    "sales-test": "node biweekly-streeteasy-sales.js --neighborhood park-slope",
-    "rentals-test": "node biweekly-streeteasy-rentals.js --neighborhood williamsburg",
-    
-    "test": "node test-scraper.js --test-only",
-    "demo": "node test-scraper.js --demo-only",
-    
-    "analyze": "node hybrid-redfin-analyzer.js",
-    "weekly-analysis": "node hybrid-supabase-integration.js",
-    
-    "setup-db": "node hybrid-supabase-integration.js --setup",
-    "latest": "node hybrid-supabase-integration.js --latest",
-    "distress": "node hybrid-supabase-integration.js --distress",
-    "trends": "node hybrid-supabase-integration.js --trends", 
-    "metrics": "node hybrid-supabase-integration.js --metrics",
-    "cleanup": "node hybrid-supabase-integration.js --cleanup",
-    
-    "schedule": "node hybrid-scheduler.js",
-    
-    "legacy-find-deals": "node undervalued-property-finder.js",
-    "legacy-daily": "node supabase-integration.js",
-    "legacy-cron": "node cron-scheduler.js",
-    
-    "lint": "eslint *.js || echo 'ESLint not configured'"
-  },
-  "keywords": [
-    "nyc",
-    "new-york-city",
-    "redfin",
-    "real-estate",
-    "undervalued-properties",
-    "hybrid-analysis",
-    "public-data",
-    "targeted-scraping",
-    "market-analysis",
-    "property-investment",
-    "distress-signals",
-    "below-market",
-    "weekly-analysis",
-    "streeteasy",
-    "rentals",
-    "sales",
-    "biweekly-analysis",
-    "railway-deployment",
-    "sequential-runner"
-  ],
-  "author": "Your Name",
-  "license": "MIT",
-  "dependencies": {
-    "axios": "^1.6.0",
-    "@supabase/supabase-js": "^2.38.0",
-    "dotenv": "^16.3.1",
-    "node-cron": "^3.0.3"
-  },
-  "devDependencies": {
-    "eslint": "^8.0.0"
-  },
-  "engines": {
-    "node": ">=14.0.0"
-  },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/yourusername/nyc-hybrid-property-finder.git"
-  },
-  "config": {
-    "analysis_schedule": "biweekly",
-    "min_discount_percent": 15,
-    "max_days_on_market": 90,
-    "nyc_price_range": {
-      "min": 300000,
-      "max": 2500000
-    },
-    "description_enhancement": true,
-    "public_data_sources": [
-      "city_market_tracker",
-      "zip_market_tracker", 
-      "neighborhood_market_tracker",
-      "weekly_housing_inventory"
-    ],
-    "streeteasy_config": {
-      "api_calls_per_month": 10000,
-      "neighborhoods_per_day": 3,
-      "cache_duration_days": 30,
-      "undervaluation_threshold": 10
-    },
-    "railway_deployment": {
-      "entry_point": "railway-sequential-runner.js",
-      "sequential_execution": true,
-      "inter_script_delay_minutes": 2,
-      "bulk_load_support": true
-    }
-  }
+ "name": "nyc-rent-stabilized-finder",
+ "version": "3.0.0",
+ "description": "NYC Rent-Stabilized Apartment Finder - Find undervalued rent-stabilized listings",
+ "main": "railway-sequential-runner.js",
+ "scripts": {
+   "start": "node railway-sequential-runner.js",
+   
+   "rent-stabilized": "node railway-sequential-runner.js",
+   "rent-stabilized:test": "node rent-stabilized-undervalued-system.js --test",
+   "rent-stabilized:setup": "node rent-stabilized-undervalued-system.js --setup",
+   
+   "test": "node rent-stabilized-undervalued-system.js --test",
+   "setup": "node rent-stabilized-undervalued-system.js --setup",
+   
+   "sales": "echo '❌ Sales scraper disabled - focusing on rent-stabilized only'",
+   "rentals": "echo '❌ Rentals scraper disabled - focusing on rent-stabilized only'",
+   "both": "echo '❌ Legacy mode disabled - use npm run rent-stabilized instead'",
+   "sequential": "echo '❌ Legacy mode disabled - use npm run rent-stabilized instead'",
+   
+   "legacy-sales": "node biweekly-streeteasy-sales.js",
+   "legacy-rentals": "node biweekly-streeteasy-rentals.js",
+   "legacy-both": "echo '⚠️ Legacy mode - use with caution. Sales & rentals disabled by default.'",
+   
+   "setup-db": "node rent-stabilized-undervalued-system.js --setup",
+   "cleanup": "node rent-stabilized-undervalued-system.js --cleanup",
+   
+   "lint": "eslint *.js || echo 'ESLint not configured'"
+ },
+ "keywords": [
+   "nyc",
+   "new-york-city",
+   "rent-stabilized",
+   "rent-stabilization",
+   "undervalued-properties",
+   "real-estate",
+   "dhcr",
+   "legal-analysis",
+   "market-analysis",
+   "affordable-housing",
+   "tenant-rights",
+   "manhattan",
+   "brooklyn",
+   "queens",
+   "bronx",
+   "streeteasy",
+   "railway-deployment"
+ ],
+ "author": "Your Name",
+ "license": "MIT",
+ "dependencies": {
+   "axios": "^1.6.0",
+   "@supabase/supabase-js": "^2.38.0",
+   "dotenv": "^16.3.1",
+   "pdf-parse": "^1.1.1",
+   "papaparse": "^5.4.1",
+   "xlsx": "^0.18.5",
+   "fuzzyset.js": "^1.0.6",
+   "node-cron": "^3.0.3"
+ },
+ "devDependencies": {
+   "eslint": "^8.0.0"
+ },
+ "engines": {
+   "node": ">=16.0.0"
+ },
+ "repository": {
+   "type": "git",
+   "url": "https://github.com/yourusername/nyc-rent-stabilized-finder.git"
+ },
+ "config": {
+   "rent_stabilized": {
+     "pdf_urls": {
+  "manhattan": "https://rentguidelinesboard.cityofnewyork.us/wp-content/uploads/2024/11/2023-DHCR-Bldg-File-Manhattan.pdf",
+  "brooklyn": "https://rentguidelinesboard.cityofnewyork.us/wp-content/uploads/2024/11/2023-DHCR-Bldg-File-Brooklyn.pdf",
+  "bronx": "https://rentguidelinesboard.cityofnewyork.us/wp-content/uploads/2024/11/2023-DHCR-Bldg-File-Bronx.pdf",
+  "queens": "https://rentguidelinesboard.cityofnewyork.us/wp-content/uploads/2024/11/2023-DHCR-Bldg-File-Queens.pdf"
+},
+     "confidence_threshold": 70,
+     "undervaluation_threshold": 15,
+     "cache_duration_days": 7,
+     "max_listings_per_neighborhood": 100
+   },
+   "disabled_features": {
+     "sales_scraper": "DISABLED - focusing on rent-stabilized only",
+     "rentals_scraper": "DISABLED - focusing on rent-stabilized only",
+     "undervalued_sales": "DISABLED - use rent-stabilized finder instead",
+     "undervalued_rentals": "DISABLED - use rent-stabilized finder instead"
+   },
+   "railway_deployment": {
+     "entry_point": "railway-sequential-runner.js",
+     "mode": "rent_stabilized_only",
+     "auto_cleanup": true,
+     "error_notifications": true
+   }
+ },
+ "scripts_description": {
+   "Production Scripts": {
+     "start": "Main Railway entry point - runs rent-stabilized finder",
+     "rent-stabilized": "Run rent-stabilized + undervaluation analysis",
+     "rent-stabilized:test": "Test mode with limited neighborhoods",
+     "rent-stabilized:setup": "Initialize database and download DHCR data"
+   },
+   "Disabled Scripts": {
+     "sales": "❌ DISABLED - shows error message",
+     "rentals": "❌ DISABLED - shows error message", 
+     "both": "❌ DISABLED - shows error message"
+   },
+   "Legacy Scripts (Manual Use Only)": {
+     "legacy-sales": "⚠️ Original sales scraper (disabled by default)",
+     "legacy-rentals": "⚠️ Original rentals scraper (disabled by default)"
+   }
+ }
 }
