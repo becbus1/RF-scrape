@@ -192,36 +192,134 @@ class RentStabilizedUndervaluedDetector {
         }
     }
 
-    /**
-     * Fetch new listings not in cache
-     */
-    async fetchNewListings(neighborhood, cachedListings, maxListings) {
-        // This would use your existing StreetEasy scraper
-        // For now, showing the structure
+/**
+ * Fetch new listings not in cache using smart ID-based caching strategy
+ */
+async fetchNewListings(neighborhood, cachedListings, maxListings) {
+    const freshListings = [];
+    
+    try {
+        console.log(`       🔍 Smart caching: Checking ${neighborhood} for new listings...`);
         
-        const cachedIds = new Set(cachedListings.map(l => l.id));
-        const freshListings = [];
+        // STEP 1: Get neighborhood listing IDs (CHEAP API call - just the search/browse page)
+        const neighborhoodListingIds = await this.scrapeNeighborhoodListingIds(neighborhood, maxListings);
+        console.log(`       📋 Found ${neighborhoodListingIds.length} listing IDs in ${neighborhood}`);
         
-        try {
-            // Use your existing scraper to get neighborhood listings
-            const scrapedListings = await this.scrapeNeighborhoodListings(neighborhood, maxListings);
-            
-            // Filter out already cached listings
-            for (const listing of scrapedListings) {
-                if (!cachedIds.has(listing.id)) {
-                    freshListings.push({
-                        ...listing,
-                        source: 'fresh'
-                    });
-                }
-            }
-            
-        } catch (error) {
-            console.error(`Fresh scraping failed for ${neighborhood}:`, error.message);
+        if (neighborhoodListingIds.length === 0) {
+            console.log(`       ⚠️ No listings found in ${neighborhood}`);
+            return [];
         }
         
+        // STEP 2: Filter out already cached listing IDs (avoid duplicate fetches)
+        const cachedIds = new Set(cachedListings.map(listing => listing.id));
+        const newListingIds = neighborhoodListingIds.filter(id => !cachedIds.has(id));
+        
+        console.log(`       💾 Cache hit: ${cachedListings.length} listings already cached`);
+        console.log(`       🆕 New listings to fetch: ${newListingIds.length}`);
+        
+        if (newListingIds.length === 0) {
+            console.log(`       ✅ All listings already cached - 100% API savings!`);
+            return [];
+        }
+        
+        // STEP 3: Fetch detailed data ONLY for new listing IDs (EXPENSIVE API calls)
+        console.log(`       📡 Fetching detailed data for ${newListingIds.length} new listings...`);
+        
+        let fetchedCount = 0;
+        const rateLimitDelay = 2000; // 2 second delay between individual fetches
+        
+        for (const listingId of newListingIds) {
+            try {
+                // Fetch individual listing details (expensive call)
+                const listingDetails = await this.fetchIndividualListingDetails(listingId);
+                
+                if (listingDetails) {
+                    freshListings.push({
+                        ...listingDetails,
+                        id: listingId,
+                        neighborhood: neighborhood,
+                        source: 'fresh'
+                    });
+                    fetchedCount++;
+                    
+                    console.log(`         ✅ ${fetchedCount}/${newListingIds.length}: ${listingDetails.address || listingId}`);
+                } else {
+                    console.log(`         ⚠️ Failed to fetch ${listingId}`);
+                }
+                
+                // Rate limiting: Wait between individual fetches
+                if (fetchedCount < newListingIds.length) {
+                    await this.delay(rateLimitDelay);
+                }
+                
+            } catch (error) {
+                console.error(`         ❌ Error fetching ${listingId}:`, error.message);
+                continue;
+            }
+        }
+        
+        console.log(`       🎉 Successfully fetched ${fetchedCount}/${newListingIds.length} new listings`);
+        
+        // Calculate API efficiency
+        const totalPossibleCalls = neighborhoodListingIds.length;
+        const actualCalls = newListingIds.length;
+        const efficiency = totalPossibleCalls > 0 ? 
+            ((totalPossibleCalls - actualCalls) / totalPossibleCalls * 100).toFixed(1) : 0;
+        
+        console.log(`       ⚡ API efficiency: ${efficiency}% (saved ${totalPossibleCalls - actualCalls} calls)`);
+        
         return freshListings;
+        
+    } catch (error) {
+        console.error(`Smart fetching failed for ${neighborhood}:`, error.message);
+        return freshListings; // Return what we got so far
     }
+}
+
+/**
+ * Scrape neighborhood to get listing IDs only (cheap operation)
+ */
+async scrapeNeighborhoodListingIds(neighborhood, maxListings) {
+    try {
+        console.log(`         🌐 Scraping ${neighborhood} listing IDs (cheap call)...`);
+        
+        // TODO: Integrate with your existing StreetEasy scraper
+        // Example: return await this.streetEasyScraper.searchNeighborhood(neighborhood, { idsOnly: true });
+        
+        console.log(`         💡 TODO: Integrate with your existing StreetEasy scraper`);
+        return [];
+        
+    } catch (error) {
+        console.error(`Failed to scrape ${neighborhood} listing IDs:`, error.message);
+        return [];
+    }
+}
+
+/**
+ * Fetch individual listing details (expensive operation)
+ */
+async fetchIndividualListingDetails(listingId) {
+    try {
+        console.log(`           🏠 Fetching details for listing ${listingId}...`);
+        
+        // TODO: Integrate with your existing StreetEasy scraper
+        // Example: return await this.streetEasyScraper.getListingDetails(listingId);
+        
+        console.log(`           💡 TODO: Integrate with your existing StreetEasy scraper`);
+        return null;
+        
+    } catch (error) {
+        console.error(`Failed to fetch listing ${listingId}:`, error.message);
+        return null;
+    }
+}
+
+/**
+ * Utility: Add delay for rate limiting
+ */
+async delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
 
     /**
      * Update cache with new listings
