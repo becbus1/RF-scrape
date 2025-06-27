@@ -78,8 +78,8 @@
 },
      "confidence_threshold": 70,
      "undervaluation_threshold": 15,
-     "cache_duration_days": 7,
-     "max_listings_per_neighborhood": 100
+     "cache_duration_days": 100,
+     "max_listings_per_neighborhood": 500
    },
    "disabled_features": {
      "sales_scraper": "DISABLED - focusing on rent-stabilized only",
