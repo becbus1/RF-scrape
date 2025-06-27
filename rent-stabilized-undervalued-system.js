@@ -179,87 +179,48 @@ class RentStabilizedUndervaluedDetector {
         return allListings;
     }
 
-    /**
-     * NEW: Get cached listings from comprehensive_listing_cache
-     */
-    async getComprehensiveCachedListings(neighborhood) {
-        try {
-            // Try comprehensive_listing_cache first
-            const { data: comprehensive, error: comprehensiveError } = await this.supabase
-                .from('comprehensive_listing_cache')
-                .select('*')
-                .eq('neighborhood', neighborhood);
-            
-            if (!comprehensiveError && comprehensive && comprehensive.length > 0) {
-                return comprehensive.map(row => ({
-                    id: row.listing_id,
-                    address: row.address,
-                    price: row.monthly_rent,
-                    bedrooms: row.bedrooms,
-                    bathrooms: row.bathrooms,
-                    sqft: row.sqft,
-                    description: row.description,
-                    neighborhood: row.neighborhood,
-                    amenities: row.amenities || [],
-                    url: row.listing_url,
-                    listedAt: row.listed_at,
-                    source: 'comprehensive_cache'
-                }));
-            }
-            
-            // Fallback to existing caches
-            const { data: rental, error: rentalError } = await this.supabase
-                .from('rental_market_cache')
-                .select('*')
-                .eq('neighborhood', neighborhood);
-            
-            if (!rentalError && rental && rental.length > 0) {
-                return rental.map(row => ({
-                    id: row.listing_id,
-                    address: row.address,
-                    price: row.monthly_rent,
-                    bedrooms: row.bedrooms,
-                    bathrooms: row.bathrooms,
-                    sqft: row.sqft,
-                    description: row.description,
-                    neighborhood: row.neighborhood,
-                    amenities: row.amenities || [],
-                    url: row.listing_url,
-                    listedAt: row.listed_at,
-                    source: 'rental_cache'
-                }));
-            }
-            
-            // Final fallback to listing_cache
-            const { data: basic, error: basicError } = await this.supabase
-                .from('listing_cache')
-                .select('*')
-                .eq('neighborhood', neighborhood);
-            
-            if (!basicError && basic && basic.length > 0) {
-                return basic.map(row => ({
-                    id: row.listing_id,
-                    address: row.address,
-                    price: row.monthly_rent,
-                    bedrooms: row.bedrooms,
-                    bathrooms: row.bathrooms,
-                    sqft: row.sqft,
-                    description: row.description,
-                    neighborhood: row.neighborhood,
-                    amenities: row.amenities || [],
-                    url: row.listing_url,
-                    listedAt: row.listed_at,
-                    source: 'listing_cache'
-                }));
-            }
-            
-            return [];
-            
-        } catch (error) {
-            console.error('Failed to get cached listings:', error.message);
+   /**
+ * FIXED: Get cached listings from comprehensive_listing_cache ONLY
+ */
+async getComprehensiveCachedListings(neighborhood) {
+    try {
+        // Use ONLY comprehensive_listing_cache (no fallbacks)
+        const { data: comprehensive, error: comprehensiveError } = await this.supabase
+            .from('comprehensive_listing_cache')
+            .select('*')
+            .eq('neighborhood', neighborhood);
+        
+        if (comprehensiveError) {
+            console.error('Comprehensive cache error:', comprehensiveError.message);
             return [];
         }
+        
+        if (comprehensive && comprehensive.length > 0) {
+            console.log(`     💾 Found ${comprehensive.length} listings in comprehensive cache`);
+            return comprehensive.map(row => ({
+                id: row.listing_id,
+                address: row.address,
+                price: row.monthly_rent,
+                bedrooms: row.bedrooms,
+                bathrooms: row.bathrooms,
+                sqft: row.sqft,
+                description: row.description,
+                neighborhood: row.neighborhood,
+                amenities: row.amenities || [],
+                url: row.listing_url,
+                listedAt: row.listed_at,
+                source: 'comprehensive_cache'
+            }));
+        }
+        
+        console.log(`     💾 No comprehensive cache found for ${neighborhood}`);
+        return [];
+        
+    } catch (error) {
+        console.error('Failed to get comprehensive cached listings:', error.message);
+        return [];
     }
+}
 
     /**
      * WORKING: Fetch fresh listings using the original working API call
