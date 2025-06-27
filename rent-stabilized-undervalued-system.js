@@ -1437,11 +1437,60 @@ class RentStabilizedUndervaluedSystem {
         return adjacencies[neighborhood] || [];
     }
 
-    /**
-     * Get borough from neighborhood name
-     */
-    getBoroughFromNeighborhood(neighborhood) {
-        const manhattanNeighborhoods = [
+}
+
+/**
+ * MAIN EXECUTION FUNCTION
+ */
+async function main() {
+    try {
+        const system = new RentStabilizedUndervaluedDetector();
+        
+        // Check for test mode
+        const testNeighborhood = process.env.TEST_NEIGHBORHOOD;
+        if (testNeighborhood) {
+            console.log(`🧪 TEST MODE: Analyzing ${testNeighborhood} only\n`);
+            
+            const results = await system.findUndervaluedRentStabilizedListings({
+                neighborhoods: [testNeighborhood],
+                maxListingsPerNeighborhood: 100
+            });
+            
+            console.log(`\n🎯 Test completed for ${testNeighborhood}`);
+            console.log(`📊 Found ${results.rentStabilizedFound} rent-stabilized apartments`);
+            
+            return results;
+        }
+        
+        // Full production analysis
+        console.log('🏙️ Running FULL NYC rent-stabilized analysis...\n');
+        
+        const results = await system.findUndervaluedRentStabilizedListings({
+            maxListingsPerNeighborhood: parseInt(process.env.MAX_LISTINGS_PER_NEIGHBORHOOD) || 500
+        });
+        
+        console.log('\n🎉 Full NYC analysis completed!');
+        console.log(`📊 Total rent-stabilized apartments found: ${results.rentStabilizedFound}`);
+        console.log(`💾 All results saved to database`);
+        
+        return results;
+        
+    } catch (error) {
+        console.error('💥 System crashed:', error.message);
+        process.exit(1);
+    }
+}
+
+// Export for use in other modules (matches what railway-sequential-runner.js expects)
+module.exports = RentStabilizedUndervaluedDetector;
+
+// Run if executed directly
+if (require.main === module) {
+    main().catch(error => {
+        console.error('💥 Main execution failed:', error);
+        process.exit(1);
+    });
+}
             'east-village', 'lower-east-side', 'chinatown', 'financial-district',
             'west-village', 'greenwich-village', 'soho', 'nolita', 'tribeca',
             'chelsea', 'gramercy', 'murray-hill', 'kips-bay', 'flatiron',
