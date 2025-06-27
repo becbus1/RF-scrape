@@ -9,6 +9,8 @@ const { createClient } = require('@supabase/supabase-js');
 const Papa = require('papaparse');     // npm install papaparse
 const pdf = require('pdf-parse');      // npm install pdf-parse  
 const XLSX = require('xlsx');          // npm install xlsx
+const axios = require('axios');
+
 
 class RentStabilizedUndervaluedDetector {
     constructor() {
@@ -260,54 +262,126 @@ class RentStabilizedUndervaluedDetector {
     }
 
     /**
-     * FIXED: Get neighborhood listing IDs from existing cache infrastructure
-     */
-    async getNeighborhoodListingIdsFromCache(neighborhood, maxListings) {
-        try {
-            console.log(`         🗃️ Checking existing cache for ${neighborhood} listing IDs...`);
+ * FIXED: Get neighborhood listing IDs from existing cache infrastructure + StreetEasy API
+ */
+async getNeighborhoodListingIdsFromCache(neighborhood, maxListings) {
+    try {
+        console.log(`         🗃️ Checking existing cache for ${neighborhood} listing IDs...`);
+        
+        // Check rental_market_cache first (from biweekly-rentals system)
+        const { data: rentalIds, error: rentalError } = await this.supabase
+            .from('rental_market_cache')
+            .select('listing_id')
+            .eq('neighborhood', neighborhood)
+            // REMOVED: .eq('status', 'active') - column doesn't exist in rental_market_cache
+            .limit(maxListings)
+            .order('last_seen_in_search', { ascending: false });
+        
+        if (rentalError) {
+            console.error(`         ❌ Error fetching from rental_market_cache:`, rentalError.message);
+        }
+        
+        const rentalListingIds = (rentalIds || []).map(row => row.listing_id);
+        
+        if (rentalListingIds.length > 0) {
+            console.log(`         ✅ Found ${rentalListingIds.length} rental IDs from existing cache`);
+            return rentalListingIds;
+        }
+        
+        // Fallback: Check listing_cache
+        const { data: cacheIds, error: cacheError } = await this.supabase
+            .from('listing_cache')
+            .select('listing_id')
+            .eq('neighborhood', neighborhood)
+            .limit(maxListings);
+        
+        if (cacheError) {
+            console.error(`         ❌ Error fetching from listing_cache:`, cacheError.message);
+        }
+        
+        const cacheListingIds = (cacheIds || []).map(row => row.listing_id);
+        console.log(`         ✅ Found ${cacheListingIds.length} IDs from listing_cache`);
+        
+        // NEW: If no cache hits, fetch fresh from StreetEasy API
+        if (cacheListingIds.length === 0) {
+            console.log(`         📡 No cache found, fetching from StreetEasy API...`);
+            const freshListings = await this.fetchFreshListingsFromStreetEasy(neighborhood, maxListings);
             
-            // Check rental_market_cache first (from biweekly-rentals system)
-            const { data: rentalIds, error: rentalError } = await this.supabase
-                .from('rental_market_cache')
-                .select('listing_id')
-                .eq('neighborhood', neighborhood)
-                .eq('status', 'active')
-                .limit(maxListings)
-                .order('last_seen_in_search', { ascending: false });
-            
-            if (rentalError) {
-                console.error(`         ❌ Error fetching from rental_market_cache:`, rentalError.message);
+            // Cache the fresh listings and return their IDs
+            if (freshListings.length > 0) {
+                await this.updateListingCache(freshListings);
+                console.log(`         🎉 Fetched and cached ${freshListings.length} fresh listings from StreetEasy`);
+                return freshListings.map(listing => listing.id);
+            } else {
+                console.log(`         ⚠️ StreetEasy API returned no listings for ${neighborhood}`);
             }
-            
-            const rentalListingIds = (rentalIds || []).map(row => row.listing_id);
-            
-            if (rentalListingIds.length > 0) {
-                console.log(`         ✅ Found ${rentalListingIds.length} rental IDs from existing cache`);
-                return rentalListingIds;
-            }
-            
-            // Fallback: Check listing_cache
-            const { data: cacheIds, error: cacheError } = await this.supabase
-                .from('listing_cache')
-                .select('listing_id')
-                .eq('neighborhood', neighborhood)
-                .limit(maxListings);
-            
-            if (cacheError) {
-                console.error(`         ❌ Error fetching from listing_cache:`, cacheError.message);
-                return [];
-            }
-            
-            const cacheListingIds = (cacheIds || []).map(row => row.listing_id);
-            console.log(`         ✅ Found ${cacheListingIds.length} IDs from listing_cache`);
-            
-            return cacheListingIds;
-            
-        } catch (error) {
-            console.error(`Failed to get ${neighborhood} listing IDs:`, error.message);
+        }
+        
+        return cacheListingIds;
+        
+    } catch (error) {
+        console.error(`Failed to get ${neighborhood} listing IDs:`, error.message);
+        return [];
+    }
+}
+
+/**
+ * NEW: Fetch fresh listings from StreetEasy API when cache is empty
+ */
+async fetchFreshListingsFromStreetEasy(neighborhood, maxListings) {
+    try {
+        const rapidApiKey = process.env.RAPIDAPI_KEY;
+        if (!rapidApiKey) {
+            console.log(`         ⚠️ No RAPIDAPI_KEY found, cannot fetch from StreetEasy`);
             return [];
         }
+
+        console.log(`         🌐 Fetching fresh listings from StreetEasy API for ${neighborhood}...`);
+        
+        const axios = require('axios'); // Add this import at the top of your file
+        
+        const searchUrl = `https://streeteasy1.p.rapidapi.com/rentals/search`;
+        const response = await axios.get(searchUrl, {
+            headers: {
+                'X-RapidAPI-Key': rapidApiKey,
+                'X-RapidAPI-Host': 'streeteasy1.p.rapidapi.com'
+            },
+            params: {
+                neighborhood: neighborhood,
+                limit: maxListings,
+                format: 'json'
+            },
+            timeout: 30000
+        });
+
+        if (response.data && response.data.rentals) {
+            const listings = response.data.rentals.map(rental => ({
+                id: rental.id?.toString(),
+                address: rental.address || 'Unknown Address',
+                price: rental.price || 0,
+                bedrooms: rental.bedrooms || 0,
+                bathrooms: rental.bathrooms || 0,
+                sqft: rental.sqft || 0,
+                description: rental.description || '',
+                neighborhood: neighborhood,
+                amenities: rental.amenities || [],
+                url: rental.url || `https://streeteasy.com/rental/${rental.id}`,
+                listedAt: rental.listedAt || new Date().toISOString(),
+                source: 'streeteasy_api'
+            }));
+            
+            console.log(`         ✅ StreetEasy API returned ${listings.length} fresh listings`);
+            return listings;
+        }
+
+        console.log(`         ⚠️ StreetEasy API returned no rentals for ${neighborhood}`);
+        return [];
+
+    } catch (error) {
+        console.error(`         ❌ StreetEasy API error for ${neighborhood}:`, error.message);
+        return [];
     }
+}
 
     /**
      * FIXED: Fetch listing details from existing cache infrastructure
