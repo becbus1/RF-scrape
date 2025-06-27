@@ -981,7 +981,7 @@ class RentStabilizedUndervaluedDetector {
     }
 
     /**
-     * STEP 5: Save ALL results to undervalued_rent_stabilized table (CORRECTED)
+     * STEP 5: Save ALL results to undervalued_rent_stabilized table (FIXED SYNTAX)
      */
     async saveAllResults(analyzedResults) {
         if (analyzedResults.length === 0) {
