@@ -52,6 +52,9 @@ class RentStabilizedUndervaluedDetector {
 
         // STEP 2: Undervaluation analysis (sophisticated market analysis)
         this.UNDERVALUATION_THRESHOLD = 15; // 15%+ below market = undervalued
+this.MODERATE_UNDERVALUATION_THRESHOLD = 5; // 5-14.9% below market = moderately undervalued
+this.MARKET_RATE_THRESHOLD = 5; // Within ±5% = market rate
+this.OVERVALUED_THRESHOLD = -5; // More than 5% above market = overvalued
         this.VALUATION_METHODS = {
             EXACT_MATCH: 'exact_bed_bath_amenity_match',
             BED_BATH_SPECIFIC: 'bed_bath_specific_pricing',
@@ -80,7 +83,7 @@ class RentStabilizedUndervaluedDetector {
 
         const {
             neighborhoods = ['east-village', 'lower-east-side', 'chinatown'],
-            maxListingsPerNeighborhood = 100,
+            maxListingsPerNeighborhood = 2000,
             testMode = false
         } = options;
 
@@ -348,7 +351,8 @@ async fetchFreshListingsFromStreetEasy(neighborhood, maxListings) {
             },
             params: {
                 neighborhood: neighborhood,
-                limit: maxListings,
+                limit: 500, // API maximum per request
+    offset: 0, // Will be updated in pagination loop
                 format: 'json'
             },
             timeout: 30000
@@ -660,13 +664,17 @@ async fetchFreshListingsFromStreetEasy(neighborhood, maxListings) {
                 const percentBelowMarket = undervaluationAnalysis.percentBelowMarket;
                 console.log(`       📊 ${percentBelowMarket.toFixed(1)}% below market ($${undervaluationAnalysis.estimatedMarketRent.toLocaleString()})`);
                 
-                // Only include if significantly undervalued
-                if (percentBelowMarket >= this.UNDERVALUATION_THRESHOLD) {
+               // SAVE ALL rent-stabilized listings regardless of undervaluation
+const marketClassification = this.classifyMarketPosition(percentBelowMarket);
+const savings = Math.max(0, undervaluationAnalysis.estimatedMarketRent - stabilizedListing.price);
+
+// Always add to results (not just undervalued)
                     undervaluedStabilized.push({
                         ...stabilizedListing,
                         estimatedMarketRent: undervaluationAnalysis.estimatedMarketRent,
                         undervaluationPercent: percentBelowMarket,
                         potentialSavings: undervaluationAnalysis.estimatedMarketRent - stabilizedListing.price,
+                            marketClassification: marketClassification, // NEW
                         undervaluationMethod: undervaluationAnalysis.method,
                         undervaluationConfidence: undervaluationAnalysis.confidence,
                         comparablesUsed: undervaluationAnalysis.comparablesUsed,
@@ -804,6 +812,21 @@ async fetchFreshListingsFromStreetEasy(neighborhood, maxListings) {
             return { success: false, reason: error.message };
         }
     }
+
+/**
+ * NEW: Classify market position using all thresholds
+ */
+classifyMarketPosition(percentBelowMarket) {
+    if (percentBelowMarket >= this.UNDERVALUATION_THRESHOLD) {
+        return 'undervalued';      // 15%+ below market
+    } else if (percentBelowMarket >= this.MODERATE_UNDERVALUATION_THRESHOLD) {
+        return 'moderately_undervalued'; // 5-14.9% below market  
+    } else if (percentBelowMarket >= this.OVERVALUED_THRESHOLD) {
+        return 'market_rate';      // -5% to +4.9% (within ±5% of market)
+    } else {
+        return 'overvalued';       // More than 5% above market (< -5%)
+    }
+}
 
     /**
      * ADVANCED: Select best valuation method (from your biweekly-rentals system)
