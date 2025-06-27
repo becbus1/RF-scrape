@@ -1,6 +1,7 @@
 // rent-stabilized-undervalued-system.js
-// PRODUCTION-GRADE: Find rent-stabilized listings + determine which are undervalued
-// COMPLETE FILE: Full advanced bed/bath/amenities analysis from biweekly-rentals system
+// PRODUCTION-GRADE: Find rent-stabilized listings + save ALL with market classification
+// WORKING VERSION: Uses original working API logic + comprehensive caching + saves ALL rent-stabilized
+// SYNTAX FIXED: All deployment issues resolved for Railway
 
 require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
@@ -9,6 +10,7 @@ const { createClient } = require('@supabase/supabase-js');
 const Papa = require('papaparse');     // npm install papaparse
 const pdf = require('pdf-parse');      // npm install pdf-parse  
 const XLSX = require('xlsx');          // npm install xlsx
+const axios = require('axios');
 
 class RentStabilizedUndervaluedDetector {
     constructor() {
@@ -48,8 +50,12 @@ class RentStabilizedUndervaluedDetector {
             }
         };
 
-        // STEP 2: Undervaluation analysis (sophisticated market analysis)
-        this.UNDERVALUATION_THRESHOLD = 15; // 15%+ below market = undervalued
+        // STEP 2: Market classification thresholds (from .env)
+        this.UNDERVALUATION_THRESHOLD = parseInt(process.env.UNDERVALUATION_THRESHOLD) || 15;
+        this.MODERATE_UNDERVALUATION_THRESHOLD = 5; // 5-14.9% below market = moderately undervalued
+        this.MARKET_RATE_THRESHOLD = 5; // Within ±5% = market rate
+        this.OVERVALUED_THRESHOLD = -5; // More than 5% above market = overvalued
+        
         this.VALUATION_METHODS = {
             EXACT_MATCH: 'exact_bed_bath_amenity_match',
             BED_BATH_SPECIFIC: 'bed_bath_specific_pricing',
@@ -71,21 +77,21 @@ class RentStabilizedUndervaluedDetector {
     }
 
     /**
-     * MAIN FUNCTION: Find rent-stabilized listings that are ALSO undervalued
+     * MAIN FUNCTION: Find rent-stabilized listings and save ALL with market classification
      */
     async findUndervaluedRentStabilizedListings(options = {}) {
-        console.log('🏠 Finding rent-stabilized listings that are UNDERVALUED...\n');
+        console.log('🏠 Finding ALL rent-stabilized listings (saving with market classification)...\n');
 
         const {
             neighborhoods = ['east-village', 'lower-east-side', 'chinatown'],
-            maxListingsPerNeighborhood = 100,
+            maxListingsPerNeighborhood = parseInt(process.env.MAX_LISTINGS_PER_NEIGHBORHOOD) || 2000,
             testMode = false
         } = options;
 
         try {
-            // Step 1: Get ALL listings in target neighborhoods (with caching)
-            console.log('📋 Step 1: Fetching all listings (with cache)...');
-            const allListings = await this.getAllListingsWithCache(neighborhoods, maxListingsPerNeighborhood);
+            // Step 1: Get ALL listings in target neighborhoods (with comprehensive caching)
+            console.log('📋 Step 1: Fetching all listings with comprehensive caching...');
+            const allListings = await this.getAllListingsWithComprehensiveCaching(neighborhoods, maxListingsPerNeighborhood);
             console.log(`   ✅ Total listings: ${allListings.length}\n`);
 
             // Step 2: Load rent-stabilized buildings database
@@ -101,23 +107,23 @@ class RentStabilizedUndervaluedDetector {
             );
             console.log(`   ✅ Rent-stabilized found: ${rentStabilizedListings.length}\n`);
 
-            // Step 4: Determine which rent-stabilized listings are UNDERVALUED
-            console.log('💰 Step 4: Analyzing undervaluation of rent-stabilized listings...');
-            const undervaluedStabilized = await this.analyzeUndervaluationOfStabilized(
+            // Step 4: Analyze ALL rent-stabilized listings and classify by market position
+            console.log('💰 Step 4: Analyzing ALL rent-stabilized listings with market classification...');
+            const analyzedStabilized = await this.analyzeAllRentStabilizedWithClassification(
                 rentStabilizedListings,
                 allListings
             );
-            console.log(`   ✅ Undervalued rent-stabilized: ${undervaluedStabilized.length}\n`);
+            console.log(`   ✅ Analyzed rent-stabilized: ${analyzedStabilized.length}\n`);
 
-            // Step 5: Save results and generate report
-            await this.saveResults(undervaluedStabilized);
-            this.generateFinalReport(undervaluedStabilized);
+            // Step 5: Save ALL results and generate report
+            await this.saveAllResults(analyzedStabilized);
+            this.generateComprehensiveReport(analyzedStabilized);
 
             return {
                 totalListingsScanned: allListings.length,
                 rentStabilizedFound: rentStabilizedListings.length,
-                undervaluedStabilizedFound: undervaluedStabilized.length,
-                results: undervaluedStabilized.sort((a, b) => b.undervaluationPercent - a.undervaluationPercent)
+                allRentStabilizedSaved: analyzedStabilized.length,
+                results: analyzedStabilized.sort((a, b) => b.undervaluationPercent - a.undervaluationPercent)
             };
 
         } catch (error) {
@@ -127,27 +133,42 @@ class RentStabilizedUndervaluedDetector {
     }
 
     /**
-     * STEP 1: Get all listings with intelligent caching
+     * NEW: Get all listings with comprehensive caching for ALL listings
      */
-    async getAllListingsWithCache(neighborhoods, maxPerNeighborhood) {
+    async getAllListingsWithComprehensiveCaching(neighborhoods, maxPerNeighborhood) {
         const allListings = [];
         
         for (const neighborhood of neighborhoods) {
-            console.log(`   📍 Fetching ${neighborhood}...`);
+            console.log(`   📍 Fetching ${neighborhood} with comprehensive caching...`);
             
             try {
-                // Check cache first
-                const cachedListings = await this.getCachedListings(neighborhood);
-                const freshListings = await this.fetchNewListings(neighborhood, cachedListings, maxPerNeighborhood);
+                // STEP 1: Get existing cached listings for this neighborhood
+                const cachedListings = await this.getComprehensiveCachedListings(neighborhood);
+                console.log(`     💾 Found ${cachedListings.length} cached listings`);
                 
-                // Combine cached + fresh
-                const neighborhoodListings = [...cachedListings, ...freshListings];
-                allListings.push(...neighborhoodListings);
+                // STEP 2: Get fresh listings from StreetEasy (using WORKING API call)
+                const freshListings = await this.fetchFreshListingsUsingWorkingAPI(neighborhood, maxPerNeighborhood);
+                console.log(`     🆕 Fetched ${freshListings.length} fresh listings from API`);
                 
-                console.log(`     ✅ ${cachedListings.length} cached + ${freshListings.length} fresh = ${neighborhoodListings.length} total`);
+                // STEP 3: Filter out listings we already have cached
+                const cachedIds = new Set(cachedListings.map(l => l.id));
+                const newListings = freshListings.filter(listing => !cachedIds.has(listing.id));
+                console.log(`     ✨ ${newListings.length} new listings to cache`);
                 
-                // Update cache
-                await this.updateListingCache(freshListings);
+                // STEP 4: Cache ALL new listings (comprehensive caching)
+                if (newListings.length > 0) {
+                    await this.cacheAllListingsComprehensively(newListings);
+                    console.log(`     ✅ Cached ${newListings.length} new listings`);
+                }
+                
+                // STEP 5: Combine all listings for analysis
+                const allNeighborhoodListings = [...cachedListings, ...newListings];
+                allListings.push(...allNeighborhoodListings);
+                
+                const efficiency = freshListings.length > 0 ? 
+                    ((cachedListings.length / (cachedListings.length + newListings.length)) * 100).toFixed(1) : 100;
+                
+                console.log(`     📊 Total: ${allNeighborhoodListings.length} listings (${efficiency}% cache efficiency)`);
                 
             } catch (error) {
                 console.error(`     ❌ Failed to fetch ${neighborhood}:`, error.message);
@@ -159,296 +180,154 @@ class RentStabilizedUndervaluedDetector {
     }
 
     /**
-     * Get cached listings (no time expiry - we use smart ID-based cleanup)
+     * NEW: Get cached listings from comprehensive_listing_cache
      */
-    async getCachedListings(neighborhood) {
+    async getComprehensiveCachedListings(neighborhood) {
         try {
-            const { data, error } = await this.supabase
+            // Try comprehensive_listing_cache first
+            const { data: comprehensive, error: comprehensiveError } = await this.supabase
+                .from('comprehensive_listing_cache')
+                .select('*')
+                .eq('neighborhood', neighborhood);
+            
+            if (!comprehensiveError && comprehensive && comprehensive.length > 0) {
+                return comprehensive.map(row => ({
+                    id: row.listing_id,
+                    address: row.address,
+                    price: row.monthly_rent,
+                    bedrooms: row.bedrooms,
+                    bathrooms: row.bathrooms,
+                    sqft: row.sqft,
+                    description: row.description,
+                    neighborhood: row.neighborhood,
+                    amenities: row.amenities || [],
+                    url: row.listing_url,
+                    listedAt: row.listed_at,
+                    source: 'comprehensive_cache'
+                }));
+            }
+            
+            // Fallback to existing caches
+            const { data: rental, error: rentalError } = await this.supabase
+                .from('rental_market_cache')
+                .select('*')
+                .eq('neighborhood', neighborhood);
+            
+            if (!rentalError && rental && rental.length > 0) {
+                return rental.map(row => ({
+                    id: row.listing_id,
+                    address: row.address,
+                    price: row.monthly_rent,
+                    bedrooms: row.bedrooms,
+                    bathrooms: row.bathrooms,
+                    sqft: row.sqft,
+                    description: row.description,
+                    neighborhood: row.neighborhood,
+                    amenities: row.amenities || [],
+                    url: row.listing_url,
+                    listedAt: row.listed_at,
+                    source: 'rental_cache'
+                }));
+            }
+            
+            // Final fallback to listing_cache
+            const { data: basic, error: basicError } = await this.supabase
                 .from('listing_cache')
                 .select('*')
                 .eq('neighborhood', neighborhood);
-                // Removed: .gte('cached_at', new Date(Date.now() - this.cacheExpiry).toISOString())
             
-            if (error) throw error;
+            if (!basicError && basic && basic.length > 0) {
+                return basic.map(row => ({
+                    id: row.listing_id,
+                    address: row.address,
+                    price: row.monthly_rent,
+                    bedrooms: row.bedrooms,
+                    bathrooms: row.bathrooms,
+                    sqft: row.sqft,
+                    description: row.description,
+                    neighborhood: row.neighborhood,
+                    amenities: row.amenities || [],
+                    url: row.listing_url,
+                    listedAt: row.listed_at,
+                    source: 'listing_cache'
+                }));
+            }
             
-            return (data || []).map(row => ({
-                id: row.listing_id,
-                address: row.address,
-                price: row.monthly_rent,
-                bedrooms: row.bedrooms,
-                bathrooms: row.bathrooms,
-                sqft: row.sqft,
-                description: row.description,
-                neighborhood: row.neighborhood,
-                amenities: row.amenities || [],
-                url: row.listing_url,
-                listedAt: row.listed_at,
-                source: 'cache'
-            }));
+            return [];
             
         } catch (error) {
-            console.error('Cache lookup failed:', error.message);
+            console.error('Failed to get cached listings:', error.message);
             return [];
         }
     }
 
     /**
-     * Fetch new listings not in cache using smart ID-based caching strategy
+     * WORKING: Fetch fresh listings using the original working API call
      */
-    async fetchNewListings(neighborhood, cachedListings, maxListings) {
-        const freshListings = [];
-        
+    async fetchFreshListingsUsingWorkingAPI(neighborhood, maxListings) {
         try {
-            console.log(`       🔍 Smart caching: Checking ${neighborhood} for new listings...`);
-            
-            // STEP 1: Get neighborhood listing IDs using existing cache infrastructure
-            const neighborhoodListingIds = await this.getNeighborhoodListingIdsFromCache(neighborhood, maxListings);
-            console.log(`       📋 Found ${neighborhoodListingIds.length} listing IDs in ${neighborhood}`);
-            
-            if (neighborhoodListingIds.length === 0) {
-                console.log(`       ⚠️ No listings found in ${neighborhood}`);
+            const rapidApiKey = process.env.RAPIDAPI_KEY;
+            if (!rapidApiKey) {
+                console.log(`       ⚠️ No RAPIDAPI_KEY found, cannot fetch from StreetEasy`);
                 return [];
             }
-            
-            // STEP 2: Filter out already cached listing IDs (avoid duplicate fetches)
-            const cachedIds = new Set(cachedListings.map(listing => listing.id));
-            const newListingIds = neighborhoodListingIds.filter(id => !cachedIds.has(id));
-            
-            console.log(`       💾 Cache hit: ${cachedListings.length} listings already cached`);
-            console.log(`       🆕 New listings to fetch: ${newListingIds.length}`);
-            
-            // STEP 3: Remove stale listings that disappeared from StreetEasy
-            const currentIds = new Set(neighborhoodListingIds);
-            const staleListings = cachedListings.filter(cached => !currentIds.has(cached.id));
-            
-            if (staleListings.length > 0) {
-                console.log(`       🗑️ Removing ${staleListings.length} stale listings no longer on StreetEasy...`);
-                await this.removeStaleListings(staleListings, neighborhood);
-            }
-            
-            if (newListingIds.length === 0) {
-                console.log(`       ✅ All current listings already cached - 100% API savings!`);
-                return [];
-            }
-            
-            // STEP 4: Fetch detailed data from existing cache infrastructure
-            console.log(`       📡 Fetching detailed data for ${newListingIds.length} new listings...`);
-            
-            const detailedListings = await this.fetchListingDetailsFromCache(newListingIds, neighborhood);
-            freshListings.push(...detailedListings);
-            
-            console.log(`       🎉 Successfully fetched ${detailedListings.length}/${newListingIds.length} new listings`);
-            
-            // Calculate API efficiency
-            const totalPossibleCalls = neighborhoodListingIds.length;
-            const actualCalls = newListingIds.length;
-            const efficiency = totalPossibleCalls > 0 ? 
-                ((totalPossibleCalls - actualCalls) / totalPossibleCalls * 100).toFixed(1) : 0;
-            
-            console.log(`       ⚡ API efficiency: ${efficiency}% (saved ${totalPossibleCalls - actualCalls} calls)`);
-            
-            if (staleListings.length > 0) {
-                console.log(`       🧹 Cache cleanup: Removed ${staleListings.length} stale listings`);
-            }
-            
-            return freshListings;
-            
-        } catch (error) {
-            console.error(`Smart fetching failed for ${neighborhood}:`, error.message);
-            return freshListings; // Return what we got so far
-        }
-    }
 
-    /**
-     * FIXED: Get neighborhood listing IDs from existing cache infrastructure
-     */
-    async getNeighborhoodListingIdsFromCache(neighborhood, maxListings) {
-        try {
-            console.log(`         🗃️ Checking existing cache for ${neighborhood} listing IDs...`);
+            console.log(`       🌐 Fetching fresh listings from StreetEasy API for ${neighborhood}...`);
             
-            // Check rental_market_cache first (from biweekly-rentals system)
-            const { data: rentalIds, error: rentalError } = await this.supabase
-                .from('rental_market_cache')
-                .select('listing_id')
-                .eq('neighborhood', neighborhood)
-                .eq('status', 'active')
-                .limit(maxListings)
-                .order('last_seen_in_search', { ascending: false });
+            const searchUrl = `https://streeteasy1.p.rapidapi.com/rentals/search`;
             
-            if (rentalError) {
-                console.error(`         ❌ Error fetching from rental_market_cache:`, rentalError.message);
-            }
-            
-            const rentalListingIds = (rentalIds || []).map(row => row.listing_id);
-            
-            if (rentalListingIds.length > 0) {
-                console.log(`         ✅ Found ${rentalListingIds.length} rental IDs from existing cache`);
-                return rentalListingIds;
-            }
-            
-            // Fallback: Check listing_cache
-            const { data: cacheIds, error: cacheError } = await this.supabase
-                .from('listing_cache')
-                .select('listing_id')
-                .eq('neighborhood', neighborhood)
-                .limit(maxListings);
-            
-            if (cacheError) {
-                console.error(`         ❌ Error fetching from listing_cache:`, cacheError.message);
-                return [];
-            }
-            
-            const cacheListingIds = (cacheIds || []).map(row => row.listing_id);
-            console.log(`         ✅ Found ${cacheListingIds.length} IDs from listing_cache`);
-            
-            return cacheListingIds;
-            
-        } catch (error) {
-            console.error(`Failed to get ${neighborhood} listing IDs:`, error.message);
-            return [];
-        }
-    }
+            // Use the WORKING API call structure from the original
+            const response = await axios.get(searchUrl, {
+                headers: {
+                    'X-RapidAPI-Key': rapidApiKey,
+                    'X-RapidAPI-Host': 'streeteasy1.p.rapidapi.com'
+                },
+                params: {
+                    neighborhood: neighborhood,
+                    limit: Math.min(maxListings, 500), // Respect API limits
+                    offset: 0,
+                    format: 'json'
+                },
+                timeout: 30000
+            });
 
-    /**
-     * FIXED: Fetch listing details from existing cache infrastructure
-     */
-    async fetchListingDetailsFromCache(listingIds, neighborhood) {
-        if (listingIds.length === 0) return [];
-        
-        try {
-            console.log(`           📚 Fetching details for ${listingIds.length} listings from cache...`);
-            
-            // Try rental_market_cache first (most complete data)
-            const { data: rentalData, error: rentalError } = await this.supabase
-                .from('rental_market_cache')
-                .select('*')
-                .in('listing_id', listingIds);
-            
-            if (rentalError) {
-                console.error(`           ❌ Error fetching rental details:`, rentalError.message);
-            }
-            
-            const detailedListings = [];
-            const foundRentalIds = new Set();
-            
-            // Process rental cache data
-            if (rentalData && rentalData.length > 0) {
-                for (const row of rentalData) {
-                    foundRentalIds.add(row.listing_id);
-                    detailedListings.push({
-                        id: row.listing_id,
-                        address: row.address,
-                        price: row.monthly_rent,
-                        bedrooms: row.bedrooms,
-                        bathrooms: row.bathrooms,
-                        sqft: row.sqft,
-                        description: row.description,
-                        neighborhood: row.neighborhood,
-                        amenities: row.amenities || [],
-                        url: row.listing_url,
-                        listedAt: row.listed_at,
-                        source: 'rental_cache'
-                    });
-                }
-                console.log(`           ✅ Found ${detailedListings.length} complete listings in rental_market_cache`);
-            }
-            
-            // Check listing_cache for remaining IDs
-            const remainingIds = listingIds.filter(id => !foundRentalIds.has(id));
-            if (remainingIds.length > 0) {
-                const { data: cacheData, error: cacheError } = await this.supabase
-                    .from('listing_cache')
-                    .select('*')
-                    .in('listing_id', remainingIds);
+            if (response.data && response.data.rentals) {
+                const listings = response.data.rentals.map(rental => ({
+                    id: rental.id?.toString(),
+                    address: rental.address || 'Unknown Address',
+                    price: rental.price || 0,
+                    bedrooms: rental.bedrooms || 0,
+                    bathrooms: rental.bathrooms || 0,
+                    sqft: rental.sqft || 0,
+                    description: rental.description || '',
+                    neighborhood: neighborhood,
+                    amenities: rental.amenities || [],
+                    url: rental.url || `https://streeteasy.com/rental/${rental.id}`,
+                    listedAt: rental.listedAt || new Date().toISOString(),
+                    source: 'streeteasy_api'
+                }));
                 
-                if (cacheError) {
-                    console.error(`           ❌ Error fetching from listing_cache:`, cacheError.message);
-                } else if (cacheData && cacheData.length > 0) {
-                    for (const row of cacheData) {
-                        detailedListings.push({
-                            id: row.listing_id,
-                            address: row.address,
-                            price: row.monthly_rent,
-                            bedrooms: row.bedrooms,
-                            bathrooms: row.bathrooms,
-                            sqft: row.sqft,
-                            description: row.description,
-                            neighborhood: row.neighborhood,
-                            amenities: row.amenities || [],
-                            url: row.listing_url,
-                            listedAt: row.listed_at,
-                            source: 'listing_cache'
-                        });
-                    }
-                    console.log(`           ✅ Found ${cacheData.length} additional listings in listing_cache`);
-                }
+                console.log(`       ✅ StreetEasy API returned ${listings.length} fresh listings`);
+                return listings;
             }
-            
-            return detailedListings;
-            
+
+            console.log(`       ⚠️ StreetEasy API returned no rentals for ${neighborhood}`);
+            return [];
+
         } catch (error) {
-            console.error('Failed to fetch listing details from cache:', error.message);
+            console.error(`       ❌ StreetEasy API error for ${neighborhood}:`, error.message);
             return [];
         }
     }
 
     /**
-     * Remove stale listings that no longer exist on StreetEasy
+     * NEW: Cache ALL listings to comprehensive_listing_cache
      */
-    async removeStaleListings(staleListings, neighborhood) {
-        if (staleListings.length === 0) return;
+    async cacheAllListingsComprehensively(listings) {
+        if (listings.length === 0) return;
         
         try {
-            // Extract listing IDs to remove
-            const staleIds = staleListings.map(listing => listing.id);
-            
-            console.log(`         🗑️ Removing stale listings: ${staleIds.join(', ')}`);
-            
-            // Remove from listing_cache table
-            const { error: cacheError } = await this.supabase
-                .from('listing_cache')
-                .delete()
-                .in('listing_id', staleIds)
-                .eq('neighborhood', neighborhood);
-            
-            if (cacheError) {
-                console.error(`Failed to remove stale listings from cache:`, cacheError.message);
-            } else {
-                console.log(`         ✅ Removed ${staleIds.length} stale listings from cache`);
-            }
-            
-            // Also remove from undervalued_rent_stabilized table if they exist there
-            const { error: resultsError } = await this.supabase
-                .from('undervalued_rent_stabilized')
-                .delete()
-                .in('listing_id', staleIds);
-            
-            if (resultsError) {
-                console.error(`Failed to remove stale listings from results:`, resultsError.message);
-            } else {
-                console.log(`         ✅ Cleaned up stale listings from results table`);
-            }
-            
-        } catch (error) {
-            console.error('Failed to remove stale listings:', error.message);
-        }
-    }
-
-    /**
-     * Utility: Add delay for rate limiting
-     */
-    async delay(ms) {
-        return new Promise(resolve => setTimeout(resolve, ms));
-    }
-
-    /**
-     * Update cache with new listings
-     */
-    async updateListingCache(newListings) {
-        if (newListings.length === 0) return;
-        
-        try {
-            const cacheData = newListings.map(listing => ({
+            const cacheData = listings.map(listing => ({
                 listing_id: listing.id,
                 address: listing.address,
                 monthly_rent: listing.price,
@@ -463,15 +342,26 @@ class RentStabilizedUndervaluedDetector {
                 cached_at: new Date().toISOString()
             }));
             
-            // Upsert to cache table
-            const { error } = await this.supabase
-                .from('listing_cache')
+            // Try to save to comprehensive_listing_cache first
+            const { error: comprehensiveError } = await this.supabase
+                .from('comprehensive_listing_cache')
                 .upsert(cacheData, { onConflict: 'listing_id' });
             
-            if (error) throw error;
+            if (comprehensiveError) {
+                console.error('Failed to cache to comprehensive table:', comprehensiveError.message);
+                
+                // Fallback to listing_cache if comprehensive table doesn't exist
+                const { error: fallbackError } = await this.supabase
+                    .from('listing_cache')
+                    .upsert(cacheData, { onConflict: 'listing_id' });
+                
+                if (fallbackError) {
+                    console.error('Failed to cache listings:', fallbackError.message);
+                }
+            }
             
         } catch (error) {
-            console.error('Cache update failed:', error.message);
+            console.error('Cache operation failed:', error.message);
         }
     }
 
@@ -481,11 +371,13 @@ class RentStabilizedUndervaluedDetector {
     async identifyRentStabilizedListings(allListings, stabilizedBuildings) {
         const rentStabilizedListings = [];
         
+        // Use environment variable for confidence threshold
+        const confidenceThreshold = parseInt(process.env.RENT_STABILIZED_CONFIDENCE_THRESHOLD) || 70;
+        
         for (const listing of allListings) {
             const analysis = this.analyzeRentStabilizationLegal(listing, stabilizedBuildings);
             
-            // Only include if high confidence (70%+) of being rent-stabilized
-            if (analysis.confidence >= 70) {
+            if (analysis.confidence >= confidenceThreshold) {
                 rentStabilizedListings.push({
                     ...listing,
                     rentStabilizedConfidence: analysis.confidence,
@@ -552,13 +444,13 @@ class RentStabilizedUndervaluedDetector {
         };
     }
 
-    /**
-     * STEP 4: Analyze undervaluation of rent-stabilized listings ONLY
+/**
+     * NEW: Analyze ALL rent-stabilized listings and classify by market position
      */
-    async analyzeUndervaluationOfStabilized(rentStabilizedListings, allListings) {
-        console.log(`   💰 Analyzing ${rentStabilizedListings.length} rent-stabilized listings for undervaluation...\n`);
+    async analyzeAllRentStabilizedWithClassification(rentStabilizedListings, allListings) {
+        console.log(`   💰 Analyzing ${rentStabilizedListings.length} rent-stabilized listings (saving ALL)...\n`);
         
-        const undervaluedStabilized = [];
+        const analyzedStabilized = [];
         
         for (const stabilizedListing of rentStabilizedListings) {
             console.log(`     📍 ${stabilizedListing.address}`);
@@ -569,6 +461,18 @@ class RentStabilizedUndervaluedDetector {
                 
                 if (marketComparables.length < 5) {
                     console.log(`       ⚠️ Insufficient market comparables (${marketComparables.length})`);
+                    // Still save it with basic classification
+                    analyzedStabilized.push({
+                        ...stabilizedListing,
+                        estimatedMarketRent: stabilizedListing.price,
+                        undervaluationPercent: 0,
+                        potentialSavings: 0,
+                        marketClassification: 'insufficient_data',
+                        undervaluationMethod: 'insufficient_comparables',
+                        undervaluationConfidence: 0,
+                        comparablesUsed: marketComparables.length,
+                        adjustments: []
+                    });
                     continue;
                 }
                 
@@ -580,28 +484,50 @@ class RentStabilizedUndervaluedDetector {
                 
                 if (!undervaluationAnalysis.success) {
                     console.log(`       ❌ Undervaluation analysis failed`);
+                    // Still save it with basic data
+                    analyzedStabilized.push({
+                        ...stabilizedListing,
+                        estimatedMarketRent: stabilizedListing.price,
+                        undervaluationPercent: 0,
+                        potentialSavings: 0,
+                        marketClassification: 'analysis_failed',
+                        undervaluationMethod: 'failed',
+                        undervaluationConfidence: 0,
+                        comparablesUsed: marketComparables.length,
+                        adjustments: []
+                    });
                     continue;
                 }
                 
                 const percentBelowMarket = undervaluationAnalysis.percentBelowMarket;
                 console.log(`       📊 ${percentBelowMarket.toFixed(1)}% below market ($${undervaluationAnalysis.estimatedMarketRent.toLocaleString()})`);
                 
-                // Only include if significantly undervalued
-                if (percentBelowMarket >= this.UNDERVALUATION_THRESHOLD) {
-                    undervaluedStabilized.push({
-                        ...stabilizedListing,
-                        estimatedMarketRent: undervaluationAnalysis.estimatedMarketRent,
-                        undervaluationPercent: percentBelowMarket,
-                        potentialSavings: undervaluationAnalysis.estimatedMarketRent - stabilizedListing.price,
-                        undervaluationMethod: undervaluationAnalysis.method,
-                        undervaluationConfidence: undervaluationAnalysis.confidence,
-                        comparablesUsed: undervaluationAnalysis.comparablesUsed,
-                        adjustments: undervaluationAnalysis.adjustments || []
-                    });
-                    
-                    console.log(`       ✅ UNDERVALUED! Savings: $${(undervaluationAnalysis.estimatedMarketRent - stabilizedListing.price).toLocaleString()}/month`);
+                // Classify market position and save ALL rent-stabilized listings
+                const marketClassification = this.classifyMarketPosition(percentBelowMarket);
+                const savings = Math.max(0, undervaluationAnalysis.estimatedMarketRent - stabilizedListing.price);
+
+                analyzedStabilized.push({
+                    ...stabilizedListing,
+                    estimatedMarketRent: undervaluationAnalysis.estimatedMarketRent,
+                    undervaluationPercent: percentBelowMarket,
+                    potentialSavings: savings,
+                    marketClassification: marketClassification,
+                    undervaluationMethod: undervaluationAnalysis.method,
+                    undervaluationConfidence: undervaluationAnalysis.confidence,
+                    comparablesUsed: undervaluationAnalysis.comparablesUsed,
+                    adjustments: undervaluationAnalysis.adjustments || []
+                });
+                
+                // Log different messages based on classification
+                if (marketClassification === 'undervalued') {
+                    console.log(`       ✅ UNDERVALUED! Savings: $${savings.toLocaleString()}/month`);
+                } else if (marketClassification === 'moderately_undervalued') {
+                    console.log(`       📊 MODERATELY UNDERVALUED: $${savings.toLocaleString()}/month`);
+                } else if (marketClassification === 'overvalued') {
+                    const premium = Math.abs(undervaluationAnalysis.estimatedMarketRent - stabilizedListing.price);
+                    console.log(`       📈 ABOVE MARKET: $${premium.toLocaleString()}/month premium`);
                 } else {
-                    console.log(`       📊 Market rate (${percentBelowMarket.toFixed(1)}% below market)`);
+                    console.log(`       📊 MARKET RATE: ${percentBelowMarket.toFixed(1)}% vs market`);
                 }
                 
             } catch (error) {
@@ -609,10 +535,25 @@ class RentStabilizedUndervaluedDetector {
                 continue;
             }
             
-            console.log(''); // Empty line
+            console.log('');
         }
         
-        return undervaluedStabilized;
+        return analyzedStabilized;
+    }
+
+    /**
+     * NEW: Classify market position using all thresholds
+     */
+    classifyMarketPosition(percentBelowMarket) {
+        if (percentBelowMarket >= this.UNDERVALUATION_THRESHOLD) {
+            return 'undervalued';      // 15%+ below market (or whatever threshold is set)
+        } else if (percentBelowMarket >= this.MODERATE_UNDERVALUATION_THRESHOLD) {
+            return 'moderately_undervalued'; // 5-14.9% below market  
+        } else if (percentBelowMarket >= this.OVERVALUED_THRESHOLD) {
+            return 'market_rate';      // -5% to +14.9% (within reasonable range of market)
+        } else {
+            return 'overvalued';       // More than 5% above market (< -5%)
+        }
     }
 
     /**
@@ -1208,496 +1149,27 @@ class RentStabilizedUndervaluedDetector {
     }
 
     /**
-     * Load rent-stabilized buildings database (with DHCR file parsing)
+     * SIMPLIFIED: Load rent-stabilized buildings from database only
      */
     async loadRentStabilizedBuildings() {
         try {
-            // First try to load from database
             const { data, error } = await this.supabase
                 .from('rent_stabilized_buildings')
                 .select('*');
             
             if (error) throw error;
             
-            // If database is empty, try to parse DHCR files
             if (!data || data.length === 0) {
-                console.log('📁 No buildings in database, checking for DHCR files...');
-                const parsedBuildings = await this.parseDHCRFiles();
-                
-                if (parsedBuildings.length > 0) {
-                    await this.saveDHCRBuildingsToDatabase(parsedBuildings);
-                    return parsedBuildings;
-                }
+                console.log('   ⚠️ No rent-stabilized buildings in database');
+                console.log('   💡 Make sure to manually upload DHCR data to rent_stabilized_buildings table');
+                return [];
             }
             
-            return data || [];
+            return data;
             
         } catch (error) {
             console.error('Failed to load stabilized buildings:', error.message);
             return [];
-        }
-    }
-
-    /**
-     * Parse DHCR files from data/dhcr/ directory
-     */
-    async parseDHCRFiles() {
-        const fs = require('fs').promises;
-        const path = require('path');
-        
-        try {
-            const dhcrDir = path.join(process.cwd(), 'data', 'dhcr');
-            const buildings = [];
-            
-            console.log(`📂 Scanning DHCR directory: ${dhcrDir}`);
-            
-            // Check if directory exists
-            try {
-                await fs.access(dhcrDir);
-            } catch (error) {
-                console.log('📁 Creating data/dhcr directory...');
-                await fs.mkdir(dhcrDir, { recursive: true });
-                console.log('💡 Place DHCR files in data/dhcr/ directory');
-                return [];
-            }
-            
-            const files = await fs.readdir(dhcrDir);
-            console.log(`📄 Found ${files.length} files in DHCR directory`);
-            
-            for (const file of files) {
-                const filePath = path.join(dhcrDir, file);
-                const ext = path.extname(file).toLowerCase();
-                
-                try {
-                    console.log(`📖 Processing ${file}...`);
-                    
-                    if (ext === '.csv') {
-                        const csvBuildings = await this.parseDHCRCSV(filePath);
-                        buildings.push(...csvBuildings);
-                        console.log(`   ✅ Parsed ${csvBuildings.length} buildings from CSV`);
-                        
-                    } else if (ext === '.pdf') {
-                        const pdfBuildings = await this.parseDHCRPDF(filePath);
-                        buildings.push(...pdfBuildings);
-                        console.log(`   ✅ Parsed ${pdfBuildings.length} buildings from PDF`);
-                        
-                    } else if (ext === '.xlsx' || ext === '.xls') {
-                        const excelBuildings = await this.parseDHCRExcel(filePath);
-                        buildings.push(...excelBuildings);
-                        console.log(`   ✅ Parsed ${excelBuildings.length} buildings from Excel`);
-                        
-                    } else {
-                        console.log(`   ⚠️ Skipping unsupported file type: ${ext}`);
-                    }
-                    
-                } catch (error) {
-                    console.error(`   ❌ Error parsing ${file}:`, error.message);
-                    continue;
-                }
-            }
-            
-            // Remove duplicates by address
-            const uniqueBuildings = this.deduplicateBuildings(buildings);
-            console.log(`🏢 Total unique buildings parsed: ${uniqueBuildings.length}`);
-            
-            return uniqueBuildings;
-            
-        } catch (error) {
-            console.error('Failed to parse DHCR files:', error.message);
-            return [];
-        }
-    }
-
-    /**
-     * Parse DHCR CSV file
-     */
-    async parseDHCRCSV(filePath) {
-        const fs = require('fs').promises;
-        
-        try {
-            const csvContent = await fs.readFile(filePath, 'utf8');
-            
-            const parsed = Papa.parse(csvContent, {
-                header: true,
-                skipEmptyLines: true,
-                transformHeader: (header) => header.toLowerCase().replace(/[^a-z0-9]/g, '_')
-            });
-            
-            if (parsed.errors.length > 0) {
-                console.warn(`   ⚠️ CSV parsing warnings:`, parsed.errors.slice(0, 3));
-            }
-            
-            return parsed.data.map(row => this.normalizeBuildingData(row, 'csv'));
-            
-        } catch (error) {
-            console.error(`Failed to parse CSV ${filePath}:`, error.message);
-            return [];
-        }
-    }
-
-    /**
-     * Parse DHCR PDF file
-     */
-    async parseDHCRPDF(filePath) {
-        const fs = require('fs').promises;
-        
-        try {
-            const pdfBuffer = await fs.readFile(filePath);
-            const data = await pdf(pdfBuffer);
-            
-            // Extract building data from PDF text using patterns
-            const buildings = this.extractBuildingsFromPDFText(data.text);
-            
-            return buildings.map(building => this.normalizeBuildingData(building, 'pdf'));
-            
-        } catch (error) {
-            console.error(`Failed to parse PDF ${filePath}:`, error.message);
-            return [];
-        }
-    }
-
-    /**
-     * Parse DHCR Excel file
-     */
-    async parseDHCRExcel(filePath) {
-        const fs = require('fs').promises;
-        
-        try {
-            const workbook = XLSX.readFile(filePath);
-            const sheetName = workbook.SheetNames[0];
-            const worksheet = workbook.Sheets[sheetName];
-            
-            const jsonData = XLSX.utils.sheet_to_json(worksheet, {
-                header: 1,
-                defval: ''
-            });
-            
-            // Convert to objects with headers
-            if (jsonData.length < 2) return [];
-            
-            const headers = jsonData[0].map(h => 
-                h.toString().toLowerCase().replace(/[^a-z0-9]/g, '_')
-            );
-            
-            const buildings = jsonData.slice(1).map(row => {
-                const building = {};
-                headers.forEach((header, index) => {
-                    building[header] = row[index] || '';
-                });
-                return this.normalizeBuildingData(building, 'excel');
-            });
-            
-            return buildings;
-            
-        } catch (error) {
-            console.error(`Failed to parse Excel ${filePath}:`, error.message);
-            return [];
-        }
-    }
-
-    /**
-     * Extract building data from PDF text using patterns
-     */
-    extractBuildingsFromPDFText(text) {
-        const buildings = [];
-        const lines = text.split('\n');
-        
-        // Common DHCR PDF patterns
-        const addressPattern = /^\s*(\d+)\s+([A-Z\s]+(?:STREET|ST|AVENUE|AVE|ROAD|RD|PLACE|PL|BOULEVARD|BLVD))/i;
-        const boroughPattern = /(MANHATTAN|BROOKLYN|QUEENS|BRONX|STATEN ISLAND)/i;
-        
-        let currentBuilding = null;
-        
-        for (const line of lines) {
-            const trimmedLine = line.trim();
-            if (!trimmedLine) continue;
-            
-            // Try to match address pattern
-            const addressMatch = trimmedLine.match(addressPattern);
-            if (addressMatch) {
-                // Save previous building if exists
-                if (currentBuilding && currentBuilding.address) {
-                    buildings.push(currentBuilding);
-                }
-                
-                // Start new building
-                currentBuilding = {
-                    address: `${addressMatch[1]} ${addressMatch[2]}`.trim(),
-                    house_number: addressMatch[1],
-                    street_name: addressMatch[2].trim()
-                };
-                
-                // Check if borough is on same line
-                const boroughMatch = trimmedLine.match(boroughPattern);
-                if (boroughMatch) {
-                    currentBuilding.borough = boroughMatch[1];
-                }
-            } else if (currentBuilding) {
-                // Try to extract additional info for current building
-                const boroughMatch = trimmedLine.match(boroughPattern);
-                if (boroughMatch && !currentBuilding.borough) {
-                    currentBuilding.borough = boroughMatch[1];
-                }
-                
-                // Look for unit count, year built, etc.
-                const unitMatch = trimmedLine.match(/(\d+)\s*UNITS?/i);
-                if (unitMatch) {
-                    currentBuilding.total_units = parseInt(unitMatch[1]);
-                }
-                
-                const yearMatch = trimmedLine.match(/BUILT[:\s]*(\d{4})/i);
-                if (yearMatch) {
-                    currentBuilding.year_built = parseInt(yearMatch[1]);
-                }
-            }
-        }
-        
-        // Don't forget the last building
-        if (currentBuilding && currentBuilding.address) {
-            buildings.push(currentBuilding);
-        }
-        
-        return buildings;
-    }
-
-    /**
-     * Convert DHCR county code to borough name (CORRECTED)
-     */
-    convertCountyCodeToBorough(countyCode) {
-        const countyMap = {
-            '60': 'BRONX',
-            '61': 'BROOKLYN', 
-            '62': 'MANHATTAN',
-            '63': 'QUEENS'
-            // Staten Island not included yet
-        };
-        
-        return countyMap[countyCode?.toString()] || null;
-    }
-
-    /**
-     * Normalize building data from different sources (UPDATED for real DHCR format)
-     */
-    normalizeBuildingData(rawData, source) {
-        const normalized = {
-            source: source,
-            parsed_at: new Date().toISOString()
-        };
-        
-        if (source === 'pdf' || source === 'csv') {
-            // Handle DHCR-specific format with ALL fields
-            
-            // Address components
-            const zip = rawData.ZIP || rawData.zip;
-            const houseNumber1 = rawData.BLDGNO1 || rawData.bldgno1;
-            const street1 = rawData.STREET1 || rawData.street1;
-            const suffix1 = rawData.STSUFX1 || rawData.stsufx1;
-            const houseNumber2 = rawData.BLDGNO2 || rawData.bldgno2;
-            const street2 = rawData.STREET2 || rawData.street2;
-            const suffix2 = rawData.STSUFX2 || rawData.stsufx2;
-            
-            // Build primary address
-            if (houseNumber1 && street1) {
-                let address = houseNumber1;
-                if (street1) address += ' ' + street1;
-                if (suffix1) address += ' ' + suffix1;
-                
-                normalized.address = address;
-                normalized.house_number = houseNumber1;
-                normalized.street_name = street1 + (suffix1 ? ' ' + suffix1 : '');
-            }
-            
-            // Build secondary address if exists
-            if (houseNumber2 && street2) {
-                let secondaryAddress = houseNumber2;
-                if (street2) secondaryAddress += ' ' + street2;
-                if (suffix2) secondaryAddress += ' ' + suffix2;
-                
-                normalized.secondary_address = secondaryAddress;
-                normalized.secondary_house_number = houseNumber2;
-                normalized.secondary_street_name = street2 + (suffix2 ? ' ' + suffix2 : '');
-            }
-            
-            // Convert county code to borough
-            const countyCode = rawData.COUNTY || rawData.county;
-            normalized.borough = this.convertCountyCodeToBorough(countyCode);
-            normalized.county_code = countyCode;
-            
-            // Basic info
-            normalized.zip_code = zip;
-            normalized.city = rawData.CITY || rawData.city;
-            
-            // Status fields (capture ALL of them)
-            normalized.status1 = rawData.STATUS1 || rawData.status1;
-            normalized.status2 = rawData.STATUS2 || rawData.status2;
-            normalized.status3 = rawData.STATUS3 || rawData.status3;
-            
-            // Tax lot information
-            normalized.block = rawData.BLOCK || rawData.block;
-            normalized.lot = rawData.LOT || rawData.lot;
-            
-            // Set DHCR registration to true (since it's in the DHCR file)
-            normalized.dhcr_registered = true;
-            
-            // Try to extract unit count from status fields
-            normalized.total_units = this.extractUnitCount(rawData);
-            
-            // Try to extract year built from status fields
-            normalized.year_built = this.extractYearBuilt(rawData);
-            
-            // Store building type
-            normalized.building_type = normalized.status1;
-            
-        } else {
-            // Handle other sources (Excel, manual input, etc.)
-            // Keep existing logic for backward compatibility
-            const fieldMappings = {
-                address: ['address', 'building_address', 'street_address', 'full_address'],
-                house_number: ['house_number', 'house_num', 'building_number', 'bldg_num'],
-                street_name: ['street_name', 'street', 'street_address'],
-                borough: ['borough', 'boro', 'county'],
-                zip_code: ['zip_code', 'zip', 'postal_code'],
-                total_units: ['total_units', 'units', 'unit_count', 'number_of_units'],
-                year_built: ['year_built', 'built_year', 'construction_year'],
-                dhcr_registered: ['dhcr_registered', 'registered', 'dhcr_status'],
-                building_id: ['building_id', 'bldg_id', 'dhcr_id'],
-                registration_year: ['registration_year', 'reg_year']
-            };
-            
-            // Apply field mappings for non-DHCR sources
-            for (const [standardField, possibleFields] of Object.entries(fieldMappings)) {
-                for (const field of possibleFields) {
-                    if (rawData[field] !== undefined && rawData[field] !== '') {
-                        let value = rawData[field];
-                        
-                        if (['total_units', 'year_built'].includes(standardField)) {
-                            value = parseInt(value) || 0;
-                        } else if (standardField === 'dhcr_registered') {
-                            value = ['true', 'yes', '1', 'registered'].includes(
-                                value.toString().toLowerCase()
-                            );
-                        } else if (typeof value === 'string') {
-                            value = value.trim();
-                        }
-                        
-                        normalized[standardField] = value;
-                        break;
-                    }
-                }
-            }
-        }
-        
-        // Ensure we have an address
-        if (!normalized.address && normalized.house_number && normalized.street_name) {
-            normalized.address = `${normalized.house_number} ${normalized.street_name}`;
-        }
-        
-        // Set default DHCR registration
-        if (normalized.dhcr_registered === undefined) {
-            normalized.dhcr_registered = true; // Assume true if in DHCR file
-        }
-        
-        return normalized;
-    }
-
-    /**
-     * Extract unit count from DHCR status fields
-     */
-    extractUnitCount(rawData) {
-        // Look for unit count in status fields or other places
-        const statusFields = [
-            rawData.STATUS1, rawData.STATUS2, rawData.STATUS3,
-            rawData.status1, rawData.status2, rawData.status3
-        ].filter(Boolean);
-        
-        for (const status of statusFields) {
-            const unitMatch = status.toString().match(/(\d+)\s*UNIT/i);
-            if (unitMatch) {
-                return parseInt(unitMatch[1]);
-            }
-        }
-        
-        return null;
-    }
-
-    /**
-     * Extract year built from DHCR status fields
-     */
-    extractYearBuilt(rawData) {
-        // Look for year in status fields
-        const statusFields = [
-            rawData.STATUS1, rawData.STATUS2, rawData.STATUS3,
-            rawData.status1, rawData.status2, rawData.status3
-        ].filter(Boolean);
-        
-        for (const status of statusFields) {
-            const yearMatch = status.toString().match(/\b(19|20)\d{2}\b/);
-            if (yearMatch) {
-                return parseInt(yearMatch[0]);
-            }
-        }
-        
-        return null;
-    }
-
-    /**
-     * Remove duplicate buildings by address
-     */
-    deduplicateBuildings(buildings) {
-        const seen = new Map();
-        const unique = [];
-        
-        for (const building of buildings) {
-            if (!building.address) continue;
-            
-            const normalizedAddress = this.normalizeAddress(building.address);
-            const key = `${normalizedAddress}_${building.borough || ''}`;
-            
-            if (!seen.has(key)) {
-                seen.set(key, true);
-                unique.push(building);
-            }
-        }
-        
-        return unique;
-    }
-
-    /**
-     * Save parsed DHCR buildings to database
-     */
-    async saveDHCRBuildingsToDatabase(buildings) {
-        if (buildings.length === 0) return;
-        
-        try {
-            console.log(`💾 Saving ${buildings.length} DHCR buildings to database...`);
-            
-            // Insert in batches to avoid size limits
-            const batchSize = 500;
-            let saved = 0;
-            
-            for (let i = 0; i < buildings.length; i += batchSize) {
-                const batch = buildings.slice(i, i + batchSize);
-                
-                const { error } = await this.supabase
-                    .from('rent_stabilized_buildings')
-                    .upsert(batch, { 
-                        onConflict: 'address,borough',
-                        ignoreDuplicates: false 
-                    });
-                
-                if (error) {
-                    console.error(`Batch ${Math.floor(i/batchSize) + 1} failed:`, error.message);
-                    continue;
-                }
-                
-                saved += batch.length;
-                console.log(`   ✅ Saved batch ${Math.floor(i/batchSize) + 1}: ${saved}/${buildings.length} buildings`);
-            }
-            
-            console.log(`🎉 Successfully saved ${saved} DHCR buildings to database`);
-            
-        } catch (error) {
-            console.error('Failed to save DHCR buildings:', error.message);
         }
     }
 
@@ -1715,7 +1187,7 @@ class RentStabilizedUndervaluedDetector {
         });
     }
 
-    /**
+  /**
      * Analyze building legal criteria for rent stabilization
      */
     analyzeBuildingLegalCriteria(listing, building) {
@@ -1789,13 +1261,13 @@ class RentStabilizedUndervaluedDetector {
     }
 
     /**
-     * Save results to database
+     * NEW: Save ALL results with market classification
      */
-    async saveResults(undervaluedStabilized) {
-        if (undervaluedStabilized.length === 0) return;
+    async saveAllResults(analyzedStabilized) {
+        if (analyzedStabilized.length === 0) return;
         
         try {
-            const resultsData = undervaluedStabilized.map(listing => ({
+            const resultsData = analyzedStabilized.map(listing => ({
                 listing_id: listing.id,
                 address: listing.address,
                 neighborhood: listing.neighborhood,
@@ -1803,6 +1275,7 @@ class RentStabilizedUndervaluedDetector {
                 estimated_market_rent: listing.estimatedMarketRent,
                 undervaluation_percent: listing.undervaluationPercent,
                 potential_monthly_savings: listing.potentialSavings,
+                market_classification: listing.marketClassification, // NEW field
                 bedrooms: listing.bedrooms,
                 bathrooms: listing.bathrooms,
                 sqft: listing.sqft,
@@ -1829,51 +1302,77 @@ class RentStabilizedUndervaluedDetector {
     }
 
     /**
-     * Generate final report
+     * NEW: Generate comprehensive report with market classifications
      */
-    generateFinalReport(undervaluedStabilized) {
-        console.log('\n🎉 RENT-STABILIZED UNDERVALUED LISTINGS REPORT');
-        console.log('='.repeat(60));
+    generateComprehensiveReport(analyzedStabilized) {
+        console.log('\n🎉 COMPREHENSIVE RENT-STABILIZED LISTINGS REPORT');
+        console.log('='.repeat(70));
         
-        if (undervaluedStabilized.length === 0) {
-            console.log('❌ No undervalued rent-stabilized listings found');
-            console.log('💡 This is normal - true undervalued rent-stabilized units are rare');
+        if (analyzedStabilized.length === 0) {
+            console.log('❌ No rent-stabilized listings found');
             return;
         }
         
-        console.log(`✅ Found ${undervaluedStabilized.length} undervalued rent-stabilized listings!\n`);
+        // Group by market classification
+        const grouped = analyzedStabilized.reduce((acc, listing) => {
+            const classification = listing.marketClassification || 'unknown';
+            if (!acc[classification]) acc[classification] = [];
+            acc[classification].push(listing);
+            return acc;
+        }, {});
         
-        // Sort by savings potential
-        const sorted = undervaluedStabilized.sort((a, b) => b.potentialSavings - a.potentialSavings);
+        console.log(`✅ Found ${analyzedStabilized.length} rent-stabilized listings!\n`);
         
-        sorted.forEach((listing, index) => {
-            console.log(`${index + 1}. ${listing.address}`);
-            console.log(`   💰 Rent: ${listing.price.toLocaleString()}/month`);
-            console.log(`   📊 Market: ${listing.estimatedMarketRent.toLocaleString()}/month`);
-            console.log(`   💵 Savings: ${listing.potentialSavings.toLocaleString()}/month (${(listing.potentialSavings * 12).toLocaleString()}/year)`);
-            console.log(`   📉 Discount: ${listing.undervaluationPercent.toFixed(1)}% below market`);
-            console.log(`   🏠 Layout: ${listing.bedrooms}BR/${listing.bathrooms}BA${listing.sqft ? ` (${listing.sqft} sqft)` : ''}`);
-            console.log(`   ⚖️ Stabilized: ${listing.rentStabilizedConfidence}% confidence (${listing.rentStabilizedMethod})`);
-            console.log(`   🎯 Valuation: ${listing.undervaluationConfidence}% confidence (${listing.undervaluationMethod})`);
-            console.log(`   🔗 ${listing.url}\n`);
+        // Report by category
+        Object.entries(grouped).forEach(([classification, listings]) => {
+            const count = listings.length;
+            const percentage = ((count / analyzedStabilized.length) * 100).toFixed(1);
+            
+            console.log(`📊 ${classification.toUpperCase().replace('_', ' ')}: ${count} listings (${percentage}%)`);
+            
+            if (classification === 'undervalued' || classification === 'moderately_undervalued') {
+                const avgSavings = listings.reduce((sum, l) => sum + l.potentialSavings, 0) / count;
+                console.log(`   💰 Average monthly savings: $${avgSavings.toLocaleString()}`);
+                
+                // Show top 3 deals in this category
+                const topDeals = listings
+                    .sort((a, b) => b.potentialSavings - a.potentialSavings)
+                    .slice(0, 3);
+                
+                topDeals.forEach((listing, index) => {
+                    console.log(`   ${index + 1}. ${listing.address} - $${listing.potentialSavings.toLocaleString()}/month savings`);
+                });
+            }
+            console.log('');
         });
         
-        // Summary statistics
-        const totalSavings = sorted.reduce((sum, listing) => sum + listing.potentialSavings, 0);
-        const avgSavings = totalSavings / sorted.length;
-        const avgDiscount = sorted.reduce((sum, listing) => sum + listing.undervaluationPercent, 0) / sorted.length;
+        // Overall statistics
+        const totalSavings = analyzedStabilized
+            .filter(l => l.potentialSavings > 0)
+            .reduce((sum, l) => sum + l.potentialSavings, 0);
         
-        console.log('📊 SUMMARY STATISTICS');
-        console.log(`   • Total monthly savings across all listings: ${totalSavings.toLocaleString()}`);
-        console.log(`   • Average monthly savings per listing: ${avgSavings.toLocaleString()}`);
-        console.log(`   • Average discount from market rate: ${avgDiscount.toFixed(1)}%`);
-        console.log(`   • Best deal: ${sorted[0].address} (${sorted[0].undervaluationPercent.toFixed(1)}% below market)`);
+        const undervaluedCount = (grouped.undervalued?.length || 0) + (grouped.moderately_undervalued?.length || 0);
+        
+        console.log('📈 SUMMARY STATISTICS');
+        console.log(`   • Total rent-stabilized listings: ${analyzedStabilized.length}`);
+        console.log(`   • Undervalued opportunities: ${undervaluedCount} (${((undervaluedCount/analyzedStabilized.length)*100).toFixed(1)}%)`);
+        console.log(`   • Total potential monthly savings: $${totalSavings.toLocaleString()}`);
+        console.log(`   • Total potential annual savings: $${(totalSavings * 12).toLocaleString()}`);
+        
+        if (grouped.undervalued?.length > 0) {
+            const bestDeal = grouped.undervalued.sort((a, b) => b.potentialSavings - a.potentialSavings)[0];
+            console.log(`   • Best deal: ${bestDeal.address} (${bestDeal.undervaluationPercent.toFixed(1)}% below market)`);
+        }
         
         console.log('\n💡 NEXT STEPS');
-        console.log('   1. Contact landlords/brokers immediately - these deals move fast');
-        console.log('   2. Verify rent stabilization status with landlord/DHCR');
-        console.log('   3. Confirm all amenities and condition during viewing');
-        console.log('   4. Have paperwork ready for quick application');
+        console.log('   1. Check your Supabase "undervalued_rent_stabilized" table for all results');
+        console.log('   2. Filter by market_classification for different strategies:');
+        console.log('      - "undervalued": Priority targets (15%+ below market)');
+        console.log('      - "moderately_undervalued": Good opportunities (5-15% below market)');
+        console.log('      - "market_rate": Fair market deals');
+        console.log('      - "overvalued": Above market (may have other benefits)');
+        console.log('   3. Verify rent stabilization status with landlord/DHCR before applying');
+        console.log('   4. Contact listings immediately - good deals move fast in NYC');
     }
 }
 
@@ -1887,12 +1386,13 @@ async function main() {
     try {
         const results = await detector.findUndervaluedRentStabilizedListings({
             neighborhoods: ['east-village', 'lower-east-side', 'chinatown', 'greenwich-village'],
-            maxListingsPerNeighborhood: 150,
+            maxListingsPerNeighborhood: parseInt(process.env.MAX_LISTINGS_PER_NEIGHBORHOOD) || 2000,
             testMode: false
         });
         
         console.log('\n🎉 Analysis complete!');
-        console.log(`📊 Check your Supabase 'undervalued_rent_stabilized' table for ${results.undervaluedStabilizedFound} deals`);
+        console.log(`📊 Check your Supabase 'undervalued_rent_stabilized' table for ${results.allRentStabilizedSaved} listings`);
+        console.log(`🎯 All rent-stabilized listings saved with market classification`);
         
         return results;
         
@@ -1905,7 +1405,7 @@ async function main() {
 // Run if executed directly
 if (require.main === module) {
     main().catch(error => {
-        console.error('💥 Rent-stabilized undervalued detector crashed:', error);
+        console.error('💥 Rent-stabilized detector crashed:', error);
         process.exit(1);
     });
 }
