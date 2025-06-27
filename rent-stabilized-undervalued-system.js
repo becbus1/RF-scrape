@@ -1079,7 +1079,7 @@ class RentStabilizedDetector {
     }
 
     /**
-     * MISSING: Get adjacent neighborhoods for comparison
+     * Get adjacent neighborhoods for comparison
      */
     getAdjacentNeighborhoods(neighborhood) {
         const adjacencies = {
@@ -1097,7 +1097,7 @@ class RentStabilizedDetector {
     }
 
     /**
-     * MISSING: Classify market position using all thresholds
+     * Classify market position using all thresholds
      */
     classifyMarketPosition(percentBelowMarket) {
         if (percentBelowMarket >= 15) {
@@ -1112,7 +1112,7 @@ class RentStabilizedDetector {
     }
 
     /**
-     * MISSING: Enhanced analyze ALL rent-stabilized with advanced classification
+     * Enhanced analyze ALL rent-stabilized with advanced classification
      */
     async analyzeAllRentStabilizedWithAdvancedClassification(rentStabilizedListings, allListings) {
         console.log(`   💰 Analyzing ${rentStabilizedListings.length} rent-stabilized listings (saving ALL)...\n`);
@@ -1209,7 +1209,7 @@ class RentStabilizedDetector {
     }
 
     /**
-     * MISSING: Enhanced rent stabilization analysis with ALL indicators
+     * Enhanced rent stabilization analysis with ALL indicators
      */
     analyzeRentStabilizationWithAllIndicators(listing, stabilizedBuildings) {
         let confidence = 0;
@@ -1255,7 +1255,7 @@ class RentStabilizedDetector {
     }
 
     /**
-     * MISSING: Building age analysis for rent stabilization eligibility
+     * Building age analysis for rent stabilization eligibility
      */
     analyzeBuildingAge(listing) {
         // Most rent-stabilized buildings were built before 1974
@@ -1279,7 +1279,7 @@ class RentStabilizedDetector {
     }
 
     /**
-     * MISSING: Fetch all buildings in batches to overcome Supabase limits
+     * Fetch all buildings in batches to overcome Supabase limits
      */
     async fetchAllBuildingsInBatches() {
         const batchSize = 1000;
@@ -1318,7 +1318,7 @@ class RentStabilizedDetector {
     }
 
     /**
-     * MISSING: Generate advanced valuation reasoning
+     * Generate advanced valuation reasoning
      */
     generateAdvancedValuationReasoning(targetListing, baseValue, adjustedValue, valuationResult) {
         const reasoning = [];
@@ -1339,7 +1339,7 @@ class RentStabilizedDetector {
     }
 
     /**
-     * MISSING: Enhanced final results logging with next steps
+     * Enhanced final results logging with next steps
      */
     logEnhancedFinalResults(analyzedStabilized) {
         console.log('\n🎉 COMPREHENSIVE RENT-STABILIZED ANALYSIS COMPLETE!');
@@ -1381,7 +1381,7 @@ class RentStabilizedDetector {
     }
 
     /**
-     * MISSING: Save ALL results with market classification (alternative to saveAllRentStabilizedResults)
+     * Save ALL results with market classification (alternative to saveAllRentStabilizedResults)
      */
     async saveAllResults(analyzedStabilized) {
         if (analyzedStabilized.length === 0) {
@@ -1457,7 +1457,7 @@ class RentStabilizedDetector {
     }
 
     /**
-     * MISSING: Generate comprehensive report with market classifications
+     * Generate comprehensive report with market classifications
      */
     generateComprehensiveReport(analyzedStabilized) {
         console.log('\n🎉 COMPREHENSIVE RENT-STABILIZED LISTINGS REPORT');
@@ -1536,7 +1536,7 @@ class RentStabilizedDetector {
     }
 
     /**
-     * MISSING: Enhanced load rent-stabilized buildings with comprehensive debugging
+     * Enhanced load rent-stabilized buildings with comprehensive debugging
      */
     async loadRentStabilizedBuildingsEnhanced() {
         try {
