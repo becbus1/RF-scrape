@@ -1187,35 +1187,60 @@ class RentStabilizedUndervaluedDetector {
         });
     }
 
-  /**
-     * Analyze building legal criteria for rent stabilization
+/**
+     * Analyze building legal criteria for rent stabilization - FIXED CONFIDENCE SCORING
      */
     analyzeBuildingLegalCriteria(listing, building) {
         let confidence = 0;
         const factors = [];
         
-        // Building age criteria
+        // DHCR registration status (STRONGEST indicator)
+        if (building.dhcr_registered) {
+            confidence += 50; // INCREASED: DHCR registration is nearly definitive
+            factors.push('DHCR registered building');
+        }
+        
+        // Building age criteria (LEGAL requirement)
         const buildYear = building.year_built || this.extractYearFromDescription(listing.description);
         if (buildYear) {
             if (buildYear < 1947) {
-                confidence += 20;
+                confidence += 30; // INCREASED: Pre-war buildings have strong stabilization
                 factors.push('Pre-1947 building (pre-war)');
             } else if (buildYear <= 1973) {
-                confidence += 15;
+                confidence += 40; // INCREASED: Golden age of rent stabilization
                 factors.push('1947-1973 building (post-war regulated era)');
+            } else if (buildYear <= 1984) {
+                confidence += 15; // NEW: Some post-1974 buildings with tax benefits
+                factors.push('1974-1984 building (may have tax benefits)');
             }
         }
         
-        // Unit count criteria
+        // Unit count criteria (LEGAL requirement)
         if (building.total_units >= 6) {
-            confidence += 15;
+            confidence += 25; // INCREASED: 6+ units is a legal requirement
             factors.push('6+ units (meets minimum for stabilization)');
+        } else if (building.total_units >= 4) {
+            confidence += 10; // NEW: Some 4-5 unit buildings may qualify
+            factors.push('4-5 units (borderline for stabilization)');
         }
         
-        // DHCR registration status
-        if (building.dhcr_registered) {
-            confidence += 25;
-            factors.push('DHCR registered building');
+        // Building type indicators
+        if (building.building_class && building.building_class.includes('MULTIPLE DWELLING')) {
+            confidence += 10; // NEW: Multiple dwelling classification
+            factors.push('Multiple dwelling classification');
+        }
+        
+        // Neighborhood-based likelihood (NYC context)
+        if (listing.neighborhood) {
+            const highStabilizationNeighborhoods = [
+                'east-village', 'lower-east-side', 'upper-west-side', 'upper-east-side',
+                'chelsea', 'greenwich-village', 'murray-hill', 'gramercy'
+            ];
+            
+            if (highStabilizationNeighborhoods.includes(listing.neighborhood.toLowerCase())) {
+                confidence += 10; // NEW: High-stabilization neighborhoods
+                factors.push('High rent-stabilization neighborhood');
+            }
         }
         
         return { confidence, factors };
