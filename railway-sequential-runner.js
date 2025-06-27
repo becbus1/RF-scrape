@@ -243,7 +243,7 @@ using pre-configured high-value areas for rent-stabilized apartments.
         // Configure the analysis with correct parameter structure
         const analysisConfig = {
             neighborhoods: neighborhoods,
-            maxListingsPerNeighborhood: parseInt(process.env.MAX_LISTINGS_PER_NEIGHBORHOOD) || 100,
+            maxListingsPerNeighborhood: parseInt(process.env.MAX_LISTINGS_PER_NEIGHBORHOOD) || 500,
             testMode: process.env.TEST_NEIGHBORHOOD ? true : false
         };
 
