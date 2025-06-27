@@ -1155,7 +1155,7 @@ class RentStabilizedUndervaluedDetector {
         try {
             const { data, error } = await this.supabase
                 .from('rent_stabilized_buildings')
-                .select('*');
+                .select('500000');
             
             if (error) throw error;
             
