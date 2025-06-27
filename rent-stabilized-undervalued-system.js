@@ -1465,6 +1465,313 @@ class RentStabilizedUndervaluedSystem {
         if (queensNeighborhoods.includes(neighborhood)) return 'Queens';
         return 'Unknown';
     }
+
+    /**
+     * STEP 4: Analyze ALL rent-stabilized listings and classify by market position
+     */
+    async analyzeAllRentStabilizedWithClassification(rentStabilizedListings, allListings) {
+        const analyzedResults = [];
+        
+        for (const listing of rentStabilizedListings) {
+            try {
+                // Calculate market analysis
+                const marketAnalysis = this.calculateMarketAnalysis(listing, allListings);
+                
+                // Determine classification
+                const classification = this.classifyRentStabilizedListing(marketAnalysis);
+                
+                const result = {
+                    // Basic listing info
+                    id: listing.id,
+                    address: listing.address,
+                    neighborhood: listing.neighborhood,
+                    monthlyRent: listing.price,
+                    bedrooms: listing.bedrooms,
+                    bathrooms: listing.bathrooms,
+                    sqft: listing.sqft,
+                    
+                    // Rent stabilization analysis
+                    rentStabilizedConfidence: listing.rentStabilizedConfidence,
+                    rentStabilizedFactors: listing.rentStabilizedFactors,
+                    
+                    // Market analysis
+                    marketRentPerSqft: marketAnalysis.marketRentPerSqft,
+                    actualRentPerSqft: marketAnalysis.actualRentPerSqft,
+                    undervaluationPercent: marketAnalysis.undervaluationPercent,
+                    potentialMonthlySavings: marketAnalysis.potentialMonthlySavings,
+                    annualSavings: marketAnalysis.annualSavings,
+                    
+                    // Classification
+                    classification: classification.type,
+                    score: classification.score,
+                    reasoning: this.generateAnalysisReasoning(listing, marketAnalysis, classification),
+                    
+                    // Metadata
+                    url: listing.url,
+                    listedAt: listing.listedAt,
+                    analyzedAt: new Date().toISOString()
+                };
+                
+                analyzedResults.push(result);
+                
+            } catch (error) {
+                console.error(`Failed to analyze listing ${listing.id}:`, error.message);
+            }
+        }
+        
+        return analyzedResults;
+    }
+
+    /**
+     * Calculate market analysis for rent-stabilized listing
+     */
+    calculateMarketAnalysis(listing, allListings) {
+        // Filter comparable listings (same neighborhood, similar bed/bath)
+        const comparables = allListings.filter(comp => 
+            comp.neighborhood === listing.neighborhood &&
+            comp.bedrooms === listing.bedrooms &&
+            Math.abs(comp.bathrooms - listing.bathrooms) <= 0.5 &&
+            comp.price > 0 &&
+            comp.sqft > 0
+        );
+        
+        if (comparables.length === 0) {
+            return {
+                marketRentPerSqft: 0,
+                actualRentPerSqft: listing.sqft > 0 ? listing.price / listing.sqft : 0,
+                undervaluationPercent: 0,
+                potentialMonthlySavings: 0,
+                annualSavings: 0
+            };
+        }
+        
+        // Calculate market rent per sqft
+        const rentPerSqftValues = comparables
+            .map(comp => comp.price / comp.sqft)
+            .filter(value => value > 0)
+            .sort((a, b) => a - b);
+        
+        const marketRentPerSqft = this.calculateMedian(rentPerSqftValues);
+        const actualRentPerSqft = listing.sqft > 0 ? listing.price / listing.sqft : 0;
+        
+        // Calculate undervaluation
+        const marketRent = marketRentPerSqft * listing.sqft;
+        const undervaluationPercent = marketRent > 0 ? 
+            Math.round(((marketRent - listing.price) / marketRent) * 100) : 0;
+        
+        const potentialMonthlySavings = Math.max(0, marketRent - listing.price);
+        const annualSavings = potentialMonthlySavings * 12;
+        
+        return {
+            marketRentPerSqft,
+            actualRentPerSqft,
+            undervaluationPercent,
+            potentialMonthlySavings,
+            annualSavings
+        };
+    }
+
+    /**
+     * Classify rent-stabilized listing by market position
+     */
+    classifyRentStabilizedListing(marketAnalysis) {
+        const undervaluation = marketAnalysis.undervaluationPercent;
+        
+        if (undervaluation >= 30) {
+            return { type: 'HIGHLY_UNDERVALUED', score: 95 };
+        } else if (undervaluation >= 20) {
+            return { type: 'SIGNIFICANTLY_UNDERVALUED', score: 85 };
+        } else if (undervaluation >= 10) {
+            return { type: 'MODERATELY_UNDERVALUED', score: 75 };
+        } else if (undervaluation >= 5) {
+            return { type: 'SLIGHTLY_UNDERVALUED', score: 65 };
+        } else if (undervaluation >= -5) {
+            return { type: 'MARKET_RATE', score: 50 };
+        } else {
+            return { type: 'ABOVE_MARKET', score: 30 };
+        }
+    }
+
+    /**
+     * Generate comprehensive analysis reasoning
+     */
+    generateAnalysisReasoning(listing, marketAnalysis, classification) {
+        const parts = [];
+        
+        // Rent stabilization reasoning
+        parts.push(`🏠 RENT-STABILIZED APARTMENT (${listing.rentStabilizedConfidence}% confidence)`);
+        parts.push(`Legal indicators: ${listing.rentStabilizedFactors.join(', ')}`);
+        
+        // Market position analysis
+        if (marketAnalysis.undervaluationPercent > 0) {
+            parts.push(`\n💰 MARKET ANALYSIS: ${marketAnalysis.undervaluationPercent}% below market rate`);
+            parts.push(`Actual rent: ${listing.price.toLocaleString()}/month`);
+            parts.push(`Market rent: ${Math.round(marketAnalysis.marketRentPerSqft * listing.sqft).toLocaleString()}/month`);
+            parts.push(`Annual savings: ${marketAnalysis.annualSavings.toLocaleString()}`);
+        } else {
+            parts.push(`\n📊 MARKET ANALYSIS: At or above market rate`);
+        }
+        
+        // Classification
+        parts.push(`\n🎯 CLASSIFICATION: ${classification.type.replace(/_/g, ' ')}`);
+        
+        return parts.join('\n');
+    }
+
+    /**
+     * CRITICAL LEGAL ANALYSIS: Determine rent-stabilization status using LEGAL INDICATORS ONLY
+     */
+    analyzeRentStabilizationLegal(listing, stabilizedBuildings) {
+        let confidence = 0;
+        const factors = [];
+        
+        // Factor 1: DHCR building match (STRONGEST indicator - 60% confidence)
+        const matchedBuilding = this.findMatchingStabilizedBuilding(listing.address, stabilizedBuildings);
+        if (matchedBuilding) {
+            confidence += 60;
+            factors.push('DHCR registered building (60%)');
+        }
+        
+        // Factor 2: Building age analysis (20% confidence)
+        const ageAnalysis = this.analyzeBuildingAge(listing);
+        if (ageAnalysis.isEligible) {
+            confidence += 20;
+            factors.push(`Built before 1974 eligibility (20%)`);
+        }
+        
+        // Factor 3: Building size indicators (15% confidence)
+        const sizeAnalysis = this.analyzeBuildingSize(listing);
+        if (sizeAnalysis.isEligible) {
+            confidence += 15;
+            factors.push(`6+ unit building indicators (15%)`);
+        }
+        
+        // Factor 4: Address patterns (5% confidence)
+        const addressAnalysis = this.analyzeAddressPatterns(listing);
+        if (addressAnalysis.hasIndicators) {
+            confidence += 5;
+            factors.push(`Address patterns suggest eligibility (5%)`);
+        }
+        
+        const reasoning = factors.length > 0 ? 
+            `Legal rent-stabilization analysis:\n• ${factors.join('\n• ')}\n\nTotal confidence: ${confidence}%` :
+            'No legal rent-stabilization indicators found';
+        
+        return {
+            confidence: Math.min(confidence, 100),
+            factors,
+            reasoning,
+            dhcrMatch: !!matchedBuilding
+        };
+    }
+
+    /**
+     * Analyze building age for rent stabilization eligibility
+     */
+    analyzeBuildingAge(listing) {
+        // Most rent-stabilized buildings were built before 1974
+        const description = (listing.description || '').toLowerCase();
+        const yearMatches = description.match(/built.{0,10}(19\d{2}|20\d{2})/i);
+        
+        if (yearMatches) {
+            const year = parseInt(yearMatches[1]);
+            return {
+                isEligible: year < 1974,
+                year,
+                reasoning: `Building built in ${year} (${year < 1974 ? 'eligible' : 'not eligible'})`
+            };
+        }
+        
+        // If no year found, assume eligible (conservative approach)
+        return {
+            isEligible: true,
+            reasoning: 'Building age not specified (assuming eligible)'
+        };
+    }
+
+    /**
+     * Analyze building size for rent stabilization eligibility
+     */
+    analyzeBuildingSize(listing) {
+        const description = (listing.description || '').toLowerCase();
+        const address = (listing.address || '').toLowerCase();
+        
+        // Look for indicators of 6+ unit buildings
+        const sizeIndicators = [
+            'elevator', 'doorman', 'concierge', 'lobby', 'building amenities',
+            'fitness center', 'roof deck', 'laundry room', 'bike storage'
+        ];
+        
+        const hasIndicators = sizeIndicators.some(indicator => 
+            description.includes(indicator) || address.includes(indicator)
+        );
+        
+        return {
+            isEligible: hasIndicators,
+            reasoning: hasIndicators ? 
+                'Building amenities suggest 6+ units (eligible)' : 
+                'No clear building size indicators'
+        };
+    }
+
+    /**
+     * Analyze address patterns for rent stabilization indicators
+     */
+    analyzeAddressPatterns(listing) {
+        const address = (listing.address || '').toLowerCase();
+        
+        // Look for patterns common in rent-stabilized buildings
+        const patterns = [
+            /\d+[a-z]?\s+(east|west|north|south)/i,  // Street numbers
+            /apartment\s+\d+[a-z]?/i,                // Apartment numbers
+            /#\d+[a-z]?/i,                           // Unit numbers
+            /\d+(st|nd|rd|th)\s+(street|avenue|ave)/i // NYC street patterns
+        ];
+        
+        const hasIndicators = patterns.some(pattern => pattern.test(address));
+        
+        return {
+            hasIndicators,
+            reasoning: hasIndicators ? 
+                'Address patterns consistent with stabilized housing' : 
+                'No specific address patterns identified'
+        };
+    }
+
+    /**
+     * Normalize address for comparison
+     */
+    normalizeAddress(address) {
+        return address
+            .toLowerCase()
+            .replace(/[^\w\s]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+        const manhattanNeighborhoods = [
+            'east-village', 'lower-east-side', 'chinatown', 'financial-district',
+            'west-village', 'greenwich-village', 'soho', 'nolita', 'tribeca',
+            'chelsea', 'gramercy', 'murray-hill', 'kips-bay', 'flatiron',
+            'upper-east-side', 'upper-west-side', 'hells-kitchen', 'midtown-east'
+        ];
+        
+        const brooklynNeighborhoods = [
+            'williamsburg', 'dumbo', 'brooklyn-heights', 'cobble-hill',
+            'carroll-gardens', 'park-slope', 'fort-greene', 'boerum-hill',
+            'red-hook', 'prospect-heights', 'crown-heights', 'bedford-stuyvesant',
+            'greenpoint', 'bushwick'
+        ];
+        
+        const queensNeighborhoods = [
+            'long-island-city', 'astoria', 'sunnyside', 'woodside',
+            'jackson-heights', 'elmhurst', 'forest-hills', 'ridgewood'
+        ];
+        
+        if (manhattanNeighborhoods.includes(neighborhood)) return 'Manhattan';
+        if (brooklynNeighborhoods.includes(neighborhood)) return 'Brooklyn';
+        if (queensNeighborhoods.includes(neighborhood)) return 'Queens';
+        return 'Unknown';
+    }
 }
 
 /**
@@ -1472,14 +1779,14 @@ class RentStabilizedUndervaluedSystem {
  */
 async function main() {
     try {
-        const system = new RentStabilizedUndervaluedSystem();
+        const system = new RentStabilizedUndervaluedDetector();
         
         // Check for test mode
         const testNeighborhood = process.env.TEST_NEIGHBORHOOD;
         if (testNeighborhood) {
             console.log(`🧪 TEST MODE: Analyzing ${testNeighborhood} only\n`);
             
-            const results = await system.runComprehensiveRentStabilizedAnalysis({
+            const results = await system.findUndervaluedRentStabilizedListings({
                 neighborhoods: [testNeighborhood],
                 maxListingsPerNeighborhood: 100
             });
@@ -1493,7 +1800,7 @@ async function main() {
         // Full production analysis
         console.log('🏙️ Running FULL NYC rent-stabilized analysis...\n');
         
-        const results = await system.runComprehensiveRentStabilizedAnalysis({
+        const results = await system.findUndervaluedRentStabilizedListings({
             maxListingsPerNeighborhood: parseInt(process.env.MAX_LISTINGS_PER_NEIGHBORHOOD) || 500
         });
         
@@ -1509,8 +1816,8 @@ async function main() {
     }
 }
 
-// Export for use in other modules
-module.exports = RentStabilizedUndervaluedSystem;
+// Export for use in other modules (matches what railway-sequential-runner.js expects)
+module.exports = RentStabilizedUndervaluedDetector;
 
 // Run if executed directly
 if (require.main === module) {
