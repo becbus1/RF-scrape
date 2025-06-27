@@ -34,6 +34,62 @@ class RentStabilizedUndervaluedDetector {
             'red-hook', 'prospect-heights', 'crown-heights', 'bedford-stuyvesant',
             'greenpoint', 'bushwick', 'long-island-city', 'astoria', 'sunnyside'
         ];
+
+        // STEP 1: Rent-stabilized detection (legal indicators ONLY)
+        this.RENT_STABILIZED_INDICATORS = {
+            explicit: {
+                'rent stabilized': 100,
+                'rent-stabilized': 100,
+                'stabilized unit': 95,
+                'stabilized apartment': 95,
+                'dhcr registered': 90,
+                'legal rent': 85,
+                'preferential rent': 90,
+                'regulated apartment': 85,
+                'rgb increase': 80,
+                'lease renewal': 75,
+                'renewal lease': 75
+            },
+            legal_building: {
+                prewar_6plus: 85,        // Pre-1947 + 6+ units
+                golden_age: 80,          // 1947-1973 + 6+ units  
+                post74_tax_benefit: 75   // Post-1974 + tax benefits
+            },
+            circumstantial: {
+                'prewar': 45,
+                'pre-war': 45,
+                'walk-up': 40,
+                'walkup': 40,
+                'tenant in place': 35,
+                'established tenant': 30,
+                'original details': 25
+            }
+        };
+
+        // STEP 2: Market classification thresholds (from .env)
+        this.UNDERVALUATION_THRESHOLD = parseInt(process.env.UNDERVALUATION_THRESHOLD) || 15;
+        this.MODERATE_UNDERVALUATION_THRESHOLD = 5; // 5-14.9% below market = moderately undervalued
+        this.MARKET_RATE_THRESHOLD = 5; // Within ±5% = market rate
+        this.OVERVALUED_THRESHOLD = -5; // More than 5% above market = overvalued
+        
+        this.VALUATION_METHODS = {
+            EXACT_MATCH: 'exact_bed_bath_amenity_match',
+            BED_BATH_SPECIFIC: 'bed_bath_specific_pricing',
+            BED_SPECIFIC: 'bed_specific_with_adjustments',
+            PRICE_PER_SQFT_FALLBACK: 'price_per_sqft_fallback'
+        };
+
+        // Minimum sample sizes for each method (from biweekly-rentals)
+        this.MIN_SAMPLES = {
+            EXACT_MATCH: 3,
+            BED_BATH_SPECIFIC: 8,
+            BED_SPECIFIC: 12,
+            PRICE_PER_SQFT_FALLBACK: 20
+        };
+
+        // Listing cache to avoid duplicate fetches
+        this.listingCache = new Map();
+        this.cacheExpiry = 7 * 24 * 60 * 60 * 1000; // 7 days
     }
 
     /**
@@ -103,44 +159,67 @@ class RentStabilizedUndervaluedDetector {
     }
 
     /**
-     * NEW: Get all listings with comprehensive caching for ALL listings
+     * CORRECTED: Get all listings with proper caching flow
      */
     async getAllListingsWithComprehensiveCaching(neighborhoods, maxPerNeighborhood) {
         const allListings = [];
         
         for (const neighborhood of neighborhoods) {
-            console.log(`   📍 Fetching ${neighborhood} with comprehensive caching...`);
+            console.log(`   📍 Fetching ${neighborhood} with proper caching flow...`);
             
             try {
-                // Get existing cached listings for this neighborhood
+                // STEP 1: Get existing cached listings with full details
                 const cachedListings = await this.getComprehensiveCachedListings(neighborhood);
-                console.log(`     💾 Found ${cachedListings.length} cached listings`);
+                console.log(`     💾 Found ${cachedListings.length} cached listings with full details`);
                 
-                // STEP 2: Get fresh listings from StreetEasy (using WORKING API call)
-                const freshListings = await this.fetchFreshListingsUsingWorkingAPI(neighborhood, maxPerNeighborhood);
-                console.log(`     🆕 Fetched ${freshListings.length} fresh listings from API`);
+                // STEP 2: Get basic listing IDs from StreetEasy search (no addresses yet)
+                const basicSearchResults = await this.fetchBasicListingIds(neighborhood, maxPerNeighborhood);
+                console.log(`     🔍 Basic search found ${basicSearchResults.length} listing IDs`);
                 
-                // STEP 3: Filter out listings we already have cached
+                // STEP 3: Identify which listings need individual fetching
                 const cachedIds = new Set(cachedListings.map(l => l.id));
-                const newListings = freshListings.filter(listing => !cachedIds.has(listing.id));
-                console.log(`     ✨ ${newListings.length} new listings to cache`);
+                const newListingIds = basicSearchResults.filter(result => !cachedIds.has(result.id));
+                console.log(`     ✨ ${newListingIds.length} new listings need individual fetching`);
                 
-                // STEP 4: Cache ALL new listings (comprehensive caching)
-                if (newListings.length > 0) {
-                    await this.cacheAllListingsComprehensively(newListings);
-                    console.log(`     ✅ Cached ${newListings.length} new listings`);
+                // STEP 4: Fetch individual details for new listings
+                const newListingsWithDetails = [];
+                if (newListingIds.length > 0) {
+                    console.log(`     🔄 Fetching individual details for ${newListingIds.length} new listings...`);
+                    
+                    for (const basicListing of newListingIds) {
+                        try {
+                            const detailedListing = await this.fetchIndividualListingDetails(basicListing.id);
+                            if (detailedListing && detailedListing.address) {
+                                newListingsWithDetails.push(detailedListing);
+                                console.log(`       ✅ ${detailedListing.address}`);
+                            } else {
+                                console.log(`       ❌ Failed to get details for ${basicListing.id}`);
+                            }
+                            
+                            // Rate limiting
+                            await this.delay(1000);
+                        } catch (error) {
+                            console.log(`       ❌ Error fetching ${basicListing.id}: ${error.message}`);
+                        }
+                    }
                 }
                 
-                // STEP 5: Combine all listings for analysis
-                const allNeighborhoodListings = [...cachedListings, ...newListings];
+                // STEP 5: Cache the NEW listings with full details
+                if (newListingsWithDetails.length > 0) {
+                    await this.cacheListingsWithFullDetails(newListingsWithDetails);
+                    console.log(`     ✅ Cached ${newListingsWithDetails.length} new listings with full details`);
+                }
+                
+                // STEP 6: Combine cached + new listings
+                const allNeighborhoodListings = [...cachedListings, ...newListingsWithDetails];
                 allListings.push(...allNeighborhoodListings);
                 
-                const efficiency = freshListings.length > 0 ? 
-                    Math.round((cachedListings.length / (cachedListings.length + freshListings.length)) * 100) : 100;
+                const efficiency = basicSearchResults.length > 0 ? 
+                    Math.round((cachedListings.length / basicSearchResults.length) * 100) : 100;
                 console.log(`     📊 Total: ${allNeighborhoodListings.length} listings (${efficiency}% cache efficiency)`);
                 
             } catch (error) {
-                console.error(`     ❌ Error fetching ${neighborhood}:`, error.message);
+                console.error(`     ❌ Error processing ${neighborhood}:`, error.message);
             }
         }
         
@@ -148,89 +227,191 @@ class RentStabilizedUndervaluedDetector {
     }
 
     /**
-     * NEW: Get cached listings from comprehensive cache tables
+     * Fetch basic listing IDs only (no full details)
      */
-    async getComprehensiveCachedListings(neighborhood) {
+    async fetchBasicListingIds(neighborhood, maxListings) {
         try {
-            // Try comprehensive_listing_cache first
-            const { data: comprehensive, error: comprehensiveError } = await this.supabase
-                .from('comprehensive_listing_cache')
-                .select('*')
-                .eq('neighborhood', neighborhood);
-            
-            if (!comprehensiveError && comprehensive && comprehensive.length > 0) {
-                return comprehensive.map(row => ({
-                    id: row.listing_id,
-                    address: row.address,
-                    price: row.monthly_rent,
-                    bedrooms: row.bedrooms,
-                    bathrooms: row.bathrooms,
-                    sqft: row.sqft,
-                    description: row.description,
-                    neighborhood: row.neighborhood,
-                    amenities: row.amenities || [],
-                    url: row.listing_url,
-                    listedAt: row.listed_at,
-                    source: 'comprehensive_cache'
-                }));
+            const rapidApiKey = process.env.RAPIDAPI_KEY;
+            if (!rapidApiKey) {
+                console.log(`       ⚠️ No RAPIDAPI_KEY found`);
+                return [];
             }
+
+            const searchUrl = `https://streeteasy-api.p.rapidapi.com/rentals/search`;
             
-            // Fallback to rental_market_cache
-            const { data: rental, error: rentalError } = await this.supabase
-                .from('rental_market_cache')
-                .select('*')
-                .eq('neighborhood', neighborhood);
-            
-            if (!rentalError && rental && rental.length > 0) {
-                return rental.map(row => ({
-                    id: row.listing_id,
-                    address: row.address,
-                    price: row.monthly_rent,
-                    bedrooms: row.bedrooms,
-                    bathrooms: row.bathrooms,
-                    sqft: row.sqft,
-                    description: row.description,
-                    neighborhood: row.neighborhood,
-                    amenities: row.amenities || [],
-                    url: row.listing_url,
-                    listedAt: row.listed_at,
-                    source: 'rental_cache'
-                }));
+            const response = await axios.get(searchUrl, {
+                headers: {
+                    'X-RapidAPI-Key': rapidApiKey,
+                    'X-RapidAPI-Host': 'streeteasy-api.p.rapidapi.com'
+                },
+                params: {
+                    areas: neighborhood,
+                    limit: Math.min(maxListings, 500),
+                    minPrice: 1000,
+                    maxPrice: 20000,
+                    offset: 0
+                },
+                timeout: 30000
+            });
+
+            // Extract just the IDs and basic info
+            let basicResults = [];
+            if (response.data) {
+                let rentalData = [];
+                if (response.data.results && Array.isArray(response.data.results)) {
+                    rentalData = response.data.results;
+                } else if (response.data.listings && Array.isArray(response.data.listings)) {
+                    rentalData = response.data.listings;
+                } else if (response.data.rentals && Array.isArray(response.data.rentals)) {
+                    rentalData = response.data.rentals;
+                } else if (Array.isArray(response.data)) {
+                    rentalData = response.data;
+                }
+                
+                basicResults = rentalData.map(rental => ({
+                    id: rental.id?.toString(),
+                    neighborhood: neighborhood,
+                    price: rental.price || 0
+                })).filter(r => r.id);
             }
-            
-            // Final fallback to listing_cache
-            const { data: basic, error: basicError } = await this.supabase
-                .from('listing_cache')
-                .select('*')
-                .eq('neighborhood', neighborhood);
-            
-            if (!basicError && basic && basic.length > 0) {
-                return basic.map(row => ({
-                    id: row.listing_id,
-                    address: row.address,
-                    price: row.monthly_rent,
-                    bedrooms: row.bedrooms,
-                    bathrooms: row.bathrooms,
-                    sqft: row.sqft,
-                    description: row.description,
-                    neighborhood: row.neighborhood,
-                    amenities: row.amenities || [],
-                    url: row.listing_url,
-                    listedAt: row.listed_at,
-                    source: 'listing_cache'
-                }));
-            }
-            
-            return [];
-            
+
+            console.log(`       🔍 Basic search returned ${basicResults.length} listing IDs`);
+            return basicResults;
+
         } catch (error) {
-            console.error('Failed to get cached listings:', error.message);
+            console.error(`       ❌ Basic search error for ${neighborhood}:`, error.message);
             return [];
         }
     }
 
     /**
-     * FIXED: Fetch fresh listings using the CORRECT working API call
+     * Fetch individual listing details with full address
+     */
+    async fetchIndividualListingDetails(listingId) {
+        try {
+            const rapidApiKey = process.env.RAPIDAPI_KEY;
+            if (!rapidApiKey) return null;
+
+            const detailUrl = `https://streeteasy-api.p.rapidapi.com/rentals/${listingId}`;
+            
+            const response = await axios.get(detailUrl, {
+                headers: {
+                    'X-RapidAPI-Key': rapidApiKey,
+                    'X-RapidAPI-Host': 'streeteasy-api.p.rapidapi.com'
+                },
+                timeout: 30000
+            });
+
+            if (response.data) {
+                const data = response.data;
+                return {
+                    id: listingId,
+                    address: data.address || data.full_address || data.street_address || `${listingId} - Address not available`,
+                    price: data.price || data.monthly_rent || data.rent || 0,
+                    bedrooms: data.bedrooms || 0,
+                    bathrooms: data.bathrooms || 0,
+                    sqft: data.sqft || data.square_feet || 0,
+                    description: data.description || data.details || '',
+                    neighborhood: data.neighborhood || data.area || '',
+                    amenities: data.amenities || [],
+                    url: data.url || data.listing_url || `https://streeteasy.com/rental/${listingId}`,
+                    listedAt: data.listedAt || data.listed_at || new Date().toISOString(),
+                    source: 'streeteasy_individual_fetch'
+                };
+            }
+
+            return null;
+
+        } catch (error) {
+            console.error(`Failed to fetch details for ${listingId}:`, error.message);
+            return null;
+        }
+    }
+
+    /**
+     * Cache listings with full details
+     */
+    async cacheListingsWithFullDetails(listings) {
+        if (listings.length === 0) return;
+        
+        try {
+            const cacheData = listings.map(listing => ({
+                listing_id: listing.id,
+                address: listing.address,
+                monthly_rent: listing.price,
+                bedrooms: listing.bedrooms,
+                bathrooms: listing.bathrooms,
+                sqft: listing.sqft,
+                description: listing.description,
+                neighborhood: listing.neighborhood,
+                amenities: listing.amenities,
+                listing_url: listing.url,
+                listed_at: listing.listedAt,
+                cached_at: new Date().toISOString(),
+                has_full_details: true  // Flag to indicate this has complete data
+            }));
+            
+            const { error } = await this.supabase
+                .from('comprehensive_listing_cache')
+                .upsert(cacheData, { onConflict: 'listing_id' });
+            
+            if (error) {
+                console.error('Failed to cache listings with full details:', error.message);
+            }
+            
+        } catch (error) {
+            console.error('Cache operation failed:', error.message);
+        }
+    }
+
+    /**
+     * Delay helper for rate limiting
+     */
+    async delay(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    /**
+     * Get cached listings with full details only
+     */
+    async getComprehensiveCachedListings(neighborhood) {
+        try {
+            // Only get cached listings that have full details (addresses)
+            const { data: comprehensive, error: comprehensiveError } = await this.supabase
+                .from('comprehensive_listing_cache')
+                .select('*')
+                .eq('neighborhood', neighborhood)
+                .eq('has_full_details', true);  // Only get listings with complete data
+            
+            if (!comprehensiveError && comprehensive && comprehensive.length > 0) {
+                return comprehensive
+                    .filter(row => row.address && row.address !== 'Unknown Address')  // Must have real address
+                    .map(row => ({
+                        id: row.listing_id,
+                        address: row.address,
+                        price: row.monthly_rent,
+                        bedrooms: row.bedrooms,
+                        bathrooms: row.bathrooms,
+                        sqft: row.sqft,
+                        description: row.description,
+                        neighborhood: row.neighborhood,
+                        amenities: row.amenities || [],
+                        url: row.listing_url,
+                        listedAt: row.listed_at,
+                        source: 'comprehensive_cache_with_details'
+                    }));
+            }
+            
+            return [];
+            
+        } catch (error) {
+            console.error('Failed to get cached listings with full details:', error.message);
+            return [];
+        }
+    }
+
+    /**
+     * FIXED: Fetch fresh listings using the CORRECT working API call with proper address handling
      */
     async fetchFreshListingsUsingWorkingAPI(neighborhood, maxListings) {
         try {
@@ -278,20 +459,22 @@ class RentStabilizedUndervaluedDetector {
             if (rentalData.length > 0) {
                 const listings = rentalData.map(rental => ({
                     id: rental.id?.toString(),
-                    address: rental.address || 'Unknown Address',
-                    price: rental.price || rental.monthly_rent || 0,
+                    // CRITICAL: Ensure we always have an address
+                    address: rental.address || rental.full_address || rental.street_address || `${rental.id} - Address not available`,
+                    price: rental.price || rental.monthly_rent || rental.rent || 0,
                     bedrooms: rental.bedrooms || 0,
                     bathrooms: rental.bathrooms || 0,
-                    sqft: rental.sqft || 0,
-                    description: rental.description || '',
+                    sqft: rental.sqft || rental.square_feet || 0,
+                    description: rental.description || rental.details || '',
                     neighborhood: neighborhood,
                     amenities: rental.amenities || [],
-                    url: rental.url || `https://streeteasy.com/rental/${rental.id}`,
-                    listedAt: rental.listedAt || new Date().toISOString(),
+                    url: rental.url || rental.listing_url || `https://streeteasy.com/rental/${rental.id}`,
+                    listedAt: rental.listedAt || rental.listed_at || new Date().toISOString(),
                     source: 'streeteasy_api'
                 }));
                 
                 console.log(`       ✅ StreetEasy API returned ${listings.length} fresh listings`);
+                console.log(`       📍 Sample addresses: ${listings.slice(0, 3).map(l => l.address).join(', ')}`);
                 return listings;
             }
 
@@ -350,16 +533,23 @@ class RentStabilizedUndervaluedDetector {
     }
 
     /**
-     * STEP 3: Identify rent-stabilized listings using LEGAL INDICATORS ONLY
+     * STEP 3: Identify rent-stabilized listings using LEGAL INDICATORS ONLY (LOWERED THRESHOLD)
      */
     async identifyRentStabilizedListings(allListings, stabilizedBuildings) {
         const rentStabilizedListings = [];
         
-        // Use environment variable for confidence threshold
-        const confidenceThreshold = parseInt(process.env.RENT_STABILIZED_CONFIDENCE_THRESHOLD) || 70;
+        // LOWERED: Use a more permissive confidence threshold to catch more listings
+        const confidenceThreshold = parseInt(process.env.RENT_STABILIZED_CONFIDENCE_THRESHOLD) || 40; // LOWERED from 70 to 40
         
+        console.log(`   🎯 Using confidence threshold: ${confidenceThreshold}%`);
+        console.log(`   📊 Analyzing ${allListings.length} total listings...`);
+        
+        let analyzedCount = 0;
         for (const listing of allListings) {
+            analyzedCount++;
             const analysis = this.analyzeRentStabilizationLegal(listing, stabilizedBuildings);
+            
+            console.log(`     ${analyzedCount}/${allListings.length}: ${listing.address} - Confidence: ${analysis.confidence}%`);
             
             if (analysis.confidence >= confidenceThreshold) {
                 rentStabilizedListings.push({
@@ -368,9 +558,13 @@ class RentStabilizedUndervaluedDetector {
                     rentStabilizedFactors: analysis.factors,
                     rentStabilizedReasoning: analysis.reasoning
                 });
+                console.log(`       ✅ QUALIFIED as rent-stabilized`);
+            } else {
+                console.log(`       ❌ Below threshold (${analysis.confidence}% < ${confidenceThreshold}%)`);
             }
         }
         
+        console.log(`   📊 Found ${rentStabilizedListings.length} rent-stabilized out of ${allListings.length} total`);
         return rentStabilizedListings;
     }
 
@@ -422,22 +616,57 @@ class RentStabilizedUndervaluedDetector {
     }
 
     /**
-     * FIXED: Load rent-stabilized buildings from database - CORRECTED SQL
+     * ENHANCED: Load rent-stabilized buildings with comprehensive debugging
      */
     async loadRentStabilizedBuildings() {
         try {
-            // FIXED: Use proper SELECT * instead of SELECT '500000'
-            const { data, error } = await this.supabase
-                .from('rent_stabilized_buildings')
-                .select('*')  // CORRECTED: Select all columns, not a literal number
-                .limit(500000);  // CORRECTED: Use limit() instead of select('500000')
+            console.log('   🔍 Querying rent_stabilized_buildings table...');
             
-            if (error) throw error;
+            // First, check table info
+            const { data: tableInfo, error: tableError } = await this.supabase
+                .from('rent_stabilized_buildings')
+                .select('*', { count: 'exact', head: true });
+            
+            if (tableError) {
+                console.log(`   ❌ Table access error: ${tableError.message}`);
+            }
+            
+            // Get all buildings without any limit
+            const { data, error, count } = await this.supabase
+                .from('rent_stabilized_buildings')
+                .select('*', { count: 'exact' });
+            
+            if (error) {
+                console.log(`   ❌ Query error: ${error.message}`);
+                console.log(`   💡 This might be a permissions or table structure issue`);
+                throw error;
+            }
+            
+            console.log(`   📊 Total buildings in database: ${count}`);
+            console.log(`   📋 Retrieved in this query: ${data?.length || 0}`);
+            
+            // If there's a discrepancy, there might be a Supabase-side limit
+            if (count !== (data?.length || 0)) {
+                console.log(`   ⚠️ DISCREPANCY DETECTED!`);
+                console.log(`   🔍 Database says ${count} total, but we only got ${data?.length}`);
+                console.log(`   💡 This suggests a Supabase-side row limit is being applied`);
+                
+                // Try to get more data in batches
+                console.log(`   🔄 Attempting to fetch all data in batches...`);
+                const allBuildings = await this.fetchAllBuildingsInBatches();
+                console.log(`   📊 Batch fetch result: ${allBuildings.length} buildings`);
+                return allBuildings;
+            }
             
             if (!data || data.length === 0) {
                 console.log('   ⚠️ No rent-stabilized buildings in database');
                 console.log('   💡 Make sure to manually upload DHCR data to rent_stabilized_buildings table');
                 return [];
+            }
+            
+            // Sample the data to verify structure
+            if (data.length > 0) {
+                console.log(`   📋 Sample building: ${JSON.stringify(data[0], null, 2).substring(0, 200)}...`);
             }
             
             return data;
@@ -446,6 +675,45 @@ class RentStabilizedUndervaluedDetector {
             console.error('Failed to load stabilized buildings:', error.message);
             return [];
         }
+    }
+
+    /**
+     * Fetch all buildings in batches to overcome Supabase limits
+     */
+    async fetchAllBuildingsInBatches() {
+        const batchSize = 1000;
+        let allBuildings = [];
+        let offset = 0;
+        let hasMore = true;
+        
+        while (hasMore) {
+            try {
+                const { data, error } = await this.supabase
+                    .from('rent_stabilized_buildings')
+                    .select('*')
+                    .range(offset, offset + batchSize - 1);
+                
+                if (error) {
+                    console.log(`   ❌ Batch ${offset}-${offset + batchSize} failed: ${error.message}`);
+                    break;
+                }
+                
+                if (data && data.length > 0) {
+                    allBuildings.push(...data);
+                    console.log(`   📦 Batch ${offset}-${offset + batchSize}: ${data.length} buildings`);
+                    offset += batchSize;
+                    hasMore = data.length === batchSize; // Continue if we got a full batch
+                } else {
+                    hasMore = false;
+                }
+                
+            } catch (batchError) {
+                console.log(`   ❌ Batch error: ${batchError.message}`);
+                hasMore = false;
+            }
+        }
+        
+        return allBuildings;
     }
 
     /**
@@ -713,7 +981,7 @@ class RentStabilizedUndervaluedDetector {
     }
 
     /**
-     * STEP 5: Save ALL results to undervalued_rent_stabilized table
+     * STEP 5: Save ALL results to undervalued_rent_stabilized table (CORRECTED)
      */
     async saveAllResults(analyzedResults) {
         if (analyzedResults.length === 0) {
@@ -722,7 +990,7 @@ class RentStabilizedUndervaluedDetector {
         }
         
         try {
-            // Prepare data for undervalued_rent_stabilized table
+            // CORRECTED: Map to undervalued_rent_stabilized table structure
             const saveData = analyzedResults.map(result => ({
                 listing_id: result.id,
                 address: result.address,
@@ -730,20 +998,58 @@ class RentStabilizedUndervaluedDetector {
                 borough: this.getBoroughFromNeighborhood(result.neighborhood),
                 
                 // Rent analysis
-                monthly_rent: result.monthlyRent,
-                rent_per_sqft: result.actualRentPerSqft,
-                market_rent_per_sqft: result.marketRentPerSqft,
-                discount_percent: result.undervaluationPercent,
-                potential_monthly_savings: Math.round(result.potentialMonthlySavings),
-                annual_savings: Math.round(result.annualSavings),
+                monthly_rent: result.monthlyRent || result.price,
+                rent_per_sqft: result.actualRentPerSqft || 0,
+                market_rent_per_sqft: result.marketRentPerSqft || 0,
+                discount_percent: result.undervaluationPercent || 0,
+                potential_monthly_savings: Math.round(result.potentialMonthlySavings || 0),
+                annual_savings: Math.round(result.annualSavings || 0),
                 
                 // Property details
-                bedrooms: result.bedrooms,
-                bathrooms: result.bathrooms,
-                sqft: result.sqft,
+                bedrooms: result.bedrooms || 0,
+                bathrooms: result.bathrooms || 0,
+                sqft: result.sqft || 0,
                 property_type: 'apartment',
                 
-                // Rent stabilization data
+                // Rent stabilization specific data
+                rent_stabilized: true,
+                stabilized_confidence: result.rentStabilizedConfidence || 70,
+                stabilized_indicators: result.rentStabilizedFactors || [],
+                
+                // Classification and scoring
+                market_classification: result.classification || 'rent_stabilized',
+                score: result.score || 75,
+                reasoning: result.reasoning || 'Rent-stabilized apartment analysis',
+                
+                // Metadata
+                listing_url: result.url,
+                listed_at: result.listedAt,
+                analysis_date: result.analyzedAt || new Date().toISOString(),
+                status: 'active'
+            }));
+            
+            // Save to undervalued_rent_stabilized table (the correct table)
+            const { data, error } = await this.supabase
+                .from('undervalued_rent_stabilized')
+                .upsert(saveData, { onConflict: 'listing_id' });
+            
+            if (error) {
+                if (error.message.includes('analysis_date')) {
+                    console.error('❌ Missing analysis_date column in undervalued_rent_stabilized table');
+                    console.log('💡 Please add this column with: ALTER TABLE undervalued_rent_stabilized ADD COLUMN analysis_date timestamptz DEFAULT now();');
+                } else {
+                    console.error('Failed to save to undervalued_rent_stabilized:', error.message);
+                }
+                throw error;
+            } else {
+                console.log(`   ✅ Saved ${saveData.length} rent-stabilized listings to undervalued_rent_stabilized table`);
+            }
+            
+        } catch (error) {
+            console.error('Save operation failed:', error.message);
+            throw error; // Don't continue if we can't save
+        }
+    }
                 rent_stabilized: true,
                 stabilized_confidence: result.rentStabilizedConfidence,
                 stabilized_indicators: result.rentStabilizedFactors,
@@ -1462,6 +1768,206 @@ class RentStabilizedUndervaluedDetector {
         };
         
         return adjacencies[neighborhood] || [];
+    }
+
+    /**
+     * NEW: Classify market position using all thresholds
+     */
+    classifyMarketPosition(percentBelowMarket) {
+        if (percentBelowMarket >= this.UNDERVALUATION_THRESHOLD) {
+            return 'undervalued';      // 15%+ below market (or whatever threshold is set)
+        } else if (percentBelowMarket >= this.MODERATE_UNDERVALUATION_THRESHOLD) {
+            return 'moderately_undervalued'; // 5-14.9% below market  
+        } else if (percentBelowMarket >= this.OVERVALUED_THRESHOLD) {
+            return 'market_rate';      // -5% to +14.9% (within reasonable range of market)
+        } else {
+            return 'overvalued';       // More than 5% above market (< -5%)
+        }
+    }
+
+    /**
+     * ENHANCED: Analyze ALL rent-stabilized listings with advanced undervaluation analysis
+     */
+    async analyzeAllRentStabilizedWithAdvancedClassification(rentStabilizedListings, allListings) {
+        console.log(`   💰 Analyzing ${rentStabilizedListings.length} rent-stabilized listings (saving ALL)...\n`);
+        
+        const analyzedStabilized = [];
+        
+        for (const stabilizedListing of rentStabilizedListings) {
+            console.log(`     📍 ${stabilizedListing.address}`);
+            
+            try {
+                // Get market comparables (exclude other rent-stabilized units)
+                const marketComparables = this.getMarketRateComparables(stabilizedListing, allListings);
+                
+                if (marketComparables.length < 5) {
+                    console.log(`       ⚠️ Insufficient market comparables (${marketComparables.length})`);
+                    // Still save it with basic classification
+                    analyzedStabilized.push({
+                        ...stabilizedListing,
+                        estimatedMarketRent: stabilizedListing.price,
+                        undervaluationPercent: 0,
+                        potentialSavings: 0,
+                        marketClassification: 'insufficient_data',
+                        undervaluationMethod: 'insufficient_comparables',
+                        undervaluationConfidence: 0,
+                        comparablesUsed: marketComparables.length,
+                        adjustments: []
+                    });
+                    continue;
+                }
+                
+                // Run sophisticated undervaluation analysis
+                const undervaluationAnalysis = await this.analyzeUndervaluation(
+                    stabilizedListing,
+                    marketComparables
+                );
+                
+                if (!undervaluationAnalysis.success) {
+                    console.log(`       ❌ Undervaluation analysis failed`);
+                    // Still save it with basic data
+                    analyzedStabilized.push({
+                        ...stabilizedListing,
+                        estimatedMarketRent: stabilizedListing.price,
+                        undervaluationPercent: 0,
+                        potentialSavings: 0,
+                        marketClassification: 'analysis_failed',
+                        undervaluationMethod: 'failed',
+                        undervaluationConfidence: 0,
+                        comparablesUsed: marketComparables.length,
+                        adjustments: []
+                    });
+                    continue;
+                }
+                
+                const percentBelowMarket = undervaluationAnalysis.percentBelowMarket;
+                console.log(`       📊 ${percentBelowMarket.toFixed(1)}% below market (${undervaluationAnalysis.estimatedMarketRent.toLocaleString()})`);
+                
+                // Classify market position and save ALL rent-stabilized listings
+                const marketClassification = this.classifyMarketPosition(percentBelowMarket);
+                const savings = Math.max(0, undervaluationAnalysis.estimatedMarketRent - stabilizedListing.price);
+
+                analyzedStabilized.push({
+                    ...stabilizedListing,
+                    estimatedMarketRent: undervaluationAnalysis.estimatedMarketRent,
+                    undervaluationPercent: percentBelowMarket,
+                    potentialSavings: savings,
+                    marketClassification: marketClassification,
+                    undervaluationMethod: undervaluationAnalysis.method,
+                    undervaluationConfidence: undervaluationAnalysis.confidence,
+                    comparablesUsed: undervaluationAnalysis.comparablesUsed,
+                    adjustments: undervaluationAnalysis.adjustments || []
+                });
+                
+                // Log different messages based on classification
+                if (marketClassification === 'undervalued') {
+                    console.log(`       ✅ UNDERVALUED! Savings: ${savings.toLocaleString()}/month`);
+                } else if (marketClassification === 'moderately_undervalued') {
+                    console.log(`       📊 MODERATELY UNDERVALUED: ${savings.toLocaleString()}/month`);
+                } else if (marketClassification === 'overvalued') {
+                    const premium = Math.abs(undervaluationAnalysis.estimatedMarketRent - stabilizedListing.price);
+                    console.log(`       📈 ABOVE MARKET: ${premium.toLocaleString()}/month premium`);
+                } else {
+                    console.log(`       📊 MARKET RATE: ${percentBelowMarket.toFixed(1)}% vs market`);
+                }
+                
+            } catch (error) {
+                console.error(`       ❌ Analysis failed: ${error.message}`);
+                continue;
+            }
+            
+            console.log('');
+        }
+        
+        return analyzedStabilized;
+    }
+
+    /**
+     * Enhanced legal analysis with ALL indicators
+     */
+    analyzeRentStabilizationWithAllIndicators(listing, stabilizedBuildings) {
+        let confidence = 0;
+        const factors = [];
+        let method = 'comprehensive_legal_analysis';
+
+        // STEP 1: DHCR building match (strongest)
+        const matchedBuilding = this.findMatchingStabilizedBuilding(listing.address, stabilizedBuildings);
+        if (matchedBuilding) {
+            confidence += 60;
+            factors.push('DHCR registered building');
+        }
+
+        // STEP 2: Explicit rent stabilization mentions
+        const description = (listing.description || '').toLowerCase();
+        for (const [keyword, points] of Object.entries(this.RENT_STABILIZED_INDICATORS.explicit)) {
+            if (description.includes(keyword)) {
+                confidence += points;
+                factors.push(`Explicit: "${keyword}"`);
+            }
+        }
+
+        // STEP 3: Legal building criteria
+        const buildingAge = this.analyzeBuildingAge(listing);
+        if (buildingAge.isEligible) {
+            confidence += this.RENT_STABILIZED_INDICATORS.legal_building.prewar_6plus;
+            factors.push('Legal building criteria');
+        }
+
+        // STEP 4: Circumstantial evidence (reduced weight)
+        for (const [keyword, points] of Object.entries(this.RENT_STABILIZED_INDICATORS.circumstantial)) {
+            if (description.includes(keyword)) {
+                confidence += points * 0.5; // Reduce weight for circumstantial
+                factors.push(`Circumstantial: "${keyword}"`);
+            }
+        }
+        
+        return {
+            confidence: Math.min(100, Math.round(confidence)),
+            factors,
+            method
+        };
+    }
+
+    /**
+     * Enhanced final results logging with next steps
+     */
+    logEnhancedFinalResults(analyzedStabilized) {
+        console.log('\n🎉 COMPREHENSIVE RENT-STABILIZED ANALYSIS COMPLETE!');
+        console.log('=' .repeat(60));
+        
+        const totalFound = analyzedStabilized.length;
+        const undervalued = analyzedStabilized.filter(r => r.marketClassification === 'undervalued');
+        const moderatelyUndervalued = analyzedStabilized.filter(r => r.marketClassification === 'moderately_undervalued');
+        const marketRate = analyzedStabilized.filter(r => r.marketClassification === 'market_rate');
+        const overvalued = analyzedStabilized.filter(r => r.marketClassification === 'overvalued');
+        
+        console.log(`🏠 Total rent-stabilized apartments found: ${totalFound}`);
+        console.log(`💰 Highly undervalued (15%+ below): ${undervalued.length}`);
+        console.log(`📊 Moderately undervalued (5-15% below): ${moderatelyUndervalued.length}`);
+        console.log(`📈 Market rate properties: ${marketRate.length}`);
+        console.log(`⚠️ Above market properties: ${overvalued.length}`);
+        
+        // Show top opportunities
+        const allUndervalued = [...undervalued, ...moderatelyUndervalued].sort((a, b) => b.undervaluationPercent - a.undervaluationPercent);
+        
+        if (allUndervalued.length > 0) {
+            console.log('\n🌟 TOP RENT-STABILIZED OPPORTUNITIES:');
+            allUndervalued.slice(0, 3).forEach((listing, index) => {
+                console.log(`   ${index + 1}. ${listing.address} - ${listing.undervaluationPercent}% below market`);
+                console.log(`      💰 ${listing.price.toLocaleString()}/month vs ${listing.estimatedMarketRent.toLocaleString()} market`);
+                console.log(`      💎 Annual savings: ${(listing.potentialSavings * 12).toLocaleString()}`);
+            });
+        }
+        
+        console.log('\n📋 NEXT STEPS:');
+        console.log('   1. Check your Supabase "undervalued_rent_stabilized" table for all results');
+        console.log('   2. Filter by market_classification for different strategies:');
+        console.log('      - "undervalued": Priority targets (15%+ below market)');
+        console.log('      - "moderately_undervalued": Good opportunities (5-15% below market)');
+        console.log('      - "market_rate": Fair market deals');
+        console.log('      - "overvalued": Above market (may have other benefits)');
+        console.log('   3. Verify rent stabilization status with landlord/DHCR before applying');
+        console.log('   4. Contact listings immediately - good deals move fast in NYC');
     }
 }
 
