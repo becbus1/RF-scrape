@@ -16,7 +16,7 @@ const path = require('path');
 const axios = require('axios');
 
 // Import the rent-stabilized system (use correct class name)
-const RentStabilizedUndervaluedDetector = require('./rent-stabilized-undervalued-system');
+const ClaudePoweredRentalSystem = require('./claude-powered-rentals-system');
 
 class CorrectedRailwayRunner {
     constructor() {
