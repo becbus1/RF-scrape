@@ -160,7 +160,7 @@ class ClaudeIntegratedRailwayRunner {
             console.log(`📍 Targeting ${neighborhoods.length} neighborhoods for rentals analysis`);
             
             // Run the analysis
-            return await rentalsSystem.findUndervaluedRentStabilizedListings(analysisConfig);
+            return await rentalsSystem.runComprehensiveRentalAnalysis();
         } catch (error) {
             console.error('❌ Rentals analysis failed:', error.message);
             return { error: error.message };
