@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 
 /**
- * CORRECTED NYC RENT-STABILIZED FINDER - RAILWAY RUNNER
+ * CLAUDE-INTEGRATED RAILWAY RUNNER - COMPLETE VERSION
  * 
- * This file fixes the issues that prevented data from being found:
- * 1. Handles missing DHCR files by auto-downloading them
- * 2. Creates necessary data directories
- * 3. Properly initializes the database
- * 4. Includes fallback neighborhood targeting if DHCR parsing fails
+ * Combines the robust original structure with Claude integration:
+ * 1. Auto-downloads DHCR files 
+ * 2. Creates necessary directories
+ * 3. Runs BOTH Claude systems (sales + rentals)
+ * 4. Proper error handling and fallbacks
  */
 
 require('dotenv').config();
@@ -15,59 +15,155 @@ const fs = require('fs').promises;
 const path = require('path');
 const axios = require('axios');
 
-// Import the rent-stabilized system (use correct class name)
-const ClaudePoweredRentalSystem = require('./claude-powered-rentals-system');
+// Import BOTH Claude-powered systems
+const EnhancedBiWeeklySalesAnalyzer = require('./biweekly-streeteasy-sales');
+const ClaudePoweredRentalsSystem = require('./claude-powered-rentals-system');
 
-class CorrectedRailwayRunner {
+class ClaudeIntegratedRailwayRunner {
     constructor() {
         this.startTime = Date.now();
         this.results = {
             dhcrStatus: { downloaded: 0, parsed: 0, errors: [] },
-            analysisResults: null,
+            salesResults: null,
+            rentalsResults: null,
             totalDuration: 0
         };
     }
 
     /**
-     * Main entry point - corrected version
+     * Main entry point - runs both Claude systems
      */
-    async runCorrectedAnalysis() {
-        console.log('🚀 CORRECTED RENT-STABILIZED FINDER STARTING...');
+    async runBothClaudeSystems() {
+        console.log('🚀 CLAUDE-INTEGRATED RAILWAY DEPLOYMENT');
         console.log('=' .repeat(60));
         
         try {
             // Step 1: Create necessary directories
             await this.createRequiredDirectories();
             
-            // Step 2: Handle DHCR files (download if missing)
+            // Step 2: Handle DHCR files (for rentals system)
             await this.ensureDHCRFiles();
             
-            // Step 3: Initialize the rent-stabilized system
-            const system = new RentStabilizedUndervaluedDetector();
+            // Step 3: Check environment variables
+            await this.checkEnvironmentVariables();
             
-            // Step 4: Setup database if needed
-            await this.setupDatabaseIfNeeded(system);
+            // Step 4: Determine which systems to run
+            const runSalesOnly = process.env.RUN_SALES_ONLY === 'true';
+            const runRentalsOnly = process.env.RUN_RENTALS_ONLY === 'true';
             
-            // Step 5: Run the analysis with fallback neighborhoods
-            const analysisResults = await this.runAnalysisWithFallbacks(system);
+            if (runSalesOnly) {
+                console.log('🏠 RUNNING SALES ONLY (RUN_SALES_ONLY=true)\n');
+                return await this.runSalesOnly();
+            }
+            
+            if (runRentalsOnly) {
+                console.log('🏘️ RUNNING RENTALS ONLY (RUN_RENTALS_ONLY=true)\n');
+                return await this.runRentalsOnly();
+            }
+            
+            // Step 5: Run both systems with proper spacing
+            console.log('🎯 Running BOTH Claude systems with rate limit protection...\n');
+            
+            // SYSTEM 1: Claude-integrated sales scraper
+            console.log('🏠 [1/2] CLAUDE SALES ANALYSIS STARTING...');
+            const salesResults = await this.runSalesAnalysis();
+            this.results.salesResults = salesResults;
+            console.log('✅ Sales analysis complete\n');
+            
+            // Rate limit protection between systems
+            console.log('⏰ Waiting 5 minutes before rentals (rate limit protection)...');
+            await this.delay(5 * 60 * 1000); // 5 minutes
+            
+            // SYSTEM 2: Claude-powered rentals system
+            console.log('🏘️ [2/2] CLAUDE RENTALS ANALYSIS STARTING...');
+            const rentalsResults = await this.runRentalsAnalysis();
+            this.results.rentalsResults = rentalsResults;
+            console.log('✅ Rentals analysis complete\n');
             
             // Step 6: Log comprehensive results
-            this.logFinalResults(analysisResults);
+            this.logCombinedResults();
             
-            return analysisResults;
+            return {
+                sales: salesResults,
+                rentals: rentalsResults
+            };
             
         } catch (error) {
-            console.error('💥 CORRECTED ANALYSIS FAILED:', error.message);
+            console.error('💥 CLAUDE RAILWAY DEPLOYMENT FAILED:', error.message);
             console.error('\n🔧 DEBUG INFO:');
             console.error('   - Error type:', error.constructor.name);
             console.error('   - Stack trace:', error.stack?.split('\n')[1]);
             console.error('\n📋 TROUBLESHOOTING CHECKLIST:');
             console.error('   ✅ Environment variables set?');
             console.error('   ✅ Supabase connection working?');
-            console.error('   ✅ Database schema updated?');
-            console.error('   ✅ Network connectivity for DHCR downloads?');
+            console.error('   ✅ ANTHROPIC_API_KEY configured?');
+            console.error('   ✅ Both Claude system files exist?');
+            console.error('   ✅ DHCR files downloaded or available?');
             
             throw error;
+        }
+    }
+
+    /**
+     * Run only sales analysis
+     */
+    async runSalesOnly() {
+        const salesResults = await this.runSalesAnalysis();
+        this.results.salesResults = salesResults;
+        this.logSalesOnlyResults();
+        return { sales: salesResults };
+    }
+
+    /**
+     * Run only rentals analysis
+     */
+    async runRentalsOnly() {
+        const rentalsResults = await this.runRentalsAnalysis();
+        this.results.rentalsResults = rentalsResults;
+        this.logRentalsOnlyResults();
+        return { rentals: rentalsResults };
+    }
+
+    /**
+     * Run Claude-integrated sales analysis
+     */
+    async runSalesAnalysis() {
+        try {
+            const salesAnalyzer = new EnhancedBiWeeklySalesAnalyzer();
+            return await salesAnalyzer.runBiWeeklySalesRefresh();
+        } catch (error) {
+            console.error('❌ Sales analysis failed:', error.message);
+            return { error: error.message };
+        }
+    }
+
+    /**
+     * Run Claude-powered rentals analysis
+     */
+    async runRentalsAnalysis() {
+        try {
+            const rentalsSystem = new ClaudePoweredRentalsSystem();
+            
+            // Setup database if needed
+            await this.setupDatabaseIfNeeded(rentalsSystem);
+            
+            // Determine target neighborhoods with fallbacks
+            const neighborhoods = await this.determineTargetNeighborhoods();
+            
+            // Configure analysis
+            const analysisConfig = {
+                neighborhoods: neighborhoods,
+                maxListingsPerNeighborhood: parseInt(process.env.MAX_LISTINGS_PER_NEIGHBORHOOD) || 500,
+                testMode: process.env.TEST_NEIGHBORHOOD ? true : false
+            };
+            
+            console.log(`📍 Targeting ${neighborhoods.length} neighborhoods for rentals analysis`);
+            
+            // Run the analysis
+            return await rentalsSystem.findUndervaluedRentStabilizedListings(analysisConfig);
+        } catch (error) {
+            console.error('❌ Rentals analysis failed:', error.message);
+            return { error: error.message };
         }
     }
 
@@ -100,7 +196,7 @@ class CorrectedRailwayRunner {
      * Ensure DHCR files are available (download if missing)
      */
     async ensureDHCRFiles() {
-        console.log('📄 Checking DHCR files...');
+        console.log('📄 Checking DHCR files (for rentals system)...');
         
         const dhcrUrls = {
             'manhattan': 'https://rentguidelinesboard.cityofnewyork.us/wp-content/uploads/2024/11/2023-DHCR-Bldg-File-Manhattan.pdf',
@@ -155,12 +251,11 @@ class CorrectedRailwayRunner {
         }
 
         this.results.dhcrStatus.downloaded = filesDownloaded;
-        console.log(`📊 DHCR Files Status: ${filesExisting} existing, ${filesDownloaded} downloaded`);
+        console.log(`📊 DHCR Files: ${filesExisting} existing, ${filesDownloaded} downloaded`);
 
-        // If no files available, create a README for manual setup
+        // Create README if no files available
         if (filesExisting + filesDownloaded === 0) {
             await this.createDHCRReadme(dhcrDir);
-            console.log('📋 Created DHCR setup instructions in data/dhcr/README.md');
         }
     }
 
@@ -187,41 +282,79 @@ class CorrectedRailwayRunner {
 2. Place them in this data/dhcr/ directory
 3. Restart the Railway deployment
 
-## Auto-Download Failed:
-The system tried to auto-download these files but failed.
-This could be due to network restrictions or file availability.
-
-## Without DHCR Files:
-The system will fall back to priority neighborhood targeting
-using pre-configured high-value areas for rent-stabilized apartments.
+Auto-download failed, but rentals system will use fallback neighborhoods.
 `;
 
         try {
             await fs.writeFile(path.join(dhcrDir, 'README.md'), readmeContent);
+            console.log('📋 Created DHCR setup instructions');
         } catch (error) {
             console.warn('Could not create DHCR README:', error.message);
         }
     }
 
     /**
-     * Setup database if needed
+     * Check required environment variables
+     */
+    async checkEnvironmentVariables() {
+        console.log('🔧 Checking environment variables...');
+        
+        const required = [
+            'RAPIDAPI_KEY',
+            'SUPABASE_URL', 
+            'SUPABASE_ANON_KEY'
+        ];
+        
+        const missing = required.filter(key => !process.env[key]);
+        
+        if (missing.length > 0) {
+            console.error('❌ Missing required environment variables:');
+            missing.forEach(key => console.error(`   ${key}`));
+            throw new Error('Missing required environment variables');
+        }
+        
+        // Check Claude API key
+        if (!process.env.ANTHROPIC_API_KEY) {
+            console.warn('⚠️ ANTHROPIC_API_KEY not set - Claude analysis will fail');
+            console.warn('   Add ANTHROPIC_API_KEY to Railway environment variables');
+        }
+        
+        // Log optional configuration
+        const optional = [
+            'TEST_NEIGHBORHOOD',
+            'RUN_SALES_ONLY',
+            'RUN_RENTALS_ONLY',
+            'INITIAL_BULK_LOAD',
+            'MAX_LISTINGS_PER_NEIGHBORHOOD'
+        ];
+        
+        console.log('📋 Configuration:');
+        optional.forEach(key => {
+            const value = process.env[key];
+            console.log(`   ${key}: ${value || 'not set'}`);
+        });
+        
+        console.log('✅ Environment check completed');
+    }
+
+    /**
+     * Setup database if needed (for rentals system)
      */
     async setupDatabaseIfNeeded(system) {
         console.log('🔧 Checking database setup...');
         
         try {
-            // Test if the rent_stabilized_buildings table exists
+            // Test if required tables exist
             const { data, error } = await system.supabase
-                .from('rent_stabilized_buildings')
+                .from('undervalued_rentals')
                 .select('id')
                 .limit(1);
 
             if (error && error.message.includes('does not exist')) {
-                console.log('⚠️ Database schema missing - this may cause issues');
-                console.log('💡 Please run the corrected SQL schema in Supabase');
-                console.log('📋 The schema was provided in the corrected-supabase-schema.sql file');
+                console.log('⚠️ Database schema missing - some features may not work');
+                console.log('💡 Please run the SQL schema in Supabase');
             } else {
-                console.log('✅ Database schema appears to be set up correctly');
+                console.log('✅ Database schema appears ready');
             }
         } catch (error) {
             console.warn('⚠️ Could not verify database schema:', error.message);
@@ -229,40 +362,9 @@ using pre-configured high-value areas for rent-stabilized apartments.
     }
 
     /**
-     * Run analysis with fallback neighborhoods
-     */
-    async runAnalysisWithFallbacks(system) {
-        console.log('🎯 Starting rent-stabilized analysis...');
-        
-        // Determine which neighborhoods to target
-        const neighborhoods = await this.determineTargetNeighborhoods(system);
-        
-        console.log(`📍 Targeting ${neighborhoods.length} neighborhoods:`, neighborhoods.slice(0, 5).join(', ') + 
-                   (neighborhoods.length > 5 ? ` (+${neighborhoods.length - 5} more)` : ''));
-
-        // Configure the analysis with correct parameter structure
-        const analysisConfig = {
-            neighborhoods: neighborhoods,
-            maxListingsPerNeighborhood: parseInt(process.env.MAX_LISTINGS_PER_NEIGHBORHOOD) || 500,
-            testMode: process.env.TEST_NEIGHBORHOOD ? true : false
-        };
-
-        console.log('⚙️ Analysis Configuration:');
-        console.log(`   🎯 Neighborhoods: ${neighborhoods.length}`);
-        console.log(`   📈 Max listings per neighborhood: ${analysisConfig.maxListingsPerNeighborhood}`);
-        console.log(`   🧪 Test mode: ${analysisConfig.testMode}`);
-
-        // Run the analysis using the correct method name
-        const results = await system.findUndervaluedRentStabilizedListings(analysisConfig);
-        
-        this.results.analysisResults = results;
-        return results;
-    }
-
-    /**
      * Determine target neighborhoods (with fallbacks)
      */
-    async determineTargetNeighborhoods(system) {
+    async determineTargetNeighborhoods() {
         // Priority 1: Test neighborhood override
         if (process.env.TEST_NEIGHBORHOOD) {
             console.log(`🧪 Using test neighborhood: ${process.env.TEST_NEIGHBORHOOD}`);
@@ -276,17 +378,7 @@ using pre-configured high-value areas for rent-stabilized apartments.
             return manual;
         }
 
-        // Priority 3: Try to get neighborhoods from DHCR data
-        try {
-            console.log('📄 Attempting to get neighborhoods from DHCR data...');
-            // Note: The current system doesn't have getDHCRBasedNeighborhoods method
-            // So we'll skip this for now and go to fallback
-            console.log('⚠️ DHCR-based neighborhood detection not implemented yet');
-        } catch (error) {
-            console.warn('⚠️ Could not get DHCR-based neighborhoods:', error.message);
-        }
-
-        // Priority 4: Fallback to high-priority neighborhoods
+        // Priority 3: Fallback to high-priority neighborhoods
         console.log('🎯 Using fallback priority neighborhoods...');
         return this.getHighPriorityNeighborhoods();
     }
@@ -319,10 +411,10 @@ using pre-configured high-value areas for rent-stabilized apartments.
         // Filter based on borough focus if specified
         if (process.env.FOCUS_BOROUGH) {
             const boroughMap = {
-                'manhattan': ['east-village', 'lower-east-side', 'chinatown', 'west-village', 'greenwich-village', 'soho', 'nolita', 'tribeca', 'chelsea', 'gramercy', 'murray-hill', 'kips-bay', 'flatiron', 'upper-east-side', 'upper-west-side', 'hells-kitchen'],
-                'brooklyn': ['williamsburg', 'dumbo', 'brooklyn-heights', 'cobble-hill', 'carroll-gardens', 'park-slope', 'fort-greene', 'boerum-hill', 'prospect-heights', 'crown-heights', 'bedford-stuyvesant', 'greenpoint', 'bushwick'],
-                'queens': ['long-island-city', 'astoria', 'sunnyside', 'woodside', 'jackson-heights', 'elmhurst', 'forest-hills'],
-                'bronx': ['mott-haven', 'concourse', 'fordham']
+                'manhattan': priorityNeighborhoods.slice(0, 16),
+                'brooklyn': priorityNeighborhoods.slice(16, 29),
+                'queens': priorityNeighborhoods.slice(29, 36),
+                'bronx': priorityNeighborhoods.slice(36)
             };
             
             return boroughMap[process.env.FOCUS_BOROUGH.toLowerCase()] || priorityNeighborhoods;
@@ -334,78 +426,99 @@ using pre-configured high-value areas for rent-stabilized apartments.
     }
 
     /**
-     * Log comprehensive final results
+     * Log combined results from both systems
      */
-    logFinalResults(results) {
+    logCombinedResults() {
         const duration = Math.round((Date.now() - this.startTime) / 60000);
         this.results.totalDuration = duration;
 
-        console.log('\n🎉 CORRECTED ANALYSIS COMPLETE!');
+        console.log('\n🎉 CLAUDE-INTEGRATED ANALYSIS COMPLETE!');
         console.log('=' .repeat(60));
+        console.log(`⏱️ Total duration: ${duration} minutes`);
         
         // DHCR Status
-        console.log('📄 DHCR FILES STATUS:');
+        console.log('\n📄 DHCR FILES STATUS:');
         console.log(`   📥 Downloaded: ${this.results.dhcrStatus.downloaded} files`);
         console.log(`   ❌ Download errors: ${this.results.dhcrStatus.errors.length}`);
-        
-        if (this.results.dhcrStatus.errors.length > 0) {
-            console.log('   💡 Manual setup may be required for DHCR files');
+
+        // Sales Results
+        if (this.results.salesResults && this.results.salesResults.summary) {
+            const salesSummary = this.results.salesResults.summary;
+            console.log('\n🏠 CLAUDE SALES ANALYSIS:');
+            console.log(`   📊 Undervalued sales found: ${salesSummary.savedToDatabase || 0}`);
+            console.log(`   🔍 Properties analyzed: ${salesSummary.totalDetailsFetched || 0}`);
+            console.log(`   ⚡ API efficiency: ${salesSummary.cacheHitRate?.toFixed(1) || 0}%`);
         }
 
-        // Analysis Results
-        if (results && results.rentStabilized) {
-            const rs = results.rentStabilized;
-            console.log('\n🏠 RENT-STABILIZED ANALYSIS RESULTS:');
-            console.log(`   📋 Total listings scanned: ${rs.totalListingsScanned || 0}`);
-            console.log(`   ⚖️ Rent-stabilized identified: ${rs.rentStabilizedFound || 0}`);
-            console.log(`   💰 Undervalued opportunities: ${rs.undervaluedStabilizedFound || 0}`);
-            console.log(`   🎯 Neighborhoods processed: ${rs.neighborhoodsProcessed || 0}`);
-            
-            if (rs.undervaluedStabilizedFound > 0) {
-                console.log('\n💡 SUCCESS - UNDERVALUED LISTINGS FOUND!');
-                console.log(`   🏆 ${rs.undervaluedStabilizedFound} great deals discovered`);
-                console.log(`   💾 Check your Supabase 'undervalued_rent_stabilized' table`);
-            } else {
-                console.log('\n📊 No undervalued listings found this run');
-                console.log('   💡 This could mean:');
-                console.log('      - Market is efficiently priced');
-                console.log('      - Need to adjust confidence thresholds');
-                console.log('      - DHCR data needs to be loaded');
-                console.log('      - Different neighborhoods should be targeted');
-            }
-            
-            // Performance metrics
-            if (rs.apiCallsSaved || rs.cacheHitRate) {
-                console.log('\n⚡ PERFORMANCE METRICS:');
-                console.log(`   🔄 Cache hit rate: ${rs.cacheHitRate || 0}%`);
-                console.log(`   💾 API calls saved: ${rs.apiCallsSaved || 0}`);
-            }
+        // Rentals Results
+        if (this.results.rentalsResults && this.results.rentalsResults.rentStabilized) {
+            const rentalsResults = this.results.rentalsResults.rentStabilized;
+            console.log('\n🏘️ CLAUDE RENTALS ANALYSIS:');
+            console.log(`   📊 Rent-stabilized found: ${rentalsResults.undervaluedStabilizedFound || 0}`);
+            console.log(`   🔍 Properties analyzed: ${rentalsResults.totalListingsScanned || 0}`);
+            console.log(`   🎯 Neighborhoods processed: ${rentalsResults.neighborhoodsProcessed || 0}`);
+        }
+
+        // Combined success message
+        const salesFound = this.results.salesResults?.summary?.savedToDatabase || 0;
+        const rentalsFound = this.results.rentalsResults?.rentStabilized?.undervaluedStabilizedFound || 0;
+        const totalFound = salesFound + rentalsFound;
+
+        if (totalFound > 0) {
+            console.log('\n✅ SUCCESS: Found undervalued properties with Claude AI!');
+            console.log('🔍 Check your Supabase tables:');
+            console.log(`   • undervalued_sales: ${salesFound} deals`);
+            console.log(`   • undervalued_rentals: ${rentalsFound} deals`);
         } else {
-            console.log('\n⚠️ No analysis results returned');
-            console.log('   🔧 This suggests a configuration or system issue');
+            console.log('\n📊 No undervalued properties found this run');
+            console.log('💡 This is normal in competitive NYC market');
         }
 
-        // System status
-        console.log('\n🎯 SYSTEM STATUS:');
-        console.log(`   ⏱️ Total duration: ${duration} minutes`);
-        console.log(`   🚀 Railway deployment: ${results ? 'SUCCESS' : 'FAILED'}`);
-        console.log(`   📊 Mode: Rent-Stabilized Only`);
-        console.log(`   ⚡ Smart caching: ENABLED`);
+        console.log('\n🎯 Claude-integrated Railway deployment completed successfully');
+    }
+
+    /**
+     * Log sales-only results
+     */
+    logSalesOnlyResults() {
+        const duration = Math.round((Date.now() - this.startTime) / 60000);
         
-        // Next steps
-        console.log('\n📋 NEXT STEPS:');
-        if (results && results.rentStabilized && results.rentStabilized.undervaluedStabilizedFound > 0) {
-            console.log('   ✅ Check Supabase for your results');
-            console.log('   📧 Set up notifications for new finds');
-            console.log('   🔄 Schedule regular runs');
-        } else {
-            console.log('   🔧 Review configuration settings');
-            console.log('   📄 Ensure DHCR files are properly loaded');
-            console.log('   🎯 Consider adjusting neighborhood targeting');
-            console.log('   📊 Check confidence threshold settings');
+        console.log('\n🎉 CLAUDE SALES ANALYSIS COMPLETE!');
+        console.log('=' .repeat(60));
+        console.log(`⏱️ Duration: ${duration} minutes`);
+        
+        if (this.results.salesResults && this.results.salesResults.summary) {
+            const summary = this.results.salesResults.summary;
+            console.log(`📊 Undervalued sales found: ${summary.savedToDatabase || 0}`);
+            console.log(`🔍 Properties analyzed: ${summary.totalDetailsFetched || 0}`);
+            console.log(`⚡ API efficiency: ${summary.cacheHitRate?.toFixed(1) || 0}%`);
+            
+            if (summary.savedToDatabase > 0) {
+                console.log('\n✅ SUCCESS: Check your Supabase undervalued_sales table');
+            }
         }
+    }
 
-        console.log('\n🏁 Railway deployment completed');
+    /**
+     * Log rentals-only results
+     */
+    logRentalsOnlyResults() {
+        const duration = Math.round((Date.now() - this.startTime) / 60000);
+        
+        console.log('\n🎉 CLAUDE RENTALS ANALYSIS COMPLETE!');
+        console.log('=' .repeat(60));
+        console.log(`⏱️ Duration: ${duration} minutes`);
+        
+        if (this.results.rentalsResults && this.results.rentalsResults.rentStabilized) {
+            const results = this.results.rentalsResults.rentStabilized;
+            console.log(`📊 Rent-stabilized found: ${results.undervaluedStabilizedFound || 0}`);
+            console.log(`🔍 Properties analyzed: ${results.totalListingsScanned || 0}`);
+            console.log(`🎯 Neighborhoods processed: ${results.neighborhoodsProcessed || 0}`);
+            
+            if (results.undervaluedStabilizedFound > 0) {
+                console.log('\n✅ SUCCESS: Check your Supabase undervalued_rentals table');
+            }
+        }
     }
 
     /**
@@ -416,158 +529,40 @@ using pre-configured high-value areas for rent-stabilized apartments.
     }
 }
 
-// Railway Deployment Helper Functions
-class CorrectedRailwayHelper {
-    static async checkEnvironmentVariables() {
-        console.log('🔧 Checking Railway environment variables...');
-        
-        const required = [
-            'SUPABASE_URL', 
-            'SUPABASE_ANON_KEY'
-        ];
-        
-        const missing = required.filter(key => !process.env[key]);
-        
-        if (missing.length > 0) {
-            console.error('❌ Missing required environment variables:');
-            missing.forEach(key => console.error(`   ${key}`));
-            console.error('\n💡 Add these in Railway Dashboard → Variables');
-            return false;
-        }
-        
-        // Check optional variables
-        const optional = [
-            'TEST_NEIGHBORHOOD',
-            'INITIAL_BULK_LOAD',
-            'RENT_STABILIZED_CONFIDENCE_THRESHOLD',
-            'UNDERVALUATION_THRESHOLD',
-            'MAX_LISTINGS_PER_NEIGHBORHOOD'
-        ];
-        
-        console.log('📋 Environment Configuration:');
-        optional.forEach(key => {
-            const value = process.env[key];
-            console.log(`   ${key}: ${value || 'not set (using default)'}`);
-        });
-        
-        console.log('✅ Environment check completed');
-        return true;
-    }
-    
-    static logDeploymentInfo() {
-        console.log('🚀 CORRECTED RAILWAY DEPLOYMENT');
-        console.log('=' .repeat(60));
-        console.log(`📅 Deploy time: ${new Date().toISOString()}`);
-        console.log(`🏠 Target: Rent-Stabilized Apartments Only`);
-        console.log(`🎯 Mode: ${process.env.INITIAL_BULK_LOAD === 'true' ? 'Bulk Load' : 'Priority Update'}`);
-        console.log(`⚡ Auto-download DHCR files: ENABLED`);
-        console.log(`📁 Directory creation: ENABLED`);
-        console.log(`🔄 Fallback neighborhoods: ENABLED`);
-        
-        // Show specific configuration
-        if (process.env.TEST_NEIGHBORHOOD) {
-            console.log(`🧪 Test mode: ${process.env.TEST_NEIGHBORHOOD} only`);
-        }
-        if (process.env.FOCUS_BOROUGH) {
-            console.log(`🎯 Borough focus: ${process.env.FOCUS_BOROUGH}`);
-        }
-        
-        console.log('');
-    }
-    
-    static setupGracefulShutdown(runner) {
-        process.on('SIGTERM', () => {
-            console.log('\n📥 Railway shutdown signal received');
-            console.log('💾 Allowing current operations to complete...');
-        });
-        
-        process.on('SIGINT', () => {
-            console.log('\n📥 Interrupt signal received');
-            console.log('💾 Graceful shutdown initiated...');
-            process.exit(0);
-        });
-    }
-}
-
 // Main execution function for Railway
 async function main() {
     try {
-        // Step 1: Log deployment info
-        CorrectedRailwayHelper.logDeploymentInfo();
+        console.log('🚀 CLAUDE-INTEGRATED RAILWAY DEPLOYMENT STARTING...');
         
-        // Step 2: Check environment
-        const envOk = await CorrectedRailwayHelper.checkEnvironmentVariables();
-        if (!envOk) {
-            process.exit(1);
-        }
-
-        // Step 3: Handle help command
-        if (process.argv.includes('--help')) {
-            console.log('🏠 Corrected Rent-Stabilized Finder');
-            console.log('');
-            console.log('This version fixes common deployment issues:');
-            console.log('  ✅ Auto-downloads DHCR files if missing');
-            console.log('  ✅ Creates required data directories');
-            console.log('  ✅ Handles database schema issues');
-            console.log('  ✅ Provides fallback neighborhood targeting');
-            console.log('');
-            console.log('Environment Variables:');
-            console.log('  SUPABASE_URL=your_supabase_url                    # Required');
-            console.log('  SUPABASE_ANON_KEY=your_anon_key                  # Required');
-            console.log('  TEST_NEIGHBORHOOD=soho                          # Test single neighborhood');
-            console.log('  INITIAL_BULK_LOAD=true                          # Enable bulk mode');
-            console.log('  RENT_STABILIZED_CONFIDENCE_THRESHOLD=70         # Confidence threshold');
-            console.log('  UNDERVALUATION_THRESHOLD=15                     # Undervaluation percentage');
-            console.log('');
-            console.log('Fixes Applied:');
-            console.log('  🔧 Auto-downloads missing DHCR PDF files');
-            console.log('  📁 Creates data/dhcr/, data/cache/, data/temp/ directories');
-            console.log('  🎯 Fallback to priority neighborhoods if DHCR parsing fails');
-            console.log('  ✅ Better error handling and debugging information');
-            console.log('  📊 Comprehensive result logging');
-            return;
-        }
-
-        // Step 4: Run the corrected analysis
-        console.log('🔄 Starting corrected rent-stabilized analysis...');
-        const runner = new CorrectedRailwayRunner();
-        CorrectedRailwayHelper.setupGracefulShutdown(runner);
+        const runner = new ClaudeIntegratedRailwayRunner();
+        const results = await runner.runBothClaudeSystems();
         
-        const results = await runner.runCorrectedAnalysis();
-        
-        // Step 5: Keep process alive to see results
+        // Keep process alive to see results
         console.log('\n⏰ Keeping process alive for 30 seconds to view results...');
         await runner.delay(30000);
         
-        console.log('✅ Corrected analysis complete - Railway deployment successful');
+        console.log('✅ Claude-integrated analysis complete - Railway deployment successful');
         process.exit(0);
 
     } catch (error) {
-        console.error('💥 CORRECTED RAILWAY DEPLOYMENT FAILED:', error.message);
-        console.error('\n🔧 DETAILED TROUBLESHOOTING:');
-        console.error('   1. ✅ Check Railway environment variables are set');
-        console.error('   2. ✅ Verify Supabase connection works');
-        console.error('   3. ✅ Run the corrected SQL schema in Supabase');
-        console.error('   4. ✅ Check if DHCR files downloaded successfully');
-        console.error('   5. ✅ Verify network connectivity for downloads');
-        console.error('   6. ✅ Check Railway logs for detailed error info');
-        console.error('\n📋 QUICK FIXES:');
-        console.error('   • For database errors: Run corrected-supabase-schema.sql');
-        console.error('   • For DHCR errors: Files will auto-download or use manual setup');
-        console.error('   • For config errors: Set TEST_NEIGHBORHOOD=soho for testing');
-        console.error('\n💡 For testing: Set TEST_NEIGHBORHOOD=soho in Railway environment');
+        console.error('💥 Claude Railway deployment failed:', error.message);
+        console.error('\n💡 Common fixes:');
+        console.error('   • Add ANTHROPIC_API_KEY to Railway environment');
+        console.error('   • Ensure both Claude system files are deployed');
+        console.error('   • Check Supabase connection');
+        console.error('   • Set TEST_NEIGHBORHOOD=soho for testing');
         
         process.exit(1);
     }
 }
 
 // Export for testing
-module.exports = { CorrectedRailwayRunner, CorrectedRailwayHelper };
+module.exports = ClaudeIntegratedRailwayRunner;
 
 // Run if executed directly (Railway entry point)
 if (require.main === module) {
     main().catch(error => {
-        console.error('💥 Corrected Railway runner crashed:', error);
+        console.error('💥 Claude Railway runner crashed:', error);
         process.exit(1);
     });
 }
