@@ -347,7 +347,7 @@ class ClaudePoweredRentalSystem {
         try {
             this.apiCallsUsed++;
             
-            const response = await axios.get('https://streeteasy-api.p.rapidapi.com/rentals', {
+            const response = await axios.get('https://streeteasy-api.p.rapidapi.com/rentals/search', {
                 params: {
                     neighborhood: neighborhood,
                     limit: this.maxListingsPerNeighborhood
@@ -501,7 +501,7 @@ class ClaudePoweredRentalSystem {
             try {
                 this.apiCallsUsed++;
                 
-                const response = await axios.get(`https://streeteasy-api.p.rapidapi.com/rental/${listing.id}`, {
+                const response = await axios.get(`https://streeteasy-api.p.rapidapi.com/rentals/${listing.id}`, {
                     headers: {
                         'X-RapidAPI-Key': this.rapidApiKey,
                         'X-RapidAPI-Host': 'streeteasy-api.p.rapidapi.com'
