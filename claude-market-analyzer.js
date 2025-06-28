@@ -447,32 +447,40 @@ class EnhancedClaudeMarketAnalyzer {
                 const responseText = response.data.content[0].text;
                 console.log(`   ✅ Enhanced Claude response received (${responseText.length} chars)`);
                 
-                // Parse JSON response with enhanced error handling
-                try {
-                    const analysis = JSON.parse(responseText);
-                    return { success: true, analysis };
-                } catch (parseError) {
-                    console.warn(`   ⚠️ JSON parse error, attempting enhanced extraction: ${parseError.message}`);
-                    
-                    // Enhanced JSON extraction
-                    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-                    if (jsonMatch) {
-                        try {
-                            const analysis = JSON.parse(jsonMatch[0]);
-                            return { success: true, analysis };
-                        } catch (secondParseError) {
-                            console.warn(`   ⚠️ Second parse attempt failed: ${secondParseError.message}`);
-                        }
-                    }
-                    
-                    // Try to extract key-value pairs if JSON fails
-                    const extractedData = this.extractDataFromResponse(responseText);
-                    if (extractedData) {
-                        return { success: true, analysis: extractedData };
-                    }
-                    
-                    throw new Error('Could not parse enhanced Claude response as JSON');
-                }
+              // Parse JSON response with enhanced error handling
+try {
+    // Clean the response before parsing
+    let cleanedResponse = responseText
+        .replace(/[\u0000-\u001F\u007F-\u009F]/g, "") // Remove control characters
+        .replace(/\\/g, "\\\\") // Escape backslashes
+        .replace(/\n/g, "\\n") // Escape newlines
+        .replace(/\r/g, "\\r") // Escape carriage returns
+        .replace(/\t/g, "\\t"); // Escape tabs
+    
+    const analysis = JSON.parse(cleanedResponse);
+    return { success: true, analysis };
+} catch (parseError) {
+    console.warn(`   ⚠️ JSON parse error, attempting enhanced extraction: ${parseError.message}`);
+    
+    // Enhanced JSON extraction with better regex
+    const jsonMatch = cleanedResponse.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+        try {
+            const analysis = JSON.parse(jsonMatch[0]);
+            return { success: true, analysis };
+        } catch (secondParseError) {
+            console.warn(`   ⚠️ Second parse attempt failed: ${secondParseError.message}`);
+        }
+    }
+    
+    // Fallback: extract key-value pairs
+    const extractedData = this.extractDataFromResponse(responseText);
+    if (extractedData) {
+        return { success: true, analysis: extractedData };
+    }
+    
+    throw new Error('Could not parse enhanced Claude response as JSON');
+}
                 
             } catch (error) {
                 attempt++;
