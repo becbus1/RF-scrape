@@ -64,7 +64,7 @@ class EnhancedClaudeMarketAnalyzer {
             console.log(`   💰 Claude enhanced estimate: $${analysis.estimatedMarketPrice.toLocaleString()}`);
             console.log(`   📊 Discount: ${analysis.discountPercent.toFixed(1)}%`);
             console.log(`   ✅ Confidence: ${analysis.confidence}%`);
-            console.log(`   🎯 Investment grade: ${analysis.grade}`);
+            console.log(`   🎯 Deal quality: ${analysis.dealQuality || 'fair'} (${analysis.score || 50}/100)`);
             
             return {
                 isUndervalued: analysis.discountPercent >= threshold && analysis.confidence >= 60,
@@ -77,7 +77,8 @@ class EnhancedClaudeMarketAnalyzer {
                 comparablesUsed: comparableProperties.length,
                 adjustmentBreakdown: analysis.adjustmentBreakdown || {},
                 reasoning: comprehensiveReasoning,
-                grade: analysis.grade,
+                score: analysis.score
+                dealQuality: analysis.dealQuality,
                 // Enhanced metrics
                 detailedAnalysis: analysis.detailedAnalysis || {},
                 keyMetrics: analysis.keyMetrics || {},
@@ -147,13 +148,15 @@ class EnhancedClaudeMarketAnalyzer {
             console.log(`   📊 Below market: ${analysis.percentBelowMarket.toFixed(1)}%`);
             console.log(`   ✅ Confidence: ${analysis.confidence}%`);
             console.log(`   🏠 Rent stabilized probability: ${analysis.rentStabilizedProbability}%`);
-            console.log(`   🎯 Investment grade: ${analysis.grade || 'B'}`);
+            console.log(`   🎯 Deal quality: ${analysis.dealQuality || 'fair'} (${analysis.score || 50}/100)`);
             
             return {
                 success: true,
                 estimatedMarketRent: analysis.estimatedMarketRent,
                 percentBelowMarket: analysis.percentBelowMarket,
                 confidence: analysis.confidence,
+                score: analysis.score,                    // ✅ ADD THIS LINE
+                dealQuality: analysis.dealQuality,        // ✅ ADD THIS LINE
                 method: 'enhanced_claude_comparative_analysis',
                 comparablesUsed: comparableProperties.length,
                 adjustments: analysis.adjustmentBreakdown || [],
@@ -521,6 +524,21 @@ TIER 4 (Desirable +10-20%): East Village, Lower East Side, Long Island City, For
 TIER 5 (Emerging +5-15%): Crown Heights, Prospect Heights, Astoria, Bed-Stuy
 TIER 6 (Value 0-10%): Bushwick, Ridgewood, Mott Haven, Concourse
 
+SALES DEAL SCORING FRAMEWORK (0-100):
+90-100 (BEST): 25%+ below market in any area OR 20%+ in ultra-premium
+80-89 (Excellent): 20%+ below market OR 15%+ in premium neighborhoods  
+70-79 (Good): 15%+ below market (strong deals)
+60-69 (Fair): 10-15% below market (meets threshold, worth considering)
+50-59 (Marginal): 5-10% below market (close to threshold but doesn't qualify)
+40-49 (Slight): 0-5% below market
+30-39 (Market Rate): At market rate
+20-29 (Above Market): 5%+ above market
+10-19 (Overpriced): 10%+ above market  
+0-9 (Avoid): 15%+ above market
+
+Only properties scoring 60+ (10%+ below market) will be saved to the database.
+Be conservative with scoring. Most analyzed properties should score 30-60, with only genuine deals scoring 70+
+
 ENHANCED BUILDING ANALYSIS:
 PRE-WAR LUXURY (pre-1940):
 - Manhattan: +$200-500k (architectural details, high ceilings, solid construction)
@@ -595,7 +613,8 @@ REQUIRED RESPONSE FORMAT (JSON only):
   "estimatedMarketPrice": number,
   "discountPercent": number,
   "confidence": number (0-100),
-  "grade": "A+" to "C-",
+  "score": number (0-100),
+"dealQuality": "best|excellent|good|fair|marginal",
   "baseMarketPrice": number,
   "adjustmentBreakdown": {
     "neighborhoodTier": number,
@@ -662,6 +681,27 @@ TIER 3 (High-End +20-30%): Upper East Side, Upper West Side, Park Slope, William
 TIER 4 (Desirable +15-25%): East Village, Lower East Side, Long Island City, Fort Greene
 TIER 5 (Emerging +10-20%): Crown Heights, Prospect Heights, Astoria, Bed-Stuy
 TIER 6 (Value +5-15%): Bushwick, Ridgewood, Mott Haven, Concourse
+
+RENTAL DEAL SCORING FRAMEWORK (0-100):
+90-100 (BEST): 25%+ below market + rent stabilized OR 35%+ below market
+80-89 (Excellent): 20%+ below market + some stabilization indicators OR 25%+ below market
+70-79 (Good): 15%+ below market OR strong rent stabilization (80%+ confidence)
+60-69 (Fair): 10-15% below market OR moderate stabilization (60-80% confidence)
+50-59 (Marginal): 5-10% below market OR weak stabilization indicators
+40-49 (Slight): 0-5% below market
+30-39 (Market Rate): At market rate
+20-29 (Above Market): 5%+ above market
+10-19 (Overpriced): 10%+ above market
+0-9 (Avoid): 15%+ above market
+
+DEAL QUALITY CLASSIFICATIONS:
+- BEST: Score 90-100 (rare, goldmine deals)
+- excellent: Score 80-89 (strong deals worth acting on)
+- good: Score 70-79 (solid opportunities)
+- fair: Score 60-69 (consider if few alternatives)
+- poor: Score below 60 (generally avoid)
+
+Be conservative with scoring. Most properties should score 30-70, not 80-100.
 
 RENT STABILIZATION LEGAL FRAMEWORK:
 DEFINITIVE INDICATORS (95-100% confidence):
@@ -771,7 +811,8 @@ REQUIRED RESPONSE FORMAT (JSON only):
   "estimatedMarketRent": number,
   "percentBelowMarket": number,
   "confidence": number (0-100),
-  "grade": "A+" to "C-",
+  "score": number (0-100),
+"dealQuality": "best|excellent|good|fair|marginal",
   "baseMarketRent": number,
   "totalAdjustments": number,
   "adjustmentBreakdown": [
@@ -1197,10 +1238,10 @@ Return comprehensive analysis as JSON only.`;
 
     // Enhanced validation methods
     validateEnhancedSalesAnalysis(analysis) {
-        const required = [
-            'estimatedMarketPrice', 'discountPercent', 'confidence', 'reasoning',
-            'detailedAnalysis', 'keyMetrics', 'comparableInsights'
-        ];
+       const required = [
+    'estimatedMarketPrice', 'discountPercent', 'confidence', 'score', 'dealQuality', 'reasoning',
+    'detailedAnalysis', 'keyMetrics', 'comparableInsights'
+];
         
         return required.every(field => analysis.hasOwnProperty(field)) &&
                typeof analysis.estimatedMarketPrice === 'number' &&
@@ -1211,10 +1252,10 @@ Return comprehensive analysis as JSON only.`;
     }
 
     validateEnhancedRentalsAnalysis(analysis) {
-        const required = [
-            'estimatedMarketRent', 'percentBelowMarket', 'confidence', 
-            'rentStabilizedProbability', 'reasoning', 'detailedAnalysis'
-        ];
+     const required = [
+    'estimatedMarketRent', 'percentBelowMarket', 'confidence', 'score', 'dealQuality',
+    'rentStabilizedProbability', 'reasoning', 'detailedAnalysis'
+];
         
         return required.every(field => analysis.hasOwnProperty(field)) &&
                typeof analysis.estimatedMarketRent === 'number' &&
@@ -1773,6 +1814,18 @@ Return comprehensive analysis as JSON only.`;
             apiCallsUsed: this.apiCallsUsed,
             cacheSize: this.neighborhoodCache.size
         };
+    }
+}
+
+ /**
+     * Calculate deal quality from score
+     */
+    calculateDealQuality(score) {
+        if (score >= 90) return 'best';
+        if (score >= 80) return 'excellent'; 
+        if (score >= 70) return 'good';
+        if (score >= 60) return 'fair';
+        return 'marginal';
     }
 }
 
