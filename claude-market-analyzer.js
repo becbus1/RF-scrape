@@ -77,7 +77,7 @@ class EnhancedClaudeMarketAnalyzer {
                 comparablesUsed: comparableProperties.length,
                 adjustmentBreakdown: analysis.adjustmentBreakdown || {},
                 reasoning: comprehensiveReasoning,
-                score: analysis.score
+                score: analysis.score,
                 dealQuality: analysis.dealQuality,
                 // Enhanced metrics
                 detailedAnalysis: analysis.detailedAnalysis || {},
