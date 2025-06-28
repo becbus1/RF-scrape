@@ -423,7 +423,7 @@ class EnhancedClaudeMarketAnalyzer {
                     'https://api.anthropic.com/v1/messages',
                     {
                         model: 'claude-3-haiku-20240307',
-                        max_tokens: 4000, // Increased for detailed analysis
+                        max_tokens: 2000, // Increased for detailed analysis
                         temperature: 0.05, // Very low for consistent analysis
                         system: systemPrompt,
                         messages: [{
