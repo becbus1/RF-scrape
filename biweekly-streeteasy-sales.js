@@ -5,6 +5,8 @@
 require('dotenv').config();
 const axios = require('axios');
 const { createClient } = require('@supabase/supabase-js');
+const ClaudeMarketAnalyzer = require('./claude-market-analyzer');
+
 
 const HIGH_PRIORITY_NEIGHBORHOODS = [
     'west-village', 'east-village', 'soho', 'tribeca', 'chelsea',
@@ -931,6 +933,9 @@ class EnhancedBiWeeklySalesAnalyzer {
         
         // Initialize the advanced valuation engine
         this.valuationEngine = new AdvancedSalesValuationEngine();
+        
+        // ADD THIS LINE RIGHT HERE:
+        this.claudeAnalyzer = new ClaudeMarketAnalyzer();
         
         // Check for initial bulk load mode
         this.initialBulkLoad = process.env.INITIAL_BULK_LOAD === 'true';
@@ -2165,62 +2170,60 @@ class EnhancedBiWeeklySalesAnalyzer {
                sale.bathrooms !== undefined;
     }
 
-    /**
-     * NEW: ADVANCED MULTI-FACTOR ANALYSIS for undervaluation using the sophisticated engine
-     */
-    analyzeForAdvancedSalesUndervaluation(detailedSales, neighborhood) {
-        if (detailedSales.length < 5) {
-            console.log(`   ⚠️ Not enough sales (${detailedSales.length}) for advanced multi-factor analysis in ${neighborhood}`);
-            return [];
-        }
-
-        console.log(`   🎯 ADVANCED MULTI-FACTOR ANALYSIS: ${detailedSales.length} sales using bed/bath/amenity engine...`);
-
-        const undervaluedSales = [];
-
-        // Analyze each sale using the advanced valuation engine
-        for (const sale of detailedSales) {
-            try {
-                // Use the advanced valuation engine with 10% threshold
-                const analysis = this.valuationEngine.analyzeSalesUndervaluation(
-                    sale, 
-                    detailedSales, 
-                    neighborhood,
-                    { undervaluationThreshold: 10 } // NEW: Only 10%+ below market flagged
-                );
-                
-                if (analysis.isUndervalued) {
-                    undervaluedSales.push({
-                        ...sale,
-                        // Advanced analysis results
-                        discountPercent: analysis.discountPercent,
-                        estimatedMarketPrice: analysis.estimatedMarketPrice,
-                        actualPrice: analysis.actualPrice,
-                        potentialProfit: analysis.potentialProfit,
-                        confidence: analysis.confidence,
-                        valuationMethod: analysis.method,
-                        comparablesUsed: analysis.comparablesUsed,
-                        adjustmentBreakdown: analysis.adjustmentBreakdown,
-                        reasoning: analysis.reasoning,
-                        
-                        // Generate advanced score based on multiple factors
-                        score: this.calculateAdvancedSalesScore(analysis),
-                        grade: this.calculateGradeFromDiscount(analysis.discountPercent), // NEW: Discount-based grading
-                        comparisonGroup: `${sale.bedrooms}BR/${sale.bathrooms}BA in ${neighborhood}`,
-                        comparisonMethod: analysis.method
-                    });
-                }
-            } catch (error) {
-                console.warn(`   ⚠️ Error analyzing ${sale.address}: ${error.message}`);
-            }
-        }
-
-        // Sort by discount percentage (best deals first)
-        undervaluedSales.sort((a, b) => b.discountPercent - a.discountPercent);
-
-        console.log(`   🎯 Found ${undervaluedSales.length} undervalued sales (10% threshold with advanced valuation)`);
-        return undervaluedSales;
+   // REPLACE the analyzeForAdvancedSalesUndervaluation method with:
+async analyzeForAdvancedSalesUndervaluation(detailedSales, neighborhood) {
+    if (detailedSales.length < 5) {
+        console.log(`   ⚠️ Not enough sales (${detailedSales.length}) for analysis in ${neighborhood}`);
+        return [];
     }
+
+    console.log(`   🤖 CLAUDE ANALYSIS: ${detailedSales.length} sales using AI engine...`);
+
+    const undervaluedSales = [];
+
+    // Analyze each sale using Claude
+    for (const sale of detailedSales) {
+        try {
+            // Use Claude instead of hardcoded valuation engine
+            const analysis = await this.claudeAnalyzer.analyzeSalesUndervaluation(
+                sale, 
+                detailedSales, 
+                neighborhood,
+                { undervaluationThreshold: 10 }
+            );
+            
+            if (analysis.isUndervalued) {
+                undervaluedSales.push({
+                    ...sale,
+                    // Claude analysis results
+                    discountPercent: analysis.discountPercent,
+                    estimatedMarketPrice: analysis.estimatedMarketPrice,
+                    actualPrice: analysis.actualPrice,
+                    potentialProfit: analysis.potentialProfit,
+                    confidence: analysis.confidence,
+                    valuationMethod: analysis.method,
+                    comparablesUsed: analysis.comparablesUsed,
+                    adjustmentBreakdown: analysis.adjustmentBreakdown,
+                    reasoning: analysis.reasoning,
+                    
+                    // Keep existing scoring
+                    score: this.calculateAdvancedSalesScore(analysis),
+                    grade: analysis.grade,
+                    comparisonGroup: `${sale.bedrooms}BR/${sale.bathrooms}BA in ${neighborhood}`,
+                    comparisonMethod: analysis.method
+                });
+            }
+        } catch (error) {
+            console.warn(`   ⚠️ Error analyzing ${sale.address}: ${error.message}`);
+        }
+    }
+
+    // Sort by discount percentage (best deals first)
+    undervaluedSales.sort((a, b) => b.discountPercent - a.discountPercent);
+
+    console.log(`   🎯 Found ${undervaluedSales.length} undervalued sales (10% threshold with Claude AI)`);
+    return undervaluedSales;
+}
 
     /**
      * Calculate advanced sales score based on multi-factor analysis
