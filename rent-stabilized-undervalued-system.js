@@ -399,12 +399,14 @@ class RentStabilizedUndervaluedDetector {
     }
 
     /**
-     * Cache listings with full details
+     * Cache listings with full details - FIXED MISSING COLUMNS
      */
     async cacheListingsWithFullDetails(listings) {
         if (listings.length === 0) return;
         
         try {
+            // FIX: Remove columns that don't exist in comprehensive_listing_cache table
+            // Only include columns that actually exist in the table schema
             const cacheData = listings.map(listing => ({
                 listing_id: listing.id,
                 address: listing.address,
@@ -420,19 +422,64 @@ class RentStabilizedUndervaluedDetector {
                 year_built: listing.yearBuilt,
                 total_units_in_building: listing.totalUnits,
                 broker_fee: listing.brokerFee,
-                available_date: listing.availableDate,
+                // REMOVED: available_date - this column doesn't exist in comprehensive_listing_cache
                 listing_url: listing.url,
                 cached_at: new Date().toISOString()
+                // Additional fields that might exist - only include if they're in your schema
+                // If you have these columns in your table, uncomment them:
+                // lease_terms: listing.leaseTerms,
+                // pet_policy: listing.petPolicy,
+                // broker_name: listing.brokerName,
+                // broker_phone: listing.brokerPhone,
+                // images: listing.images || [],
+                // virtual_tour_url: listing.virtualTourUrl
             }));
+
+            console.log(`     💾 Attempting to cache ${cacheData.length} listings...`);
 
             const { error } = await this.supabase
                 .from('comprehensive_listing_cache')
                 .upsert(cacheData, { onConflict: 'listing_id' });
 
-            if (error) throw error;
+            if (error) {
+                console.error('     ❌ Cache error:', error.message);
+                
+                // If there's still a column error, try with minimal data only
+                if (error.message.includes('column') || error.message.includes('schema')) {
+                    console.log('     🔄 Trying minimal cache data due to schema mismatch...');
+                    
+                    const minimalData = listings.map(listing => ({
+                        listing_id: listing.id,
+                        address: listing.address,
+                        monthly_rent: listing.price,
+                        bedrooms: listing.bedrooms,
+                        bathrooms: listing.bathrooms,
+                        sqft: listing.sqft,
+                        description: listing.description,
+                        neighborhood: listing.neighborhood,
+                        cached_at: new Date().toISOString()
+                    }));
+                    
+                    const { error: minimalError } = await this.supabase
+                        .from('comprehensive_listing_cache')
+                        .upsert(minimalData, { onConflict: 'listing_id' });
+                        
+                    if (minimalError) {
+                        console.error('     ❌ Even minimal cache failed:', minimalError.message);
+                        throw minimalError;
+                    } else {
+                        console.log('     ✅ Minimal cache successful');
+                    }
+                } else {
+                    throw error;
+                }
+            } else {
+                console.log('     ✅ Full cache successful');
+            }
 
         } catch (error) {
             console.error('Failed to cache listings:', error.message);
+            // Don't throw - caching failure shouldn't stop the analysis
         }
     }
 
@@ -444,58 +491,93 @@ class RentStabilizedUndervaluedDetector {
     }
 
     /**
-     * Load rent-stabilized buildings from DHCR data - FIXED LIMIT ISSUE
+     * Load rent-stabilized buildings from DHCR data - FIXED PAGINATION LOGIC
      */
     async loadRentStabilizedBuildingsEnhanced() {
         try {
             console.log('   🔍 Loading ALL rent-stabilized buildings (removing 1000 limit)...');
             
-            // FIX 2: Remove the 1000 limit and load ALL buildings
-            // Use multiple queries if needed to bypass any Supabase row limits
+            // FIX: Use proper pagination with a smaller batch size to avoid hitting limits
             let allBuildings = [];
             let offset = 0;
-            const batchSize = 5000; // Load in batches of 5000
+            const batchSize = 1000; // Smaller batch size to avoid Supabase limits
             let hasMoreData = true;
+            let attempts = 0;
+            const maxAttempts = 10; // Safety limit
             
-            while (hasMoreData) {
-                console.log(`   📊 Loading batch starting at offset ${offset}...`);
+            while (hasMoreData && attempts < maxAttempts) {
+                attempts++;
+                console.log(`   📊 Loading batch ${attempts} starting at offset ${offset}...`);
                 
-                const { data, error } = await this.supabase
-                    .from('rent_stabilized_buildings')
-                    .select('*')
-                    .range(offset, offset + batchSize - 1) // Use range instead of limit
-                    .order('id'); // Ensure consistent ordering
-                
-                if (error) {
-                    console.error(`   ❌ Error loading buildings at offset ${offset}:`, error.message);
-                    throw error;
-                }
-                
-                if (!data || data.length === 0) {
-                    hasMoreData = false;
-                    break;
-                }
-                
-                allBuildings = allBuildings.concat(data);
-                console.log(`   ✅ Loaded ${data.length} buildings (total: ${allBuildings.length})`);
-                
-                // If we got less than the batch size, we've reached the end
-                if (data.length < batchSize) {
-                    hasMoreData = false;
-                } else {
-                    offset += batchSize;
-                }
-                
-                // Safety check to prevent infinite loops
-                if (offset > 50000) { // Reasonable upper limit
-                    console.log('   ⚠️ Reached safety limit of 50,000 buildings');
+                try {
+                    // FIX: Use from/to instead of range which might have issues
+                    const { data, error } = await this.supabase
+                        .from('rent_stabilized_buildings')
+                        .select('*')
+                        .order('id') // Ensure consistent ordering
+                        .limit(batchSize)
+                        .gte('id', offset); // Use ID-based pagination instead of offset
+                    
+                    if (error) {
+                        console.error(`   ❌ Error loading buildings at offset ${offset}:`, error.message);
+                        
+                        // Try fallback with simple offset
+                        console.log('   🔄 Trying fallback pagination method...');
+                        const fallbackQuery = await this.supabase
+                            .from('rent_stabilized_buildings')
+                            .select('*')
+                            .order('id')
+                            .range(offset, offset + batchSize - 1);
+                            
+                        if (fallbackQuery.error) {
+                            throw fallbackQuery.error;
+                        }
+                        
+                        if (!fallbackQuery.data || fallbackQuery.data.length === 0) {
+                            hasMoreData = false;
+                            break;
+                        }
+                        
+                        allBuildings = allBuildings.concat(fallbackQuery.data);
+                        console.log(`   ✅ Fallback loaded ${fallbackQuery.data.length} buildings (total: ${allBuildings.length})`);
+                        
+                        if (fallbackQuery.data.length < batchSize) {
+                            hasMoreData = false;
+                        } else {
+                            offset += batchSize;
+                        }
+                        continue;
+                    }
+                    
+                    if (!data || data.length === 0) {
+                        console.log(`   📋 No more buildings found at offset ${offset}`);
+                        hasMoreData = false;
+                        break;
+                    }
+                    
+                    allBuildings = allBuildings.concat(data);
+                    console.log(`   ✅ Loaded ${data.length} buildings (total: ${allBuildings.length})`);
+                    
+                    // If we got less than the batch size, we've reached the end
+                    if (data.length < batchSize) {
+                        console.log(`   📋 Reached end of data (got ${data.length} < ${batchSize})`);
+                        hasMoreData = false;
+                    } else {
+                        // Update offset to the highest ID we've seen + 1
+                        const highestId = Math.max(...data.map(building => building.id || 0));
+                        offset = highestId + 1;
+                        console.log(`   📈 Next batch will start from ID ${offset}`);
+                    }
+                    
+                } catch (batchError) {
+                    console.error(`   ❌ Batch ${attempts} failed:`, batchError.message);
                     hasMoreData = false;
                 }
             }
             
             console.log(`   ✅ Total rent-stabilized buildings loaded: ${allBuildings.length}`);
             
-            // Also try a direct count to verify our database has more than 1000 records
+            // Verify against database count
             const { count, error: countError } = await this.supabase
                 .from('rent_stabilized_buildings')
                 .select('*', { count: 'exact', head: true });
@@ -505,6 +587,25 @@ class RentStabilizedUndervaluedDetector {
                 
                 if (count > allBuildings.length) {
                     console.log(`   ⚠️ Warning: Only loaded ${allBuildings.length} of ${count} available buildings`);
+                    
+                    // If we're missing a lot, try one more approach
+                    if (allBuildings.length < count * 0.8) { // Less than 80% loaded
+                        console.log('   🔄 Attempting one final load with no limits...');
+                        try {
+                            const { data: finalData, error: finalError } = await this.supabase
+                                .from('rent_stabilized_buildings')
+                                .select('*');
+                                
+                            if (!finalError && finalData && finalData.length > allBuildings.length) {
+                                console.log(`   ✅ Final attempt loaded ${finalData.length} buildings`);
+                                return finalData;
+                            }
+                        } catch (finalError) {
+                            console.log('   ❌ Final attempt failed, using batched data');
+                        }
+                    }
+                } else {
+                    console.log(`   ✅ Successfully loaded all available buildings`);
                 }
             }
 
@@ -513,22 +614,22 @@ class RentStabilizedUndervaluedDetector {
         } catch (error) {
             console.error('Failed to load rent-stabilized buildings:', error.message);
             
-            // Fallback: try the old method but with higher limit
-            console.log('   🔄 Trying fallback method with higher limit...');
+            // Final fallback: try the simplest approach
+            console.log('   🔄 Using simplest fallback method...');
             try {
-                const { data, error: fallbackError } = await this.supabase
+                const { data, error: simpleError } = await this.supabase
                     .from('rent_stabilized_buildings')
                     .select('*')
-                    .limit(10000); // Much higher limit
+                    .limit(10000); // Higher limit than before
                     
-                if (fallbackError) throw fallbackError;
+                if (simpleError) throw simpleError;
                 
-                console.log(`   ✅ Fallback loaded ${(data || []).length} buildings`);
+                console.log(`   ✅ Simple fallback loaded ${(data || []).length} buildings`);
                 return data || [];
                 
-            } catch (fallbackError) {
-                console.error('Fallback also failed:', fallbackError.message);
-                return []; // Return empty array as last resort
+            } catch (simpleError) {
+                console.error('All fallback methods failed:', simpleError.message);
+                return []; // Return empty array as absolute last resort
             }
         }
     }
