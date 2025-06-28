@@ -552,27 +552,30 @@ console.log(`   🔍 After filtering: ${validListings.length} valid listings`);
         return detailed;
     }
 
-    /**
-     * Cache detailed listing
-     */
-    async cacheDetailedListing(listing, neighborhood) {
-        try {
-            const cacheData = {
-                listing_id: listing.id?.toString(),
-                address: listing.address,
-                monthly_rent: listing.price,
-                bedrooms: listing.bedrooms,
-                bathrooms: listing.bathrooms,
-                sqft: listing.sqft || 0,
-                neighborhood: neighborhood,
-                borough: this.getBoroughFromNeighborhood(neighborhood),
-                amenities: listing.amenities || [],
-                description: listing.description || '',
-                market_status: 'pending',
-                last_seen_in_search: new Date().toISOString(),
-                last_checked: new Date().toISOString(),
-                times_seen: 1
-            };
+async cacheDetailedListing(listing, neighborhood) {
+    // ONLY CACHE IF FULLY DETAILED:
+    if (!listing.address || listing.bedrooms === undefined) {
+        console.warn(`     ⚠️ Not caching incomplete listing ${listing.id}`);
+        return;
+    }
+    
+    try {
+        const cacheData = {
+            listing_id: listing.id?.toString(),
+            address: listing.address,  // Now guaranteed to exist
+            monthly_rent: listing.price,
+            bedrooms: listing.bedrooms,
+            bathrooms: listing.bathrooms,
+            sqft: listing.sqft || 0,
+            neighborhood: neighborhood,
+            borough: this.getBoroughFromNeighborhood(neighborhood),
+            amenities: listing.amenities || [],
+            description: listing.description || '',
+            market_status: 'pending',
+            last_seen_in_search: new Date().toISOString(),
+            last_checked: new Date().toISOString(),
+            times_seen: 1
+        };
             
             const { error } = await this.supabase
                 .from('rental_market_cache')
