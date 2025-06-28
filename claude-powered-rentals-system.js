@@ -169,47 +169,51 @@ class ClaudePoweredRentalSystem {
      * Load rent-stabilized buildings from Supabase (with batch loading)
      */
     async loadRentStabilizedBuildings() {
-        try {
-            let allBuildings = [];
-            let offset = 0;
-            const batchSize = 5000;
-            let hasMoreData = true;
+    try {
+        let allBuildings = [];
+        let offset = 0;
+        const batchSize = 1000;  // Keep reasonable batch size
+        let hasMoreData = true;
+        
+        while (hasMoreData) {
+            console.log(`   📊 Loading batch starting at offset ${offset}...`);
             
-            while (hasMoreData) {
-                console.log(`   📊 Loading batch starting at offset ${offset}...`);
-                
-                const { data, error } = await this.supabase
-                    .from('rent_stabilized_buildings')
-                    .select('*')
-                    .range(offset, offset + batchSize - 1)
-                    .order('id');
-                
-                if (error) {
-                    console.error(`   ❌ Error loading buildings at offset ${offset}:`, error.message);
-                    throw error;
-                }
-                
-                if (!data || data.length === 0) {
-                    hasMoreData = false;
-                    break;
-                }
-                
-                allBuildings = allBuildings.concat(data);
-                console.log(`   ✅ Loaded ${data.length} buildings (total: ${allBuildings.length})`);
-                
-                if (data.length < batchSize) {
-                    hasMoreData = false;
-                }
-                offset += batchSize;
-                
-                // Safety check to prevent infinite loops
-                if (offset > 50000) {
-                    console.log('   ⚠️ Reached safety limit of 50,000 buildings');
-                    hasMoreData = false;
-                }
+            const { data, error } = await this.supabase
+                .from('rent_stabilized_buildings')
+                .select('*')
+                .range(offset, offset + batchSize - 1)
+                .order('id');
+            
+            if (error) {
+                console.error(`   ❌ Error loading buildings at offset ${offset}:`, error.message);
+                throw error;
             }
             
-            return allBuildings;
+            // ROBUST STOPPING CONDITION:
+            if (!data || data.length === 0) {
+                hasMoreData = false;
+                break;
+            }
+            
+            allBuildings = allBuildings.concat(data);
+            console.log(`   ✅ Loaded ${data.length} buildings (total: ${allBuildings.length})`);
+            
+            // DYNAMIC CONTINUATION:
+            if (data.length < batchSize) {
+                // Got fewer records than requested = reached the end
+                hasMoreData = false;
+            }
+            
+            offset += batchSize;
+            
+            // SAFETY CHECK (higher limit for 50k+ buildings):
+            if (offset > 100000) {
+                console.log('   ⚠️ Reached safety limit of 100,000 buildings');
+                hasMoreData = false;
+            }
+        }
+        
+        return allBuildings;
             
         } catch (error) {
             console.error('Failed to load rent-stabilized buildings:', error.message);
@@ -376,14 +380,14 @@ if (response.data) {
 
 console.log(`   🔍 Extracted ${listings.length} listings from response`);
             
-            // Filter valid listings
-            const validListings = listings.filter(listing => 
-                listing && 
-                listing.price > 0 && 
-                listing.bedrooms !== undefined &&
-                listing.address &&
-                listing.id
-            );
+           // Filter valid listings (only check what's available in initial response)
+const validListings = listings.filter(listing => 
+    listing && 
+    listing.id &&
+    listing.price > 0
+);
+
+console.log(`   🔍 After filtering: ${validListings.length} valid listings`);
             
             // Check cache for existing listings
             const listingIds = validListings.map(l => l.id?.toString()).filter(Boolean);
