@@ -370,22 +370,25 @@ class EnhancedClaudeMarketAnalyzer {
      * Analyze property details comprehensively
      */
     analyzePropertyDetails(property, type) {
-        const sqft = property.sqft || 0;
-        const price = type === 'sales' ? property.salePrice : property.price;
-        
-        return {
-            pricePerSqft: sqft > 0 ? price / sqft : null,
-            spaceEfficiency: this.calculateSpaceEfficiency(property),
-            amenityScore: this.calculateAmenityScore(property.amenities || []),
-            amenityCount: (property.amenities || []).length,
-            descriptionAnalysis: this.analyzeDescription(property.description || ''),
-            buildingQuality: this.assessBuildingQuality(property),
-            locationFactors: this.analyzeLocationFactors(property),
-            marketPosition: this.assessMarketPosition(property, type),
-            conditionScore: this.assessConditionFromDescription(property.description || ''),
-            uniqueFeatures: this.extractUniqueFeatures(property.description || '', property.amenities || [])
-        };
-    }
+    // FIXED: Safely handle null/undefined address AND keep all original functionality
+    const address = property.address || '';
+    const description = property.description || '';
+    const sqft = property.sqft || 0;
+    const price = type === 'sales' ? property.salePrice : property.price;
+    
+    return {
+        pricePerSqft: sqft > 0 ? price / sqft : null,
+        spaceEfficiency: this.calculateSpaceEfficiency(property),
+        amenityScore: this.calculateAmenityScore(property.amenities || []),
+        amenityCount: (property.amenities || []).length,
+        descriptionAnalysis: this.analyzeDescription(description),
+        buildingQuality: this.assessBuildingQuality(property),
+        locationFactors: this.analyzeLocationFactors(property),
+        marketPosition: this.assessMarketPosition(property, type),
+        conditionScore: this.assessConditionFromDescription(description),
+        uniqueFeatures: this.extractUniqueFeatures(description, property.amenities || [])
+    };
+}
 
     /**
      * Call Claude API for enhanced sales analysis
@@ -1468,19 +1471,20 @@ Return comprehensive analysis as JSON only.`;
     }
 
     analyzeLocationFactors(property) {
-        const address = (property.address || '').toLowerCase();
-        const factors = [];
-        
-        // Street type indicators
-        if (address.includes('avenue') || address.includes('ave')) {
-            factors.push('major_avenue');
-        }
-        if (address.includes('street') || address.includes('st')) {
-            factors.push('residential_street');
-        }
-        
-        return factors;
+    // FIXED: Safely handle null/undefined address
+    const address = (property.address || '').toLowerCase();
+    const factors = [];
+    
+    // Street type indicators
+    if (address.includes('avenue') || address.includes('ave')) {
+        factors.push('major_avenue');
     }
+    if (address.includes('street') || address.includes('st')) {
+        factors.push('residential_street');
+    }
+    
+    return factors;
+}
 
     assessMarketPosition(property, type) {
         const price = type === 'sales' ? property.salePrice : property.price;
