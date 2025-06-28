@@ -155,8 +155,8 @@ class EnhancedClaudeMarketAnalyzer {
                 estimatedMarketRent: analysis.estimatedMarketRent,
                 percentBelowMarket: analysis.percentBelowMarket,
                 confidence: analysis.confidence,
-                score: analysis.score,                    // ✅ ADD THIS LINE
-                dealQuality: analysis.dealQuality,        // ✅ ADD THIS LINE
+                score: analysis.score,
+                dealQuality: analysis.dealQuality,
                 method: 'enhanced_claude_comparative_analysis',
                 comparablesUsed: comparableProperties.length,
                 adjustments: analysis.adjustmentBreakdown || [],
