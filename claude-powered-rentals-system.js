@@ -334,7 +334,7 @@ console.log(`   🔄 Ready for analysis: ${allListings.length} complete properti
             }
             
             // Step 6: Update cache with analysis results
-            await this.updateCacheWithResults(detailedListings, analyzedProperties);
+            await this.updateCacheWithResults(completeListings, analyzedProperties);
             
             return results;
             
