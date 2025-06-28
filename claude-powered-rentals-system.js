@@ -265,7 +265,7 @@ class ClaudePoweredRentalSystem {
             
             // Step 4: Claude analysis for each property
             const analyzedProperties = [];
-            const analysisLimit = Math.min(50, allListings.length); // Limit for efficiency
+            const analysisLimit = allListings.length; // No limit
             
             for (const property of allListings.slice(0, analysisLimit)) {
                 try {
