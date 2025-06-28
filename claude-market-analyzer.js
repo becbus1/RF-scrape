@@ -465,6 +465,14 @@ try {
 } catch (parseError) {
     console.warn(`   ⚠️ JSON parse error, attempting enhanced extraction: ${parseError.message}`);
     
+    // Clean the response for fallback attempts too
+    let cleanedResponse = responseText
+        .replace(/[\u0000-\u001F\u007F-\u009F]/g, "") // Remove control characters
+        .replace(/\\/g, "\\\\") // Escape backslashes
+        .replace(/\n/g, "\\n") // Escape newlines
+        .replace(/\r/g, "\\r") // Escape carriage returns
+        .replace(/\t/g, "\\t"); // Escape tabs
+    
     // Enhanced JSON extraction with better regex
     const jsonMatch = cleanedResponse.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
@@ -477,7 +485,7 @@ try {
     }
     
     // Fallback: extract key-value pairs
-    const extractedData = this.extractDataFromResponse(responseText);
+    const extractedData = this.extractDataFromResponse(cleanedResponse);
     if (extractedData) {
         return { success: true, analysis: extractedData };
     }
