@@ -1012,111 +1012,176 @@ Return comprehensive analysis as JSON only.`;
     }
 
     /**
-     * Build comprehensive sales reasoning from Claude's detailed analysis
+     * Build comprehensive sales reasoning from Claude's detailed analysis - Mixed investor/consumer approach
      */
     buildComprehensiveSalesReasoning(analysis, targetProperty, context) {
         const segments = [];
         
-        // Market positioning with specific data
+        // Market positioning with specific data (consumer-friendly language)
         if (analysis.keyMetrics?.pricePercentile) {
             segments.push(
-                `Property is ${analysis.discountPercent}% below estimated market value of ${analysis.estimatedMarketPrice?.toLocaleString()}, ` +
-                `ranking in the ${analysis.keyMetrics.pricePercentile}th percentile for ${targetProperty.neighborhood}.`
+                `This property is priced ${analysis.discountPercent}% below its estimated market value of ${analysis.estimatedMarketPrice?.toLocaleString()}, ` +
+                `making it one of the better deals in ${targetProperty.neighborhood} (better value than ${100 - analysis.keyMetrics.pricePercentile}% of similar properties).`
             );
         } else {
             segments.push(
-                `Property is ${analysis.discountPercent}% below estimated market value of ${analysis.estimatedMarketPrice?.toLocaleString()} ` +
-                `based on analysis of ${context.totalComparables} comparable properties.`
+                `This property offers excellent value at ${analysis.discountPercent}% below estimated market price of ${analysis.estimatedMarketPrice?.toLocaleString()}, ` +
+                `based on careful comparison with ${context.totalComparables} similar properties in the area.`
             );
         }
         
-        // Detailed market comparison
+        // Detailed market comparison (lifestyle + investment blend)
         if (analysis.detailedAnalysis?.marketComparison) {
             segments.push(analysis.detailedAnalysis.marketComparison);
         }
         
-        // Amenity and building analysis
+        // Amenity and building analysis (consumer benefits focus)
         if (analysis.detailedAnalysis?.amenityAnalysis) {
             segments.push(analysis.detailedAnalysis.amenityAnalysis);
         }
         
-        // Investment merit
+        // Investment merit (accessible financial language)
         if (analysis.detailedAnalysis?.investmentMerit) {
-            segments.push(analysis.detailedAnalysis.investmentMerit);
+            const friendlyMerit = analysis.detailedAnalysis.investmentMerit
+                .replace(/ROI/g, 'potential returns')
+                .replace(/cash-on-cash/g, 'yearly income')
+                .replace(/investment-grade/g, 'high-quality')
+                .replace(/liquidity/g, 'resale potential');
+            segments.push(friendlyMerit);
         }
         
-        // Risk considerations
+        // Risk considerations (practical concerns)
         if (analysis.detailedAnalysis?.riskFactors && analysis.confidence < 85) {
-            segments.push(`Key risks: ${analysis.detailedAnalysis.riskFactors}`);
+            const friendlyRisks = analysis.detailedAnalysis.riskFactors
+                .replace(/risk factors/g, 'things to consider')
+                .replace(/mitigation/g, 'ways to address');
+            segments.push(`Important considerations: ${friendlyRisks}`);
         }
         
-        // Confidence and methodology
+        // Confidence and methodology (accessible explanation)
         const methodology = analysis.comparableInsights?.bestComparables?.length ? 
-            `${analysis.comparableInsights.bestComparables.length} high-quality comparables` : 
-            `${context.totalComparables} market comparables`;
+            `${analysis.comparableInsights.bestComparables.length} very similar properties` : 
+            `${context.totalComparables} comparable properties`;
+            
+        const qualityDescription = analysis.keyMetrics?.buildingQuality >= 8 ? 'excellent' :
+                                 analysis.keyMetrics?.buildingQuality >= 6 ? 'good' : 'average';
             
         segments.push(
-            `Analysis confidence: ${analysis.confidence}% using ${analysis.keyMetrics?.investmentGrade || 'B'}-grade ` +
-            `methodology with ${methodology} and ${analysis.keyMetrics?.buildingQuality || 5}/10 building quality assessment.`
+            `Our analysis has ${analysis.confidence}% confidence based on ${methodology} ` +
+            `and shows this is a ${qualityDescription} building in a ${this.getNeighborhoodDescription(targetProperty.neighborhood)} neighborhood.`
         );
         
         return segments.join(' ');
     }
 
     /**
-     * Build comprehensive rentals reasoning from Claude's detailed analysis
+     * Build comprehensive rentals reasoning from Claude's detailed analysis - Mixed investor/consumer approach
      */
     buildComprehensiveRentalsReasoning(analysis, targetProperty, context) {
         const segments = [];
         
-        // Market positioning with percentile
+        // Market positioning with percentile (consumer-friendly language)
         if (analysis.keyMetrics?.rentPercentile) {
             segments.push(
-                `Rental is ${analysis.percentBelowMarket}% below estimated market rent of ${analysis.estimatedMarketRent?.toLocaleString()}/month, ` +
-                `ranking in the ${analysis.keyMetrics.rentPercentile}th percentile for ${targetProperty.neighborhood}.`
+                `This rental is priced ${analysis.percentBelowMarket}% below the typical market rent of ${analysis.estimatedMarketRent?.toLocaleString()}/month, ` +
+                `offering better value than ${100 - analysis.keyMetrics.rentPercentile}% of similar rentals in ${targetProperty.neighborhood}.`
             );
         } else {
             segments.push(
-                `Rental is ${analysis.percentBelowMarket}% below estimated market rent of ${analysis.estimatedMarketRent?.toLocaleString()}/month ` +
-                `based on analysis of ${context.totalComparables} comparable rentals.`
+                `This rental offers excellent value at ${analysis.percentBelowMarket}% below market rate of ${analysis.estimatedMarketRent?.toLocaleString()}/month, ` +
+                `based on comparison with ${context.totalComparables} similar rentals in the area.`
             );
         }
         
-        // Rent stabilization analysis
+        // Rent stabilization analysis (practical benefits language)
+        const stabilizationDescription = analysis.rentStabilizedProbability >= 80 ? 'very likely' :
+                                        analysis.rentStabilizedProbability >= 60 ? 'likely' :
+                                        analysis.rentStabilizedProbability >= 40 ? 'possibly' : 'unlikely to be';
+        
         segments.push(
-            `Rent stabilization probability: ${analysis.rentStabilizedProbability}% based on ` +
-            `${analysis.rentStabilizedFactors?.length || 0} legal indicators including ${analysis.rentStabilizedFactors?.slice(0, 2).join(' and ') || 'building characteristics'}.`
+            `This unit is ${stabilizationDescription} rent-stabilized (${analysis.rentStabilizedProbability}% chance), ` +
+            `which means ${this.explainRentStabilizationBenefits(analysis.rentStabilizedProbability)} ` +
+            `based on ${analysis.rentStabilizedFactors?.length || 0} key indicators like ${analysis.rentStabilizedFactors?.slice(0, 2).join(' and ') || 'building characteristics'}.`
         );
         
-        // Market comparison
+        // Market comparison (lifestyle focus)
         if (analysis.detailedAnalysis?.rentAnalysis) {
-            segments.push(analysis.detailedAnalysis.rentAnalysis);
+            const friendlyRentAnalysis = analysis.detailedAnalysis.rentAnalysis
+                .replace(/market positioning/g, 'compared to similar rentals')
+                .replace(/percentile/g, 'compared to others')
+                .replace(/market velocity/g, 'how quickly rentals are rented');
+            segments.push(friendlyRentAnalysis);
         }
         
-        // Investment value
-        if (analysis.investmentAnalysis?.annualSavings) {
+        // Investment value (practical savings focus)
+        if (analysis.investmentAnalysis?.annualSavings || (analysis.estimatedMarketRent - targetProperty.price) * 12 > 0) {
+            const annualSavings = analysis.investmentAnalysis?.annualSavings || (analysis.estimatedMarketRent - targetProperty.price) * 12;
+            const protectionLevel = analysis.investmentAnalysis?.tenantProtection || 
+                                  (analysis.rentStabilizedProbability >= 70 ? 'strong' : 
+                                   analysis.rentStabilizedProbability >= 40 ? 'moderate' : 'limited');
+            
             segments.push(
-                `Investment merit: ${analysis.investmentAnalysis.annualSavings.toLocaleString()} annual savings potential ` +
-                `with ${analysis.investmentAnalysis?.tenantProtection || 'moderate'} tenant protection value.`
+                `You could save approximately ${annualSavings.toLocaleString()} per year compared to market rate, ` +
+                `plus enjoy ${protectionLevel} protection from unexpected rent increases.`
             );
         }
         
-        // Risk and protection analysis
+        // Risk and protection analysis (practical considerations)
         if (analysis.detailedAnalysis?.riskFactors) {
-            segments.push(`Risk considerations: ${analysis.detailedAnalysis.riskFactors}`);
+            const friendlyRisks = analysis.detailedAnalysis.riskFactors
+                .replace(/risk factors/g, 'things to keep in mind')
+                .replace(/tenant protection/g, 'renter protections');
+            segments.push(`Important considerations: ${friendlyRisks}`);
         }
         
-        // Confidence breakdown
+        // Confidence breakdown (accessible explanation)
         const dataQuality = analysis.confidenceFactors?.data_quality || analysis.confidence;
         const legalFramework = analysis.confidenceFactors?.legal_framework || analysis.rentStabilizedProbability;
         
+        const qualityDescription = dataQuality >= 85 ? 'excellent' : dataQuality >= 70 ? 'good' : 'fair';
+        const legalDescription = legalFramework >= 80 ? 'strong' : legalFramework >= 60 ? 'solid' : 'limited';
+        
         segments.push(
-            `Analysis confidence: ${analysis.confidence}% (data quality: ${dataQuality}%, ` +
-            `legal framework: ${legalFramework}%) using ${context.totalComparables} market comparables ` +
-            `and comprehensive rent stabilization legal analysis.`
+            `Our analysis has ${analysis.confidence}% confidence with ${qualityDescription} data quality and ${legalDescription} legal indicators, ` +
+            `using ${context.totalComparables} comparable rentals and comprehensive rent stabilization research.`
         );
         
         return segments.join(' ');
+    }
+
+    /**
+     * Helper method to explain rent stabilization benefits in consumer-friendly terms
+     */
+    explainRentStabilizationBenefits(probability) {
+        if (probability >= 80) {
+            return "you'll have strong protection from large rent increases, with annual increases typically limited to 2-4%";
+        } else if (probability >= 60) {
+            return "you may have good protection from excessive rent increases";
+        } else if (probability >= 40) {
+            return "there could be some protection from rent increases";
+        } else {
+            return "standard market-rate protections apply";
+        }
+    }
+
+    /**
+     * Helper method to get consumer-friendly neighborhood descriptions
+     */
+    getNeighborhoodDescription(neighborhood) {
+        const descriptions = {
+            'soho': 'highly desirable and trendy',
+            'tribeca': 'prestigious and family-friendly',
+            'west-village': 'charming and historic',
+            'greenwich-village': 'vibrant and cultural',
+            'dumbo': 'waterfront and modern',
+            'brooklyn-heights': 'historic and scenic',
+            'park-slope': 'family-friendly and well-established',
+            'williamsburg': 'hip and rapidly growing',
+            'long-island-city': 'up-and-coming with great city access',
+            'astoria': 'diverse and affordable'
+        };
+        
+        return descriptions[neighborhood.toLowerCase()] || 'well-located';
     }
 
     // Enhanced validation methods
