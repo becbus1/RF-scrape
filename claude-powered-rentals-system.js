@@ -712,6 +712,7 @@ async cacheDetailedListing(listing, neighborhood) {
                 
                 // Scoring and classification
                 deal_quality_score: this.calculateDealQualityScore(property),
+                deal_quality: this.calculateDealQuality(this.calculateDealQualityScore(property)),
                 market_classification: this.classifyRentStabilizedProperty(property),
                 
                 // Timestamps
@@ -779,6 +780,7 @@ async cacheDetailedListing(listing, neighborhood) {
                 // Analysis results (NO rent stabilization fields)
                 score: this.calculatePropertyScore(property),
                 grade: this.calculatePropertyGrade(property),
+                deal_quality: this.calculateDealQuality(this.calculatePropertyScore(property)),
                 reasoning: property.reasoning || '',
                 comparison_method: 'claude_ai_analysis',
                 reliability_score: property.undervaluationConfidence,
@@ -1047,6 +1049,16 @@ async cacheDetailedListing(listing, neighborhood) {
             rateLimitHits: this.rateLimitHits,
             estimatedCost: this.apiCallsUsed * 0.0006
         };
+    }
+/**
+     * Calculate deal quality from score
+     */
+    calculateDealQuality(score) {
+        if (score >= 90) return 'best';
+        if (score >= 80) return 'excellent'; 
+        if (score >= 70) return 'good';
+        if (score >= 60) return 'fair';
+        return 'marginal';
     }
 }
 
