@@ -1715,6 +1715,7 @@ class EnhancedBiWeeklySalesAnalyzer {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
 
+
     /**
      * Calculate deal quality from score
      */
@@ -1725,7 +1726,6 @@ class EnhancedBiWeeklySalesAnalyzer {
         if (score >= 60) return 'fair';
         return 'marginal';
     }
-}
 
     /**
      * Main bi-weekly sales refresh with SMART DEDUPLICATION + ADVANCED VALUATION
