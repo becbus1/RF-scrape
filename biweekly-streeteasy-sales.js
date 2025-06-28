@@ -1716,6 +1716,18 @@ class EnhancedBiWeeklySalesAnalyzer {
     }
 
     /**
+     * Calculate deal quality from score
+     */
+    calculateDealQuality(score) {
+        if (score >= 90) return 'best';
+        if (score >= 80) return 'excellent'; 
+        if (score >= 70) return 'good';
+        if (score >= 60) return 'fair';
+        return 'marginal';
+    }
+}
+
+    /**
      * Main bi-weekly sales refresh with SMART DEDUPLICATION + ADVANCED VALUATION
      */
     async runBiWeeklySalesRefresh() {
@@ -2377,6 +2389,7 @@ async analyzeForAdvancedSalesUndervaluation(detailedSales, neighborhood) {
                     // Advanced analysis results
                     score: parseInt(sale.score) || 0,
                     grade: sale.grade || 'F',
+                    deal_quality: this.calculateDealQuality(parseInt(sale.score) || 0),
                     reasoning: sale.reasoning || '',
                     comparison_group: sale.comparisonGroup || '',
                     comparison_method: sale.valuationMethod || sale.comparisonMethod || '',
