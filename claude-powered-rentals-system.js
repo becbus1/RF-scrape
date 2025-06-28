@@ -199,9 +199,8 @@ class ClaudePoweredRentalSystem {
                 
                 if (data.length < batchSize) {
                     hasMoreData = false;
-                } else {
-                    offset += batchSize;
                 }
+                offset += batchSize;
                 
                 // Safety check to prevent infinite loops
                 if (offset > 50000) {
@@ -349,7 +348,7 @@ class ClaudePoweredRentalSystem {
             
             const response = await axios.get('https://streeteasy-api.p.rapidapi.com/rentals/search', {
                 params: {
-                    neighborhood: neighborhood,
+                    areas: neighborhood,
                     limit: this.maxListingsPerNeighborhood
                 },
                 headers: {
