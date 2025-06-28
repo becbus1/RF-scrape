@@ -80,6 +80,12 @@ class RentStabilizedUndervaluedDetector {
         console.log('🏢 NYC Rent-Stabilized & Undervaluation Detector initialized');
         console.log(`📊 Confidence threshold: ${this.confidenceThreshold}%`);
         console.log(`💰 Undervaluation threshold: ${this.undervaluationThreshold}%`);
+        
+        // DEBUG: API Configuration Check
+        console.log(`🔑 API Key configured: ${this.rapidApiKey ? 'Yes' : 'No'}`);
+        if (this.testNeighborhood) {
+            console.log(`🧪 Test neighborhood: ${this.testNeighborhood}`);
+        }
     }
 
     /**
@@ -264,7 +270,7 @@ class RentStabilizedUndervaluedDetector {
     }
 
     /**
-     * Fetch basic listing IDs from StreetEasy API
+     * Fetch basic listing IDs from StreetEasy API - UNIFIED HOST
      */
     async fetchBasicListingIds(neighborhood, maxListings) {
         try {
@@ -275,50 +281,76 @@ class RentStabilizedUndervaluedDetector {
 
             console.log(`       🌐 Fetching basic listing IDs for ${neighborhood}...`);
             
-            const response = await axios.get('https://streeteasy1.p.rapidapi.com/rentals/search', {
+            // UNIFIED: Use streeteasy-api.p.rapidapi.com for both search and individual listings
+            const response = await axios.get('https://streeteasy-api.p.rapidapi.com/rentals/search', {
                 headers: {
                     'X-RapidAPI-Key': this.rapidApiKey,
-                    'X-RapidAPI-Host': 'streeteasy1.p.rapidapi.com'
+                    'X-RapidAPI-Host': 'streeteasy-api.p.rapidapi.com'
                 },
                 params: {
-                    neighborhood: neighborhood,
+                    areas: neighborhood, // Using 'areas' parameter for consistency
                     limit: Math.min(maxListings, 500),
-                    offset: 0,
-                    format: 'json'
+                    minPrice: 1000,
+                    maxPrice: 20000,
+                    offset: 0
                 },
                 timeout: 30000
             });
 
             this.apiCallsUsed++;
+            console.log(`       📡 API Response Status: ${response.status}`);
 
-            if (response.data && response.data.rentals) {
-                return response.data.rentals.map(rental => ({
-                    id: rental.id?.toString(),
-                    address: rental.address || 'Unknown Address',
-                    price: rental.price || 0,
-                    neighborhood: neighborhood
-                }));
+            // Handle flexible response structure
+            let listings = [];
+            if (response.data) {
+                if (response.data.results && Array.isArray(response.data.results)) {
+                    listings = response.data.results;
+                } else if (response.data.rentals && Array.isArray(response.data.rentals)) {
+                    listings = response.data.rentals;
+                } else if (response.data.listings && Array.isArray(response.data.listings)) {
+                    listings = response.data.listings;
+                } else if (Array.isArray(response.data)) {
+                    listings = response.data;
+                }
             }
 
-            return [];
+            if (listings.length > 0) {
+                console.log(`       ✅ Found ${listings.length} basic listings for ${neighborhood}`);
+                return listings.map(rental => ({
+                    id: rental.id?.toString(),
+                    address: rental.address || 'Unknown Address',
+                    price: rental.price || rental.monthlyRent || 0,
+                    neighborhood: neighborhood
+                }));
+            } else {
+                console.log(`       ⚠️ No listings found in API response for ${neighborhood}`);
+                console.log(`       📊 Response structure:`, Object.keys(response.data || {}));
+                return [];
+            }
 
         } catch (error) {
             console.error(`       ❌ StreetEasy API error for ${neighborhood}:`, error.message);
+            if (error.response) {
+                console.error(`       📊 Status: ${error.response.status}, Data:`, error.response.data);
+            }
             return [];
         }
     }
 
     /**
-     * Fetch individual listing details with full data
+     * Fetch individual listing details - CORRECTED TO USE PROPER ENDPOINT
      */
     async fetchIndividualListingDetails(listingId) {
         try {
             if (!this.rapidApiKey) return null;
 
-            const response = await axios.get(`https://streeteasy1.p.rapidapi.com/rentals/${listingId}`, {
+            console.log(`         🔍 Fetching details for listing ${listingId}...`);
+
+            // CORRECT: Use streeteasy-api.p.rapidapi.com for individual listing details
+            const response = await axios.get(`https://streeteasy-api.p.rapidapi.com/rentals/${listingId}`, {
                 headers: {
                     'X-RapidAPI-Key': this.rapidApiKey,
-                    'X-RapidAPI-Host': 'streeteasy1.p.rapidapi.com'
+                    'X-RapidAPI-Host': 'streeteasy-api.p.rapidapi.com'
                 },
                 timeout: 30000
             });
@@ -326,12 +358,17 @@ class RentStabilizedUndervaluedDetector {
             this.apiCallsUsed++;
 
             const data = response.data;
-            if (!data) return null;
+            if (!data) {
+                console.log(`         ⚠️ No data returned for listing ${listingId}`);
+                return null;
+            }
+
+            console.log(`         ✅ Successfully fetched details for ${listingId}`);
 
             return {
                 id: data.id?.toString(),
                 address: data.address || 'Unknown Address',
-                price: data.price || 0,
+                price: data.price || data.monthlyRent || 0,
                 bedrooms: data.bedrooms || 0,
                 bathrooms: data.bathrooms || 0,
                 sqft: data.sqft || 0,
@@ -353,7 +390,10 @@ class RentStabilizedUndervaluedDetector {
             };
 
         } catch (error) {
-            console.error(`Failed to fetch details for listing ${listingId}:`, error.message);
+            console.error(`         ❌ Failed to fetch details for listing ${listingId}:`, error.message);
+            if (error.response) {
+                console.error(`         📊 Status: ${error.response.status}, Data:`, error.response.data);
+            }
             return null;
         }
     }
@@ -404,22 +444,92 @@ class RentStabilizedUndervaluedDetector {
     }
 
     /**
-     * Load rent-stabilized buildings from DHCR data
+     * Load rent-stabilized buildings from DHCR data - FIXED LIMIT ISSUE
      */
     async loadRentStabilizedBuildingsEnhanced() {
         try {
-            const { data, error } = await this.supabase
+            console.log('   🔍 Loading ALL rent-stabilized buildings (removing 1000 limit)...');
+            
+            // FIX 2: Remove the 1000 limit and load ALL buildings
+            // Use multiple queries if needed to bypass any Supabase row limits
+            let allBuildings = [];
+            let offset = 0;
+            const batchSize = 5000; // Load in batches of 5000
+            let hasMoreData = true;
+            
+            while (hasMoreData) {
+                console.log(`   📊 Loading batch starting at offset ${offset}...`);
+                
+                const { data, error } = await this.supabase
+                    .from('rent_stabilized_buildings')
+                    .select('*')
+                    .range(offset, offset + batchSize - 1) // Use range instead of limit
+                    .order('id'); // Ensure consistent ordering
+                
+                if (error) {
+                    console.error(`   ❌ Error loading buildings at offset ${offset}:`, error.message);
+                    throw error;
+                }
+                
+                if (!data || data.length === 0) {
+                    hasMoreData = false;
+                    break;
+                }
+                
+                allBuildings = allBuildings.concat(data);
+                console.log(`   ✅ Loaded ${data.length} buildings (total: ${allBuildings.length})`);
+                
+                // If we got less than the batch size, we've reached the end
+                if (data.length < batchSize) {
+                    hasMoreData = false;
+                } else {
+                    offset += batchSize;
+                }
+                
+                // Safety check to prevent infinite loops
+                if (offset > 50000) { // Reasonable upper limit
+                    console.log('   ⚠️ Reached safety limit of 50,000 buildings');
+                    hasMoreData = false;
+                }
+            }
+            
+            console.log(`   ✅ Total rent-stabilized buildings loaded: ${allBuildings.length}`);
+            
+            // Also try a direct count to verify our database has more than 1000 records
+            const { count, error: countError } = await this.supabase
                 .from('rent_stabilized_buildings')
-                .select('*')
-                .limit(5000);
+                .select('*', { count: 'exact', head: true });
+                
+            if (!countError && count !== null) {
+                console.log(`   📊 Database contains ${count} total rent-stabilized buildings`);
+                
+                if (count > allBuildings.length) {
+                    console.log(`   ⚠️ Warning: Only loaded ${allBuildings.length} of ${count} available buildings`);
+                }
+            }
 
-            if (error) throw error;
-
-            return data || [];
+            return allBuildings;
             
         } catch (error) {
             console.error('Failed to load rent-stabilized buildings:', error.message);
-            return [];
+            
+            // Fallback: try the old method but with higher limit
+            console.log('   🔄 Trying fallback method with higher limit...');
+            try {
+                const { data, error: fallbackError } = await this.supabase
+                    .from('rent_stabilized_buildings')
+                    .select('*')
+                    .limit(10000); // Much higher limit
+                    
+                if (fallbackError) throw fallbackError;
+                
+                console.log(`   ✅ Fallback loaded ${(data || []).length} buildings`);
+                return data || [];
+                
+            } catch (fallbackError) {
+                console.error('Fallback also failed:', fallbackError.message);
+                return []; // Return empty array as last resort
+            }
         }
     }
 
