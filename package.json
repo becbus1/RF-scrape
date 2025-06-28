@@ -1,17 +1,17 @@
 {
  "name": "nyc-rent-stabilized-finder",
  "version": "3.0.0",
- "description": "NYC Rent-Stabilized Apartment Finder - Find undervalued rent-stabilized listings",
+ "description": "NYC Rent-Stabilized Apartment Finder - Find undervalued rent-stabilized listings with Claude AI",
  "main": "railway-sequential-runner.js",
  "scripts": {
    "start": "node railway-sequential-runner.js",
    
    "rent-stabilized": "node railway-sequential-runner.js",
-   "rent-stabilized:test": "node rent-stabilized-undervalued-system.js --test",
-   "rent-stabilized:setup": "node rent-stabilized-undervalued-system.js --setup",
+   "rent-stabilized:test": "node claude-powered-rentals-system.js --test",
+   "rent-stabilized:setup": "node claude-powered-rentals-system.js --setup",
    
-   "test": "node rent-stabilized-undervalued-system.js --test",
-   "setup": "node rent-stabilized-undervalued-system.js --setup",
+   "test": "node claude-powered-rentals-system.js --test",
+   "setup": "node claude-powered-rentals-system.js --setup",
    
    "sales": "echo '❌ Sales scraper disabled - focusing on rent-stabilized only'",
    "rentals": "echo '❌ Rentals scraper disabled - focusing on rent-stabilized only'",
@@ -22,10 +22,13 @@
    "legacy-rentals": "node biweekly-streeteasy-rentals.js",
    "legacy-both": "echo '⚠️ Legacy mode - use with caution. Sales & rentals disabled by default.'",
    
-   "setup-db": "node rent-stabilized-undervalued-system.js --setup",
-   "cleanup": "node rent-stabilized-undervalued-system.js --cleanup",
+   "setup-db": "node claude-powered-rentals-system.js --setup",
+   "cleanup": "node claude-powered-rentals-system.js --cleanup",
    
-   "lint": "eslint *.js || echo 'ESLint not configured'"
+   "lint": "eslint *.js || echo 'ESLint not configured'",
+   
+   "claude-test": "node claude-powered-rentals-system.js --summary",
+   "claude-help": "node claude-powered-rentals-system.js --help"
  },
  "keywords": [
    "nyc",
@@ -44,7 +47,10 @@
    "queens",
    "bronx",
    "streeteasy",
-   "railway-deployment"
+   "railway-deployment",
+   "claude-ai",
+   "anthropic",
+   "ai-analysis"
  ],
  "author": "Your Name",
  "license": "MIT",
@@ -76,10 +82,17 @@
   "bronx": "https://rentguidelinesboard.cityofnewyork.us/wp-content/uploads/2024/11/2023-DHCR-Bldg-File-Bronx.pdf",
   "queens": "https://rentguidelinesboard.cityofnewyork.us/wp-content/uploads/2024/11/2023-DHCR-Bldg-File-Queens.pdf"
 },
-     "confidence_threshold": 70,
+     "confidence_threshold": 40,
      "undervaluation_threshold": 15,
+     "stabilized_undervaluation_threshold": -100,
      "cache_duration_days": 100,
      "max_listings_per_neighborhood": 500
+   },
+   "claude_ai": {
+     "model": "claude-3-haiku-20240307",
+     "max_tokens": 2000,
+     "temperature": 0.1,
+     "analysis_type": "comparative_market_analysis"
    },
    "disabled_features": {
      "sales_scraper": "DISABLED - focusing on rent-stabilized only",
@@ -91,15 +104,20 @@
      "entry_point": "railway-sequential-runner.js",
      "mode": "rent_stabilized_only",
      "auto_cleanup": true,
-     "error_notifications": true
+     "error_notifications": true,
+     "claude_integration": true
    }
  },
  "scripts_description": {
    "Production Scripts": {
-     "start": "Main Railway entry point - runs rent-stabilized finder",
-     "rent-stabilized": "Run rent-stabilized + undervaluation analysis",
-     "rent-stabilized:test": "Test mode with limited neighborhoods",
+     "start": "Main Railway entry point - runs Claude-powered rent-stabilized finder",
+     "rent-stabilized": "Run Claude-powered rent-stabilized + undervaluation analysis",
+     "rent-stabilized:test": "Test Claude system with limited neighborhoods",
      "rent-stabilized:setup": "Initialize database and download DHCR data"
+   },
+   "Claude AI Scripts": {
+     "claude-test": "Show summary of Claude analysis results",
+     "claude-help": "Display Claude system help and configuration"
    },
    "Disabled Scripts": {
      "sales": "❌ DISABLED - shows error message",
