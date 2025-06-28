@@ -236,27 +236,28 @@ class ClaudePoweredRentalSystem {
         };
         
         try {
-            // Step 1: Get rental listings with caching
-            const listingResults = await this.fetchNeighborhoodListingsWithCache(neighborhood);
-            results.cacheHits += listingResults.cacheHits;
-            results.apiCalls += 1; // API call for listings
-            
-            console.log(`   📋 Found ${listingResults.totalFound} listings (${listingResults.cacheHits} cache hits, ${listingResults.newListings.length} new)`);
-            
-            if (listingResults.totalFound === 0) {
-                console.log(`   ⚠️ No listings found for ${neighborhood}`);
-                return results;
-            }
-            
-            // Step 2: Get detailed info for new listings only
-            const detailedListings = await this.fetchDetailedListingsWithCache(listingResults.newListings, neighborhood);
-            results.apiCalls += listingResults.newListings.length;
-            
-            console.log(`   📊 Got details for ${detailedListings.length} new properties`);
-            
-            // Step 3: Get all cached + new listings for analysis
-            const allListings = await this.getCachedListingsForNeighborhood(neighborhood);
-            console.log(`   🔄 Total properties for analysis: ${allListings.length} (including cached)`);
+            // Step 1: Get basic listing IDs from search (no caching)
+const listingResults = await this.fetchNeighborhoodListingsWithCache(neighborhood);
+results.apiCalls += 1; // API call for listings
+
+console.log(`   📋 Found ${listingResults.totalFound} basic listings`);
+
+if (listingResults.totalFound === 0) {
+    console.log(`   ⚠️ No listings found for ${neighborhood}`);
+    return results;
+}
+
+// Step 2: Get complete details for ALL listings (with smart caching)
+const allBasicListings = listingResults.totalFound > 0 ? 
+    [...listingResults.newListings, ...listingResults.cachedBasicListings || []] : 
+    listingResults.newListings;
+
+const completeListings = await this.fetchDetailedListingsWithCache(allBasicListings, neighborhood);
+console.log(`   📊 Got complete details for ${completeListings.length} properties`);
+
+// Step 3: Use complete listings for analysis (no separate cache fetch needed)
+const allListings = completeListings;
+console.log(`   🔄 Ready for analysis: ${allListings.length} complete properties`);
             
             if (allListings.length < 5) {
                 console.log(`   ⚠️ Insufficient properties for analysis (${allListings.length})`);
@@ -422,56 +423,31 @@ console.log(`   🔍 After filtering: ${validListings.length} valid listings`);
      * Get cached listing IDs
      */
     async getCachedListingIds(listingIds) {
-        try {
-            if (listingIds.length === 0) return [];
-            
-            const { data, error } = await this.supabase
-                .from('rental_market_cache')
-                .select('listing_id')
-                .in('listing_id', listingIds);
-            
-            if (error) throw error;
-            
-            return (data || []).map(row => row.listing_id);
-        } catch (error) {
-            console.warn(`   ⚠️ Cache check failed: ${error.message}`);
-            return [];
-        }
+    try {
+        if (listingIds.length === 0) return [];
+        
+        const { data, error } = await this.supabase
+            .from('rental_market_cache')
+            .select('listing_id')
+            .in('listing_id', listingIds)
+            .not('address', 'is', null)  // ✅ Only return IDs with addresses
+            .gte('bedrooms', 0);         // ✅ Only return IDs with room data
+        
+        if (error) throw error;
+        
+        return (data || []).map(row => row.listing_id);
+    } catch (error) {
+        console.warn(`   ⚠️ Cache check failed: ${error.message}`);
+        return [];
     }
+}
 
-    /**
-     * Update listing timestamps (for sold/rented detection)
-     */
     async updateListingTimestamps(listings, neighborhood) {
-        try {
-            const updates = listings.map(listing => ({
-                listing_id: listing.id?.toString(),
-                address: listing.address,
-                monthly_rent: listing.price,
-                bedrooms: listing.bedrooms,
-                bathrooms: listing.bathrooms,
-                neighborhood: neighborhood,
-                borough: this.getBoroughFromNeighborhood(neighborhood),
-                market_status: 'pending',
-                last_seen_in_search: new Date().toISOString(),
-                last_checked: new Date().toISOString(),
-                times_seen: 1
-            }));
-            
-            const { error } = await this.supabase
-                .from('rental_market_cache')
-                .upsert(updates, { 
-                    onConflict: 'listing_id',
-                    updateColumns: ['last_seen_in_search', 'last_checked']
-                });
-            
-            if (error) {
-                console.warn(`   ⚠️ Timestamp update failed: ${error.message}`);
-            }
-        } catch (error) {
-            console.warn(`   ⚠️ Exception updating timestamps: ${error.message}`);
-        }
-    }
+    // ✅ DISABLED - Don't cache incomplete data from search
+    // This was poisoning the cache with null addresses
+    console.log(`   📝 Tracking ${listings.length} seen listing IDs (not caching incomplete data)`);
+    return;
+}
 
     /**
      * Get cached listings for neighborhood analysis
