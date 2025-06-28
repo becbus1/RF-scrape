@@ -1815,8 +1815,7 @@ Return comprehensive analysis as JSON only.`;
             cacheSize: this.neighborhoodCache.size
         };
     }
-}
-
+    
  /**
      * Calculate deal quality from score
      */
