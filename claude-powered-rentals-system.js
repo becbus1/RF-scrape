@@ -359,11 +359,22 @@ class ClaudePoweredRentalSystem {
             });
             
             let listings = [];
-            if (response.data && response.data.listings) {
-                listings = response.data.listings;
-            } else if (Array.isArray(response.data)) {
-                listings = response.data;
-            }
+console.log(`   🔍 Response structure:`, Object.keys(response.data || {}));
+console.log(`   🔍 Response sample:`, JSON.stringify(response.data).substring(0, 300));
+
+if (response.data) {
+    if (response.data.listings) {
+        listings = response.data.listings;
+    } else if (response.data.results) {
+        listings = response.data.results;
+    } else if (response.data.rentals) {
+        listings = response.data.rentals;
+    } else if (Array.isArray(response.data)) {
+        listings = response.data;
+    }
+}
+
+console.log(`   🔍 Extracted ${listings.length} listings from response`);
             
             // Filter valid listings
             const validListings = listings.filter(listing => 
