@@ -638,167 +638,166 @@ async cacheDetailedListing(listing, neighborhood) {
     }
 
     /**
-     * Save to undervalued_rent_stabilized table
-     */
-    async saveToRentStabilizedTable(property, neighborhood) {
-        const { error } = await this.supabase
-            .from('undervalued_rent_stabilized')
-            .upsert({
-                listing_id: property.id?.toString(),
-                listing_url: property.url || `https://streeteasy.com/rental/${property.id}`,
-                address: property.address,
-                neighborhood: neighborhood,
-                borough: this.getBoroughFromNeighborhood(neighborhood),
-                zip_code: property.zipcode,
-                
-                // Pricing analysis
-                monthly_rent: property.price,
-                estimated_market_rent: property.estimatedMarketRent || property.price,
-                undervaluation_percent: Math.max(0, property.percentBelowMarket),
-                potential_monthly_savings: Math.max(0, property.potentialSavings),
-                
-                // Property details
-                bedrooms: property.bedrooms,
-                bathrooms: property.bathrooms,
-                sqft: property.sqft > 0 ? property.sqft : null,
-                description: property.description,
-                amenities: property.amenities || [],
-                building_amenities: property.buildingAmenities || [],
-                building_type: property.buildingType,
-                year_built: property.builtIn,
-                total_units_in_building: property.totalUnits,
-                broker_fee: property.brokerFee,
-                available_date: property.availableFrom ? property.availableFrom.split('T')[0] : null,
-                lease_term: property.leaseTerms,
-                pet_policy: property.petPolicy,
-                broker_name: property.brokerName,
-                broker_phone: property.brokerPhone,
-                
-                // Media
-                images: property.images || [],
-                virtual_tour_url: property.virtualTourUrl,
-                floor_plan_url: property.floorPlanUrl,
-                
-                // RENT STABILIZATION ANALYSIS (Claude) - REQUIRED FIELDS
-                rent_stabilized_confidence: property.rentStabilizedProbability,
-                rent_stabilized_method: 'claude_ai_analysis',
-                rent_stabilization_analysis: {
-                    explanation: property.rentStabilizedExplanation || '',
-                    key_factors: property.rentStabilizedFactors || [],
-                    probability: property.rentStabilizedProbability,
-                    legal_indicators: property.rentStabilizedFactors || [],
-                    building_criteria: {},
-                    dhcr_building_match: this.findRentStabilizedBuildingMatch(property, this.rentStabilizedBuildings),
-                    confidence_breakdown: {}
+ * Save to undervalued_rent_stabilized table
+ */
+async saveToRentStabilizedTable(property, neighborhood) {
+    const { error } = await this.supabase
+        .from('undervalued_rent_stabilized')
+        .upsert({
+            listing_id: property.id?.toString(),
+            listing_url: property.url || `https://streeteasy.com/rental/${property.id}`,
+            address: property.address,
+            neighborhood: neighborhood,
+            borough: this.getBoroughFromNeighborhood(neighborhood),
+            zip_code: property.zipcode,
+            
+            // Pricing analysis
+            monthly_rent: property.price,
+            estimated_market_rent: property.estimatedMarketRent || property.price,
+            undervaluation_percent: Math.round(Math.max(0, property.percentBelowMarket) * 100) / 100,
+            potential_monthly_savings: Math.max(0, property.potentialSavings),
+            
+            // Property details
+            bedrooms: property.bedrooms,
+            bathrooms: property.bathrooms,
+            sqft: property.sqft > 0 ? property.sqft : null,
+            description: property.description,
+            amenities: property.amenities || [],
+            building_amenities: property.buildingAmenities || [],
+            building_type: property.buildingType,
+            year_built: property.builtIn,
+            total_units_in_building: property.totalUnits,
+            broker_fee: property.brokerFee,
+            available_date: property.availableFrom ? property.availableFrom.split('T')[0] : null,
+            lease_term: property.leaseTerms,
+            pet_policy: property.petPolicy,
+            broker_name: property.brokerName,
+            broker_phone: property.brokerPhone,
+            
+            // Media
+            images: property.images || [],
+            virtual_tour_url: property.virtualTourUrl,
+            floor_plan_url: property.floorPlanUrl,
+            
+            // RENT STABILIZATION ANALYSIS (Claude) - REQUIRED FIELDS
+            rent_stabilized_confidence: Math.round(property.rentStabilizedProbability),
+            rent_stabilized_method: 'claude_ai_analysis',
+            rent_stabilization_analysis: {
+                explanation: property.rentStabilizedExplanation || '',
+                key_factors: property.rentStabilizedFactors || [],
+                probability: property.rentStabilizedProbability,
+                legal_indicators: property.rentStabilizedFactors || [],
+                building_criteria: {},
+                dhcr_building_match: this.findRentStabilizedBuildingMatch(property, this.rentStabilizedBuildings),
+                confidence_breakdown: {}
+            },
+            
+            // UNDERVALUATION ANALYSIS (Claude) - REQUIRED FIELDS
+            undervaluation_method: 'claude_comparative_analysis',
+            undervaluation_confidence: Math.round(property.undervaluationConfidence),
+            comparables_used: Math.max(1, property.comparablesUsed),
+            undervaluation_analysis: {
+                adjustments: [],
+                methodology: 'claude_ai_analysis',
+                base_market_rent: property.estimatedMarketRent || property.price,
+                calculation_steps: [property.reasoning || 'Claude AI analysis'],
+                total_adjustments: 0,
+                confidence_factors: {
+                    claude_confidence: property.undervaluationConfidence,
+                    comparables_quality: property.comparablesUsed
                 },
-                
-                // UNDERVALUATION ANALYSIS (Claude) - REQUIRED FIELDS
-                undervaluation_method: 'claude_comparative_analysis',
-                undervaluation_confidence: property.undervaluationConfidence,
-                comparables_used: Math.max(1, property.comparablesUsed),
-                undervaluation_analysis: {
-                    adjustments: [],
-                    methodology: 'claude_ai_analysis',
-                    base_market_rent: property.estimatedMarketRent || property.price,
-                    calculation_steps: [property.reasoning || 'Claude AI analysis'],
-                    total_adjustments: 0,
-                    confidence_factors: {
-                        claude_confidence: property.undervaluationConfidence,
-                        comparables_quality: property.comparablesUsed
-                    },
-                    comparable_properties: [],
-                    final_market_estimate: property.estimatedMarketRent || property.price
-                },
-                
-                // Scoring and classification
-                deal_quality_score: this.calculateDealQualityScore(property),
-                deal_quality: this.calculateDealQuality(this.calculateDealQualityScore(property)),
-                market_classification: this.classifyRentStabilizedProperty(property),
-                
-                // Timestamps
-                discovered_at: new Date().toISOString(),
-                analyzed_at: new Date().toISOString(),
-                analysis_date: new Date().toISOString(),
-                display_status: 'active',
-                tags: this.generatePropertyTags(property)
-            }, {
-                onConflict: 'listing_id'
-            });
-        
-        if (error) {
-            console.error(`     ❌ Rent-stabilized save error for ${property.address}: ${error.message}`);
-            throw error;
-        }
+                comparable_properties: [],
+                final_market_estimate: property.estimatedMarketRent || property.price
+            },
+            
+            // Scoring and classification
+            deal_quality_score: Math.round(this.calculateDealQualityScore(property)),
+            deal_quality: this.calculateDealQuality(this.calculateDealQualityScore(property)),
+            market_classification: this.classifyRentStabilizedProperty(property),
+            
+            // Timestamps
+            discovered_at: new Date().toISOString(),
+            analyzed_at: new Date().toISOString(),
+            analysis_date: new Date().toISOString(),
+            display_status: 'active',
+            tags: this.generatePropertyTags(property)
+        }, {
+            onConflict: 'listing_id'
+        });
+    
+    if (error) {
+        console.error(`     ❌ Rent-stabilized save error for ${property.address}: ${error.message}`);
+        throw error;
     }
+}
 
-    /**
-     * Save to undervalued_rentals table (NO rent stabilization fields)
-     */
-    async saveToUndervaluedRentalsTable(property, neighborhood) {
-        const { error } = await this.supabase
-            .from('undervalued_rentals')
-            .upsert({
-                listing_id: property.id?.toString(),
-                address: property.address,
-                neighborhood: neighborhood,
-                borough: this.getBoroughFromNeighborhood(neighborhood),
-                zipcode: property.zipcode,
-                
-                // Pricing analysis (NO rent stabilization fields)
-                monthly_rent: property.price,
-                discount_percent: property.percentBelowMarket,
-                potential_monthly_savings: Math.max(0, property.potentialSavings),
-                annual_savings: Math.max(0, property.potentialSavings * 12),
-                
-                // Property details
-                bedrooms: property.bedrooms,
-                bathrooms: property.bathrooms,
-                sqft: property.sqft || 0,
-                property_type: 'apartment',
-                available_from: property.availableFrom,
-                no_fee: property.noFee || false,
-                
-                // Building features (derived from amenities)
-                doorman_building: this.hasAmenity(property.amenities, ['doorman']),
-                elevator_building: this.hasAmenity(property.amenities, ['elevator']),
-                pet_friendly: this.hasAmenity(property.amenities, ['pets', 'dogs', 'cats']),
-                laundry_available: this.hasAmenity(property.amenities, ['laundry']),
-                gym_available: this.hasAmenity(property.amenities, ['gym', 'fitness']),
-                rooftop_access: this.hasAmenity(property.amenities, ['roof', 'rooftop']),
-                
-                built_in: property.builtIn,
-                latitude: property.latitude,
-                longitude: property.longitude,
-                
-                // Media and description
-                images: property.images || [],
-                image_count: (property.images || []).length,
-                description: property.description || '',
-                amenities: property.amenities || [],
-                amenity_count: (property.amenities || []).length,
-                
-                // Analysis results (NO rent stabilization fields)
-                score: this.calculatePropertyScore(property),
-                grade: this.calculatePropertyGrade(property),
-                deal_quality: this.calculateDealQuality(this.calculatePropertyScore(property)),
-                reasoning: property.reasoning || '',
-                comparison_method: 'claude_ai_analysis',
-                reliability_score: property.undervaluationConfidence,
-                
-                // Status tracking
-                last_seen_in_search: new Date().toISOString(),
-                analysis_date: new Date().toISOString(),
-                status: 'active'
-            }, {
-                onConflict: 'listing_id'
-            });
-        
-        if (error) {
-            console.error(`     ❌ Undervalued rentals save error for ${property.address}: ${error.message}`);
-            throw error;
-        }
+/**
+ * Save to undervalued_rentals table (NO rent stabilization fields)
+ */
+async saveToUndervaluedRentalsTable(property, neighborhood) {
+    const { error } = await this.supabase
+        .from('undervalued_rentals')
+        .upsert({
+            listing_id: property.id?.toString(),
+            address: property.address,
+            neighborhood: neighborhood,
+            borough: this.getBoroughFromNeighborhood(neighborhood),
+            zipcode: property.zipcode,
+            
+            // Pricing analysis (NO rent stabilization fields)
+            monthly_rent: property.price,
+            discount_percent: Math.round(property.percentBelowMarket * 100) / 100,
+            potential_monthly_savings: Math.max(0, property.potentialSavings),
+            annual_savings: Math.max(0, property.potentialSavings * 12),
+            
+            // Property details
+            bedrooms: property.bedrooms,
+            bathrooms: property.bathrooms,
+            sqft: property.sqft || 0,
+            property_type: 'apartment',
+            available_from: property.availableFrom,
+            no_fee: property.noFee || false,
+            
+            // Building features (derived from amenities)
+            doorman_building: this.hasAmenity(property.amenities, ['doorman']),
+            elevator_building: this.hasAmenity(property.amenities, ['elevator']),
+            pet_friendly: this.hasAmenity(property.amenities, ['pets', 'dogs', 'cats']),
+            laundry_available: this.hasAmenity(property.amenities, ['laundry']),
+            gym_available: this.hasAmenity(property.amenities, ['gym', 'fitness']),
+            rooftop_access: this.hasAmenity(property.amenities, ['roof', 'rooftop']),
+            
+            built_in: property.builtIn,
+            latitude: property.latitude,
+            longitude: property.longitude,
+            
+            // Media and description
+            images: property.images || [],
+            image_count: (property.images || []).length,
+            description: property.description || '',
+            amenities: property.amenities || [],
+            amenity_count: (property.amenities || []).length,
+            
+            // Analysis results (NO rent stabilization fields)
+            score: Math.round(this.calculatePropertyScore(property)),
+            grade: this.calculatePropertyGrade(property),
+            deal_quality: this.calculateDealQuality(this.calculatePropertyScore(property)),
+            reasoning: property.reasoning || '',
+            comparison_method: 'claude_ai_analysis',
+            reliability_score: Math.round(property.undervaluationConfidence),
+            
+            // Status tracking
+            last_seen_in_search: new Date().toISOString(),
+            analysis_date: new Date().toISOString(),
+            status: 'active'
+        }, {
+            onConflict: 'listing_id'
+        });
+    
+    if (error) {
+        console.error(`     ❌ Undervalued rentals save error for ${property.address}: ${error.message}`);
+        throw error;
     }
-
+}
     /**
      * Check if property has specific amenity
      */
