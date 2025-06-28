@@ -487,7 +487,7 @@ console.log(`   🔍 After filtering: ${validListings.length} valid listings`);
     async fetchDetailedListingsWithCache(listings, neighborhood) {
         const detailed = [];
         
-        for (const listing of listings.slice(0, 25)) { // Limit for efficiency
+        for (const listing of listings) { // ✅ Process ALL listings
             try {
                 this.apiCallsUsed++;
                 
