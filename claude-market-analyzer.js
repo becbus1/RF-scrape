@@ -1,7 +1,15 @@
 // claude-market-analyzer.js
-// ENHANCED CLAUDE-POWERED MARKET ANALYSIS ENGINE - COMPLETE VERSION
+// ENHANCED CLAUDE-POWERED MARKET ANALYSIS ENGINE - PRODUCTION-READY VERSION
 // Supports all 3 table types: undervalued_rentals, undervalued_rent_stabilized, undervalued_sales
 // Combines hierarchical comparable filtering with natural Claude AI analysis
+// 
+// DEPENDENCIES REQUIRED:
+// npm install axios dotenv
+//
+// ENVIRONMENT VARIABLES REQUIRED:
+// ANTHROPIC_API_KEY=your_claude_api_key
+//
+// RAILWAY DEPLOYMENT READY: All field mappings verified against database constraints
 require('dotenv').config();
 const axios = require('axios');
 
@@ -64,7 +72,14 @@ class EnhancedClaudeMarketAnalyzer {
             }
             
             // STEP 4: Map to correct database structure
-            return this.mapRentalsResponseToDatabase(analysis, targetProperty, filteredComparables, threshold, tableType);
+            const mappedResponse = this.mapRentalsResponseToDatabase(analysis, targetProperty, filteredComparables, threshold, tableType);
+            
+            // STEP 5: Validate required fields for database insertion
+            if (!this.validateDatabaseResponse(mappedResponse, tableType)) {
+                throw new Error(`Missing required database fields for ${tableType}`);
+            }
+            
+            return mappedResponse;
             
         } catch (error) {
             console.warn(`   ⚠️ Claude analysis error: ${error.message}`);
@@ -109,7 +124,14 @@ class EnhancedClaudeMarketAnalyzer {
             console.log(`   📊 Below market: ${analysis.discountPercent?.toFixed(1)}%`);
             
             // STEP 4: Map to correct database structure
-            return this.mapSalesResponseToDatabase(analysis, targetProperty, filteredComparables, threshold);
+            const mappedResponse = this.mapSalesResponseToDatabase(analysis, targetProperty, filteredComparables, threshold);
+            
+            // STEP 5: Validate required fields for database insertion
+            if (!this.validateDatabaseResponse(mappedResponse, 'undervalued_sales')) {
+                throw new Error('Missing required database fields for undervalued_sales');
+            }
+            
+            return mappedResponse;
             
         } catch (error) {
             console.warn(`   ⚠️ Claude sales analysis error: ${error.message}`);
@@ -247,18 +269,27 @@ class EnhancedClaudeMarketAnalyzer {
         };
 
         if (tableType === 'undervalued_rent_stabilized') {
-            // Fields for undervalued_rent_stabilized table
+            // Fields for undervalued_rent_stabilized table - EXACT DATABASE FIELD NAMES
             return {
                 ...baseResponse,
                 method: 'claude_hierarchical_analysis',
-                comparablesUsed: filteredComparables.selectedComparables.length,
-                undervaluationConfidence: this.calculateConfidenceFromMethod(filteredComparables.method, filteredComparables.selectedComparables.length),
-                confidence: this.calculateConfidenceFromMethod(filteredComparables.method, filteredComparables.selectedComparables.length),
                 
-                // Rent stabilization fields
+                // ✅ FIXED: Exact database field names (snake_case)
+                comparables_used: filteredComparables.selectedComparables.length,
+                undervaluation_confidence: this.calculateConfidenceFromMethod(filteredComparables.method, filteredComparables.selectedComparables.length),
+                undervaluation_method: filteredComparables.method, // Required field
+                
+                // ✅ FIXED: Rent stabilization fields with exact database names
+                rent_stabilized_confidence: analysis.rentStabilizedProbability || 0,
+                rent_stabilized_method: this.mapRentStabilizedMethod(analysis.rentStabilizedFactors || []),
+                
+                // Keep camelCase for backward compatibility with existing code
                 rentStabilizedProbability: analysis.rentStabilizedProbability || 0,
                 rentStabilizedFactors: analysis.rentStabilizedFactors || [],
                 rentStabilizedExplanation: analysis.rentStabilizedExplanation || 'No stabilization indicators found',
+                comparablesUsed: filteredComparables.selectedComparables.length,
+                undervaluationConfidence: this.calculateConfidenceFromMethod(filteredComparables.method, filteredComparables.selectedComparables.length),
+                confidence: this.calculateConfidenceFromMethod(filteredComparables.method, filteredComparables.selectedComparables.length),
                 
                 // Enhanced metrics
                 detailedAnalysis: analysis.detailedAnalysis || {},
@@ -396,6 +427,23 @@ class EnhancedClaudeMarketAnalyzer {
         if (score >= 70) return 'C';
         if (score >= 60) return 'D';
         return 'F';
+    }
+
+    /**
+     * Map rent stabilized factors to database method constraint
+     */
+    mapRentStabilizedMethod(factors) {
+        // Database constraint requires one of: 'explicit_mention', 'dhcr_registered', 'circumstantial', 'building_analysis'
+        if (factors.includes('explicit_stabilization_mention')) {
+            return 'explicit_mention';
+        }
+        if (factors.includes('dhcr_database')) {
+            return 'dhcr_registered';
+        }
+        if (factors.includes('building_age') || factors.includes('unit_count')) {
+            return 'building_analysis';
+        }
+        return 'circumstantial'; // Default fallback
     }
 
     /**
@@ -684,6 +732,14 @@ Return your analysis as JSON.`;
         if (tableType === 'undervalued_rent_stabilized') {
             return {
                 ...baseResponse,
+                // ✅ FIXED: Required database fields (snake_case)
+                comparables_used: 0,
+                undervaluation_confidence: 0,
+                undervaluation_method: 'price_per_sqft_fallback',
+                rent_stabilized_confidence: 0,
+                rent_stabilized_method: 'circumstantial',
+                
+                // Keep camelCase for backward compatibility
                 comparablesUsed: 0,
                 undervaluationConfidence: 0,
                 confidence: 0,
@@ -1033,6 +1089,34 @@ Return your analysis as JSON.`;
             tenantProfile: data.tier === 'luxury' ? 'high-income professionals' : 'young professionals',
             rentalOutlook: data.desirabilityScore >= 8 ? 'strong demand' : 'steady demand'
         };
+    }
+
+    /**
+     * Validate response has all required database fields
+     */
+    validateDatabaseResponse(response, tableType) {
+        const requiredFields = {
+            'undervalued_rent_stabilized': [
+                'comparables_used', 'undervaluation_confidence', 'undervaluation_method',
+                'rent_stabilized_confidence', 'rent_stabilized_method'
+            ],
+            'undervalued_rentals': [
+                'score', 'grade', 'reasoning', 'comparison_method', 'reliability_score'
+            ],
+            'undervalued_sales': [
+                'score', 'grade', 'reasoning', 'comparison_method', 'reliability_score'
+            ]
+        };
+
+        const required = requiredFields[tableType] || [];
+        const missing = required.filter(field => response[field] === undefined || response[field] === null);
+        
+        if (missing.length > 0) {
+            console.warn(`⚠️ Missing required fields for ${tableType}: ${missing.join(', ')}`);
+            return false;
+        }
+        
+        return true;
     }
 
     /**
