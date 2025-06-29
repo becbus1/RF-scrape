@@ -51,16 +51,19 @@ class ClaudePoweredRentalsSystem {
     }
 
     /**
-     * FIXED: Fetch active listings from StreetEasy API (was missing!)
+     * FIXED: Fetch active listings from StreetEasy API using correct parameters
      */
     async fetchActiveListings(neighborhood) {
         try {
             console.log(`   🔍 Fetching active listings for ${neighborhood}...`);
             
-            const response = await axios.get(`https://streeteasy-api.p.rapidapi.com/rentals/search`, {
+            const response = await axios.get('https://streeteasy-api.p.rapidapi.com/rentals/search', {
                 params: {
-                    neighborhood: neighborhood,
-                    limit: this.maxListingsPerNeighborhood
+                    areas: neighborhood,  // FIXED: Use "areas" not "neighborhood"
+                    limit: Math.min(500, this.maxListingsPerNeighborhood), // API limit is 500
+                    minPrice: 1000,
+                    maxPrice: 20000,
+                    offset: 0
                 },
                 headers: {
                     'X-RapidAPI-Key': this.rapidApiKey,
@@ -71,30 +74,45 @@ class ClaudePoweredRentalsSystem {
             
             this.apiCallsUsed++;
             
-            if (response.data && response.data.rentals) {
-                console.log(`   ✅ Found ${response.data.rentals.length} active listings`);
-                return response.data.rentals.map(listing => ({
-                    id: listing.id?.toString(),
-                    address: listing.address,
-                    price: listing.price,
-                    bedrooms: listing.bedrooms,
-                    bathrooms: listing.bathrooms,
-                    sqft: listing.sqft,
-                    neighborhood: neighborhood,
-                    amenities: listing.amenities || [],
-                    description: listing.description || '',
-                    noFee: listing.noFee || false,
-                    zipcode: listing.zipcode,
-                    builtIn: listing.builtIn,
-                    propertyType: listing.propertyType || 'apartment',
-                    url: listing.url || `https://streeteasy.com/rental/${listing.id}`
-                }));
+            // Handle response structure (from working biweekly code)
+            let rentalData = [];
+            if (response.data) {
+                if (response.data.results && Array.isArray(response.data.results)) {
+                    rentalData = response.data.results;
+                } else if (response.data.listings && Array.isArray(response.data.listings)) {
+                    rentalData = response.data.listings;
+                } else if (response.data.rentals && Array.isArray(response.data.rentals)) {
+                    rentalData = response.data.rentals;
+                } else if (Array.isArray(response.data)) {
+                    rentalData = response.data;
+                }
             }
             
-            return [];
+            console.log(`   ✅ Found ${rentalData.length} active listings`);
+            
+            return rentalData.map(listing => ({
+                id: listing.id?.toString(),
+                address: listing.address || 'Address not available',
+                price: listing.price || listing.monthlyRent || 0,
+                bedrooms: listing.bedrooms || 0,
+                bathrooms: listing.bathrooms || 0,
+                sqft: listing.sqft || 0,
+                neighborhood: neighborhood,
+                amenities: listing.amenities || [],
+                description: listing.description || '',
+                noFee: listing.noFee || false,
+                zipcode: listing.zipcode,
+                builtIn: listing.builtIn,
+                propertyType: listing.propertyType || 'apartment',
+                url: listing.url || `https://streeteasy.com/rental/${listing.id}`
+            }));
             
         } catch (error) {
             console.warn(`   ⚠️ Failed to fetch active listings: ${error.message}`);
+            if (error.response) {
+                console.warn(`   📊 Response status: ${error.response.status}`);
+                console.warn(`   📊 Response data:`, error.response.data);
+            }
             return [];
         }
     }
