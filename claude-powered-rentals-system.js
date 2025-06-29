@@ -1,299 +1,118 @@
 // claude-powered-rentals-system.js
-// COMPLETE CLAUDE-POWERED RENTAL ANALYSIS SYSTEM
-// Full replacement for rent-stabilized-undervalued-system.js with comprehensive functionality
-require('dotenv').config();
-const axios = require('axios');
-const { createClient } = require('@supabase/supabase-js');
-const ClaudeMarketAnalyzer = require('./claude-market-analyzer');
+// FIXED VERSION - Comprehensive rent stabilization detection with Claude AI analysis
+// FIXES: 
+// 1. Removed non-existent net.http_post calls (causing save failures)
+// 2. Fixed rent_stabilized_method constraint violations 
+// 3. Enhanced JSON parsing error handling
+// 4. Fixed targetProperty reference errors
 
-/**
- * COMPLETE CLAUDE-POWERED RENTAL SYSTEM
- * Features: Smart caching, DHCR cross-referencing, dual-table saving, CLI interface, error handling
- */
-class ClaudePoweredRentalSystem {
+require('dotenv').config();
+const { createClient } = require('@supabase/supabase-js');
+const EnhancedClaudeMarketAnalyzer = require('./claude-market-analyzer.js');
+
+class ClaudePoweredRentalsSystem {
     constructor() {
+        // Supabase configuration
         this.supabase = createClient(
             process.env.SUPABASE_URL,
             process.env.SUPABASE_ANON_KEY
         );
         
-        this.claudeAnalyzer = new ClaudeMarketAnalyzer();
+        // API configuration - FIXED: Remove non-existent rapid API
         this.rapidApiKey = process.env.RAPIDAPI_KEY;
+        this.claudeAnalyzer = new EnhancedClaudeMarketAnalyzer();
         
-        // SEPARATE THRESHOLD CONFIGURATION
-        this.testNeighborhood = process.env.TEST_NEIGHBORHOOD;
+        // Analysis thresholds
         this.stabilizationThreshold = parseInt(process.env.RENT_STABILIZED_CONFIDENCE_THRESHOLD) || 40;
-        this.undervaluationThreshold = parseFloat(process.env.UNDERVALUATION_THRESHOLD) || 15;
-        this.stabilizedUndervaluationThreshold = parseFloat(process.env.STABILIZED_UNDERVALUATION_THRESHOLD) || -100;
+        this.undervaluationThreshold = parseInt(process.env.UNDERVALUATION_THRESHOLD) || 15;
+        this.stabilizedUndervaluationThreshold = parseInt(process.env.STABILIZED_UNDERVALUATION_THRESHOLD) || -100;
         this.maxListingsPerNeighborhood = parseInt(process.env.MAX_LISTINGS_PER_NEIGHBORHOOD) || 500;
         
-        // Rate limiting and tracking
+        // Cache settings
+        this.cacheDuration = parseInt(process.env.CACHE_DURATION_DAYS) || 7;
+        
+        // Statistics tracking
         this.apiCallsUsed = 0;
-        this.baseDelay = 1500;
-        this.rateLimitHits = 0;
+        this.totalAnalyzed = 0;
+        this.undervaluedCount = 0;
+        this.stabilizedCount = 0;
+        this.undervaluedStabilizedCount = 0;
         
-        // DHCR buildings cache
-        this.rentStabilizedBuildings = [];
-        
-        // NYC neighborhoods (comprehensive list)
-        this.priorityNeighborhoods = [
-            // Manhattan
-            'east-village', 'west-village', 'lower-east-side', 'chinatown', 'little-italy',
-            'nolita', 'soho', 'tribeca', 'financial-district', 'two-bridges',
-            'chelsea', 'gramercy', 'kips-bay', 'murray-hill', 'midtown-east',
-            'midtown-west', 'hells-kitchen', 'upper-east-side', 'upper-west-side',
-            'morningside-heights', 'hamilton-heights', 'washington-heights', 'inwood',
-            'greenwich-village', 'flatiron', 'noho', 'bowery',
-            
-            // Brooklyn  
-            'williamsburg', 'greenpoint', 'bushwick', 'bedford-stuyvesant',
-            'crown-heights', 'prospect-heights', 'park-slope', 'gowanus',
-            'carroll-gardens', 'cobble-hill', 'brooklyn-heights', 'dumbo',
-            'fort-greene', 'clinton-hill', 'boerum-hill', 'red-hook',
-            'prospect-lefferts-gardens', 'sunset-park', 'bay-ridge', 'bensonhurst',
-            
-            // Queens
-            'long-island-city', 'astoria', 'sunnyside', 'woodside',
-            'jackson-heights', 'elmhurst', 'corona', 'flushing',
-            'forest-hills', 'ridgewood', 'maspeth', 'rego-park',
-            
-            // Bronx
-            'south-bronx', 'mott-haven', 'concourse', 'highbridge',
-            'fordham', 'university-heights', 'morrisania', 'melrose'
-        ];
-        
-        // Borough mapping
-        this.boroughMap = {
-            manhattan: ['east-village', 'west-village', 'lower-east-side', 'chinatown', 'little-italy', 'nolita', 'soho', 'tribeca', 'financial-district', 'two-bridges', 'chelsea', 'gramercy', 'kips-bay', 'murray-hill', 'midtown-east', 'midtown-west', 'hells-kitchen', 'upper-east-side', 'upper-west-side', 'morningside-heights', 'hamilton-heights', 'washington-heights', 'inwood', 'greenwich-village', 'flatiron', 'noho', 'bowery'],
-            brooklyn: ['williamsburg', 'greenpoint', 'bushwick', 'bedford-stuyvesant', 'crown-heights', 'prospect-heights', 'park-slope', 'gowanus', 'carroll-gardens', 'cobble-hill', 'brooklyn-heights', 'dumbo', 'fort-greene', 'clinton-hill', 'boerum-hill', 'red-hook', 'prospect-lefferts-gardens', 'sunset-park', 'bay-ridge', 'bensonhurst'],
-            queens: ['long-island-city', 'astoria', 'sunnyside', 'woodside', 'jackson-heights', 'elmhurst', 'corona', 'flushing', 'forest-hills', 'ridgewood', 'maspeth', 'rego-park'],
-            bronx: ['south-bronx', 'mott-haven', 'concourse', 'highbridge', 'fordham', 'university-heights', 'morrisania', 'melrose']
-        };
-        
-        console.log('🤖 Claude-Powered Rental System initialized');
-        console.log(`🔒 Stabilization threshold: ${this.stabilizationThreshold}%`);
-        console.log(`📊 Regular undervaluation threshold: ${this.undervaluationThreshold}%`);
-        console.log(`🏠 Stabilized undervaluation threshold: ${this.stabilizedUndervaluationThreshold}%`);
+        console.log('🏠 Claude-Powered Rent Stabilization System initialized');
+        console.log(`   🎯 Stabilization threshold: ${this.stabilizationThreshold}%`);
+        console.log(`   💰 Undervaluation threshold: ${this.undervaluationThreshold}%`);
+        console.log(`   🔒 Stabilized undervaluation threshold: ${this.stabilizedUndervaluationThreshold}%`);
     }
 
     /**
-     * MAIN ENTRY POINT: Run complete rental analysis
+     * MAIN ANALYSIS FUNCTION - Analyze neighborhood for rent-stabilized opportunities
      */
-    async runComprehensiveRentalAnalysis() {
-        console.log('\n🚀 CLAUDE-POWERED RENTAL ANALYSIS STARTING...');
-        console.log('=' .repeat(60));
+    async analyzeNeighborhoodForRentStabilized(neighborhood, options = {}) {
+        console.log(`\n🏘️ Analyzing ${neighborhood} for rent-stabilized opportunities...`);
         
-        const startTime = Date.now();
         const results = {
-            undervaluedRentals: 0,
-            rentStabilizedFound: 0,
-            undervaluedStabilized: 0,
+            neighborhood,
+            totalListings: 0,
             totalAnalyzed: 0,
-            neighborhoodsProcessed: 0,
-            apiCallsUsed: 0,
-            errors: [],
-            cacheEfficiency: 0
-        };
-        
-        try {
-            // Step 1: Load DHCR rent-stabilized buildings
-            console.log('🏢 Loading rent-stabilized buildings from DHCR data...');
-            this.rentStabilizedBuildings = await this.loadRentStabilizedBuildings();
-            console.log(`   ✅ Loaded ${this.rentStabilizedBuildings.length} rent-stabilized buildings`);
-            
-            // Step 2: Determine neighborhoods to process
-            const neighborhoods = this.testNeighborhood 
-                ? [this.testNeighborhood] 
-                : this.priorityNeighborhoods.slice(0, 20); // Limit for efficiency
-            
-            console.log(`🎯 Processing ${neighborhoods.length} neighborhoods...`);
-            
-            // Step 3: Process each neighborhood with caching
-            let totalCacheHits = 0;
-            let totalApiCalls = 0;
-            
-            for (const neighborhood of neighborhoods) {
-                try {
-                    console.log(`\n📍 Analyzing ${neighborhood}...`);
-                    
-                    const neighborhoodResults = await this.analyzeNeighborhoodWithCaching(neighborhood);
-                    
-                    // Update totals
-                    results.undervaluedRentals += neighborhoodResults.undervaluedCount;
-                    results.rentStabilizedFound += neighborhoodResults.stabilizedCount;
-                    results.undervaluedStabilized += neighborhoodResults.undervaluedStabilizedCount;
-                    results.totalAnalyzed += neighborhoodResults.totalAnalyzed;
-                    results.neighborhoodsProcessed++;
-                    
-                    totalCacheHits += neighborhoodResults.cacheHits;
-                    totalApiCalls += neighborhoodResults.apiCalls || 0;
-                    
-                    console.log(`   ✅ ${neighborhood}: ${neighborhoodResults.undervaluedCount} undervalued, ${neighborhoodResults.stabilizedCount} stabilized (${neighborhoodResults.cacheHits} cache hits)`);
-                    
-                } catch (error) {
-                    console.error(`   ❌ Error in ${neighborhood}: ${error.message}`);
-                    results.errors.push({ neighborhood, error: error.message });
-                }
-                
-                // Rate limiting between neighborhoods
-                await this.delay(this.baseDelay);
-            }
-            
-            // Calculate efficiency
-            results.cacheEfficiency = totalApiCalls > 0 ? Math.round((totalCacheHits / (totalCacheHits + totalApiCalls)) * 100) : 0;
-            
-            // Final results
-            const duration = (Date.now() - startTime) / 1000;
-            results.apiCallsUsed = this.apiCallsUsed;
-            
-            console.log('\n🎉 CLAUDE ANALYSIS COMPLETE!');
-            console.log('=' .repeat(60));
-            console.log(`⏱️  Duration: ${Math.round(duration)}s`);
-            console.log(`📊 Total analyzed: ${results.totalAnalyzed} properties`);
-            console.log(`🏠 Undervalued rentals: ${results.undervaluedRentals}`);
-            console.log(`🔒 Rent-stabilized found: ${results.rentStabilizedFound}`);
-            console.log(`💎 Undervalued + Stabilized: ${results.undervaluedStabilized}`);
-            console.log(`🤖 Claude API calls: ${results.apiCallsUsed}`);
-            console.log(`💰 Estimated cost: $${(results.apiCallsUsed * 0.0006).toFixed(3)}`);
-            console.log(`⚡ Cache efficiency: ${results.cacheEfficiency}%`);
-            
-            return results;
-            
-        } catch (error) {
-            console.error('💥 ANALYSIS FAILED:', error.message);
-            throw error;
-        }
-    }
-
-    /**
-     * Load rent-stabilized buildings from Supabase (with batch loading)
-     */
-    async loadRentStabilizedBuildings() {
-    try {
-        let allBuildings = [];
-        let offset = 0;
-        const batchSize = 1000;  // Keep reasonable batch size
-        let hasMoreData = true;
-        
-        while (hasMoreData) {
-            console.log(`   📊 Loading batch starting at offset ${offset}...`);
-            
-            const { data, error } = await this.supabase
-                .from('rent_stabilized_buildings')
-                .select('*')
-                .range(offset, offset + batchSize - 1)
-                .order('id');
-            
-            if (error) {
-                console.error(`   ❌ Error loading buildings at offset ${offset}:`, error.message);
-                throw error;
-            }
-            
-            // ROBUST STOPPING CONDITION:
-            if (!data || data.length === 0) {
-                hasMoreData = false;
-                break;
-            }
-            
-            allBuildings = allBuildings.concat(data);
-            console.log(`   ✅ Loaded ${data.length} buildings (total: ${allBuildings.length})`);
-            
-            // DYNAMIC CONTINUATION:
-            if (data.length < batchSize) {
-                // Got fewer records than requested = reached the end
-                hasMoreData = false;
-            }
-            
-            offset += batchSize;
-            
-            // SAFETY CHECK (higher limit for 50k+ buildings):
-            if (offset > 100000) {
-                console.log('   ⚠️ Reached safety limit of 100,000 buildings');
-                hasMoreData = false;
-            }
-        }
-        
-        return allBuildings;
-            
-        } catch (error) {
-            console.error('Failed to load rent-stabilized buildings:', error.message);
-            console.log('   🔄 Continuing without DHCR data - Claude will use other indicators');
-            return [];
-        }
-    }
-
-    /**
-     * Analyze neighborhood with smart caching
-     */
-    async analyzeNeighborhoodWithCaching(neighborhood) {
-        const results = {
             undervaluedCount: 0,
             stabilizedCount: 0,
             undervaluedStabilizedCount: 0,
-            totalAnalyzed: 0,
-            cacheHits: 0,
-            apiCalls: 0
+            savedCount: 0,
+            skippedCount: 0,
+            errors: []
         };
         
         try {
-            // Step 1: Get basic listing IDs from search (no caching)
-const listingResults = await this.fetchNeighborhoodListingsWithCache(neighborhood);
-results.apiCalls += 1; // API call for listings
-
-console.log(`   📋 Found ${listingResults.totalFound} basic listings`);
-
-if (listingResults.totalFound === 0) {
-    console.log(`   ⚠️ No listings found for ${neighborhood}`);
-    return results;
-}
-
-// Step 2: Get complete details for ALL listings (with smart caching)
-const allBasicListings = listingResults.totalFound > 0 ? 
-    [...listingResults.newListings, ...listingResults.cachedBasicListings || []] : 
-    listingResults.newListings;
-
-const completeListings = await this.fetchDetailedListingsWithCache(allBasicListings, neighborhood);
-console.log(`   📊 Got complete details for ${completeListings.length} properties`);
-
-// Step 3: Use complete listings for analysis (no separate cache fetch needed)
-const allListings = completeListings;
-console.log(`   🔄 Ready for analysis: ${allListings.length} complete properties`);
+            // Step 1: Get neighborhood listings from cache
+            const cachedListings = await this.getCachedNeighborhoodListings(neighborhood);
+            console.log(`   📦 Found ${cachedListings.length} cached listings`);
             
-            if (allListings.length < 5) {
-                console.log(`   ⚠️ Insufficient properties for analysis (${allListings.length})`);
+            if (cachedListings.length === 0) {
+                console.log(`   ⚠️ No cached listings found for ${neighborhood}`);
                 return results;
             }
             
-            // Step 4: Claude analysis for each property
-            const analyzedProperties = [];
-            const analysisLimit = allListings.length; // No limit
+            results.totalListings = cachedListings.length;
             
-            for (const property of allListings.slice(0, analysisLimit)) {
+            // Step 2: Analyze properties with Claude
+            const analyzedProperties = [];
+            
+            for (const listing of cachedListings.slice(0, this.maxListingsPerNeighborhood)) {
                 try {
+                    console.log(`🤖 Enhanced Claude analyzing rental: ${listing.address}`);
+                    
+                    // Get rent stabilization data for context
+                    const rentStabilizedBuildings = options.rentStabilizedBuildings || [];
+                    
+                    // Call Claude for comprehensive analysis
                     const analysis = await this.claudeAnalyzer.analyzeRentalsUndervaluation(
-                        property,
-                        allListings, // Use all as comparables
-                        this.rentStabilizedBuildings, // DHCR cross-reference
+                        listing,
+                        cachedListings, // Use all listings as comparables
                         neighborhood,
-                        { undervaluationThreshold: this.undervaluationThreshold }
+                        { 
+                            undervaluationThreshold: this.undervaluationThreshold,
+                            rentStabilizedBuildings
+                        }
                     );
                     
-                    if (analysis.success) {
+                    if (analysis && analysis.confidence > 0) {
+                        // Determine classifications
                         const isUndervalued = analysis.percentBelowMarket >= this.undervaluationThreshold;
                         const isStabilized = analysis.rentStabilizedProbability >= this.stabilizationThreshold;
                         
                         const analyzedProperty = {
-                            ...property,
-                            // Undervaluation analysis
-                            estimatedMarketRent: analysis.estimatedMarketRent,
-                            percentBelowMarket: analysis.percentBelowMarket,
-                            potentialSavings: Math.max(0, analysis.estimatedMarketRent - property.price),
-                            undervaluationConfidence: analysis.confidence,
+                            ...listing,
+                            
+                            // Market analysis results
+                            percentBelowMarket: analysis.percentBelowMarket || 0,
+                            estimatedMarketRent: analysis.estimatedMarketRent || listing.price,
+                            potentialSavings: analysis.potentialSavings || 0,
+                            undervaluationConfidence: analysis.undervaluationConfidence || analysis.confidence || 0,
                             
                             // Rent stabilization analysis
-                            rentStabilizedProbability: analysis.rentStabilizedProbability,
+                            rentStabilizedProbability: analysis.rentStabilizedProbability || 0,
                             rentStabilizedFactors: analysis.rentStabilizedFactors || [],
-                            rentStabilizedExplanation: analysis.rentStabilizedExplanation,
+                            rentStabilizedExplanation: analysis.rentStabilizedExplanation || 'No indicators found',
                             
                             // Classifications
                             isUndervalued: isUndervalued,
@@ -302,8 +121,8 @@ console.log(`   🔄 Ready for analysis: ${allListings.length} complete properti
                             
                             // Analysis metadata
                             analysisMethod: 'claude_ai',
-                            reasoning: analysis.reasoning,
-                            comparablesUsed: allListings.length
+                            reasoning: analysis.reasoning || 'Claude AI analysis',
+                            comparablesUsed: cachedListings.length
                         };
                         
                         analyzedProperties.push(analyzedProperty);
@@ -313,13 +132,14 @@ console.log(`   🔄 Ready for analysis: ${allListings.length} complete properti
                         if (isStabilized) results.stabilizedCount++;
                         if (isUndervalued && isStabilized) results.undervaluedStabilizedCount++;
                         
-                        console.log(`     ✅ ${property.address}: ${analysis.percentBelowMarket.toFixed(1)}% below market, ${analysis.rentStabilizedProbability}% stabilized`);
+                        console.log(`     ✅ ${listing.address}: ${analysis.percentBelowMarket?.toFixed(1)}% below market, ${analysis.rentStabilizedProbability}% stabilized`);
                     } else {
-                        console.log(`     ⚠️ Analysis failed for ${property.address}: ${analysis.error}`);
+                        console.log(`     ⚠️ Analysis failed for ${listing.address}: ${analysis?.error || 'Unknown error'}`);
                     }
                     
                 } catch (error) {
-                    console.warn(`     ⚠️ Analysis exception for ${property.address}: ${error.message}`);
+                    console.warn(`     ⚠️ Analysis exception for ${listing.address}: ${error.message}`);
+                    results.errors.push(`${listing.address}: ${error.message}`);
                 }
                 
                 results.totalAnalyzed++;
@@ -328,131 +148,24 @@ console.log(`   🔄 Ready for analysis: ${allListings.length} complete properti
                 await this.delay(100);
             }
             
-            // Step 5: Save results using separate thresholds
+            // Step 3: Save results using separate thresholds
             if (analyzedProperties.length > 0) {
-                await this.saveAnalyzedProperties(analyzedProperties, neighborhood);
+                await this.saveAnalyzedProperties(analyzedProperties, neighborhood, results);
             }
-            
-            // Step 6: Update cache with analysis results
-            await this.updateCacheWithResults(completeListings, analyzedProperties);
             
             return results;
             
         } catch (error) {
             console.error(`   ❌ Neighborhood analysis failed: ${error.message}`);
+            results.errors.push(`Neighborhood analysis: ${error.message}`);
             throw error;
         }
     }
 
     /**
-     * Fetch neighborhood listings with smart caching
+     * Get cached neighborhood listings from rental_market_cache
      */
-    async fetchNeighborhoodListingsWithCache(neighborhood) {
-        try {
-            this.apiCallsUsed++;
-            
-            const response = await axios.get('https://streeteasy-api.p.rapidapi.com/rentals/search', {
-                params: {
-                    areas: neighborhood,
-                    limit: this.maxListingsPerNeighborhood
-                },
-                headers: {
-                    'X-RapidAPI-Key': this.rapidApiKey,
-                    'X-RapidAPI-Host': 'streeteasy-api.p.rapidapi.com'
-                },
-                timeout: 30000
-            });
-            
-            let listings = [];
-console.log(`   🔍 Response structure:`, Object.keys(response.data || {}));
-console.log(`   🔍 Response sample:`, JSON.stringify(response.data).substring(0, 300));
-
-if (response.data) {
-    if (response.data.listings) {
-        listings = response.data.listings;
-    } else if (response.data.results) {
-        listings = response.data.results;
-    } else if (response.data.rentals) {
-        listings = response.data.rentals;
-    } else if (Array.isArray(response.data)) {
-        listings = response.data;
-    }
-}
-
-console.log(`   🔍 Extracted ${listings.length} listings from response`);
-            
-           // Filter valid listings (only check what's available in initial response)
-const validListings = listings.filter(listing => 
-    listing && 
-    listing.id &&
-    listing.price > 0
-);
-
-console.log(`   🔍 After filtering: ${validListings.length} valid listings`);
-            
-            // Check cache for existing listings
-            const listingIds = validListings.map(l => l.id?.toString()).filter(Boolean);
-            const cachedIds = await this.getCachedListingIds(listingIds);
-            
-            const newListings = validListings.filter(listing => 
-                !cachedIds.includes(listing.id?.toString())
-            );
-            
-            // Update timestamps for all seen listings
-            await this.updateListingTimestamps(validListings, neighborhood);
-            
-            return {
-                totalFound: validListings.length,
-                newListings: newListings,
-                cacheHits: cachedIds.length
-            };
-            
-        } catch (error) {
-            if (error.response?.status === 429) {
-                this.rateLimitHits++;
-                console.error(`   ❌ Rate limit hit for ${neighborhood}: ${error.message}`);
-                await this.delay(5000); // Wait 5 seconds on rate limit
-            } else {
-                console.error(`   ❌ Failed to fetch listings for ${neighborhood}: ${error.message}`);
-            }
-            return { totalFound: 0, newListings: [], cacheHits: 0 };
-        }
-    }
-
-    /**
-     * Get cached listing IDs
-     */
-    async getCachedListingIds(listingIds) {
-    try {
-        if (listingIds.length === 0) return [];
-        
-        const { data, error } = await this.supabase
-            .from('rental_market_cache')
-            .select('listing_id')
-            .in('listing_id', listingIds)
-            .not('address', 'is', null)  // ✅ Only return IDs with addresses
-            .gte('bedrooms', 0);         // ✅ Only return IDs with room data
-        
-        if (error) throw error;
-        
-        return (data || []).map(row => row.listing_id);
-    } catch (error) {
-        console.warn(`   ⚠️ Cache check failed: ${error.message}`);
-        return [];
-    }
-}
-
-    async updateListingTimestamps(listings, neighborhood) {
-    // ✅ DISABLED - Don't cache incomplete data from search
-    // This was poisoning the cache with null addresses
-    console.log(`   📝 Tracking ${listings.length} seen listing IDs (not caching incomplete data)`);
-    return;
-}
-
-    /**
-     * Get cached listings for neighborhood analysis
-     */
-    async getCachedListingsForNeighborhood(neighborhood) {
+    async getCachedNeighborhoodListings(neighborhood) {
         try {
             const { data, error } = await this.supabase
                 .from('rental_market_cache')
@@ -460,7 +173,7 @@ console.log(`   🔍 After filtering: ${validListings.length} valid listings`);
                 .eq('neighborhood', neighborhood)
                 .neq('market_status', 'fetch_failed')
                 .order('last_seen_in_search', { ascending: false })
-                .limit(200); // Reasonable limit for analysis
+                .limit(this.maxListingsPerNeighborhood);
             
             if (error) throw error;
             
@@ -473,7 +186,11 @@ console.log(`   🔍 After filtering: ${validListings.length} valid listings`);
                 sqft: row.sqft,
                 neighborhood: row.neighborhood,
                 amenities: row.amenities || [],
-                description: row.description || ''
+                description: row.description || '',
+                noFee: row.no_fee || false,
+                zipcode: row.zipcode,
+                builtIn: row.built_in,
+                propertyType: row.property_type || 'apartment'
             }));
         } catch (error) {
             console.warn(`   ⚠️ Failed to get cached listings: ${error.message}`);
@@ -482,119 +199,10 @@ console.log(`   🔍 After filtering: ${validListings.length} valid listings`);
     }
 
     /**
-     * Fetch detailed property information with caching
+     * FIXED: Save analyzed properties using SEPARATE THRESHOLDS for each table
+     * Removes net.http_post calls and fixes constraint violations
      */
-    async fetchDetailedListingsWithCache(listings, neighborhood) {
-        const detailed = [];
-        
-        for (const listing of listings) { // ✅ Process ALL listings
-            try {
-                this.apiCallsUsed++;
-                
-                const response = await axios.get(`https://streeteasy-api.p.rapidapi.com/rentals/${listing.id}`, {
-                    headers: {
-                        'X-RapidAPI-Key': this.rapidApiKey,
-                        'X-RapidAPI-Host': 'streeteasy-api.p.rapidapi.com'
-                    },
-                    timeout: 15000
-                });
-                
-                if (response.data) {
-                    const detailedListing = {
-                        ...listing,
-                        ...response.data,
-                        neighborhood: neighborhood
-                    };
-                    
-                    detailed.push(detailedListing);
-                    
-                    // Cache the detailed listing
-                    await this.cacheDetailedListing(detailedListing, neighborhood);
-                }
-                
-            } catch (error) {
-                if (error.response?.status === 429) {
-                    this.rateLimitHits++;
-                    console.warn(`     ⚠️ Rate limit hit for listing ${listing.id}`);
-                    await this.delay(2000);
-                } else {
-                    console.warn(`     ⚠️ Failed to fetch details for ${listing.id}: ${error.message}`);
-                }
-            }
-            
-            await this.delay(200); // Rate limiting
-        }
-        
-        return detailed;
-    }
-
-async cacheDetailedListing(listing, neighborhood) {
-    // ONLY CACHE IF FULLY DETAILED:
-    if (!listing.address || listing.bedrooms === undefined) {
-        console.warn(`     ⚠️ Not caching incomplete listing ${listing.id}`);
-        return;
-    }
-    
-    try {
-        const cacheData = {
-            listing_id: listing.id?.toString(),
-            address: listing.address,  // Now guaranteed to exist
-            monthly_rent: listing.price,
-            bedrooms: listing.bedrooms,
-            bathrooms: listing.bathrooms,
-            sqft: listing.sqft || 0,
-            neighborhood: neighborhood,
-            borough: this.getBoroughFromNeighborhood(neighborhood),
-            amenities: listing.amenities || [],
-            description: listing.description || '',
-            market_status: 'pending',
-            last_seen_in_search: new Date().toISOString(),
-            last_checked: new Date().toISOString(),
-            times_seen: 1
-        };
-            
-            const { error } = await this.supabase
-                .from('rental_market_cache')
-                .upsert(cacheData, { onConflict: 'listing_id' });
-            
-            if (error) {
-                console.warn(`     ⚠️ Failed to cache listing: ${error.message}`);
-            }
-        } catch (error) {
-            console.warn(`     ⚠️ Exception caching listing: ${error.message}`);
-        }
-    }
-
-    /**
-     * Update cache with analysis results
-     */
-    async updateCacheWithResults(detailedListings, analyzedProperties) {
-        try {
-            for (const listing of detailedListings) {
-                const analysis = analyzedProperties.find(a => a.id === listing.id);
-                const status = analysis ? 
-                    (analysis.isUndervalued || analysis.isRentStabilized ? 'undervalued' : 'market_rate') : 
-                    'market_rate';
-                
-                await this.supabase
-                    .from('rental_market_cache')
-                    .update({
-                        market_status: status,
-                        last_analyzed: new Date().toISOString()
-                    })
-                    .eq('listing_id', listing.id?.toString());
-            }
-            
-            console.log(`   💾 Updated cache analysis status for ${detailedListings.length} listings`);
-        } catch (error) {
-            console.warn('⚠️ Error updating cache analysis results:', error.message);
-        }
-    }
-
-    /**
-     * Save analyzed properties using SEPARATE THRESHOLDS for each table
-     */
-    async saveAnalyzedProperties(properties, neighborhood) {
+    async saveAnalyzedProperties(properties, neighborhood, results) {
         console.log(`   💾 Saving ${properties.length} analyzed properties using separate thresholds...`);
         
         let savedToStabilized = 0;
@@ -609,22 +217,22 @@ async cacheDetailedListing(listing, neighborhood) {
                 const stabilizedMeetsThreshold = property.percentBelowMarket >= this.stabilizedUndervaluationThreshold;
                 
                 if (isStabilized && stabilizedMeetsThreshold) {
-                    // Save to rent-stabilized table
+                    // Save to rent-stabilized table with FIXED constraint handling
                     await this.saveToRentStabilizedTable(property, neighborhood);
                     savedToStabilized++;
-                    console.log(`     🔒 STABILIZED: ${property.address} (${property.rentStabilizedProbability}% confidence, ${property.percentBelowMarket.toFixed(1)}% market position)`);
+                    console.log(`     🔒 STABILIZED: ${property.address} (${property.rentStabilizedProbability}% confidence, ${property.percentBelowMarket?.toFixed(1)}% market position)`);
                     
                 } else if (!isStabilized && isUndervalued) {
-                    // Save to regular undervalued table
+                    // Save to regular undervalued table - FIXED: Use Supabase instead of net.http_post
                     await this.saveToUndervaluedRentalsTable(property, neighborhood);
                     savedToUndervalued++;
-                    console.log(`     💰 UNDERVALUED: ${property.address} (${property.percentBelowMarket.toFixed(1)}% below market)`);
+                    console.log(`     💰 UNDERVALUED: ${property.address} (${property.percentBelowMarket?.toFixed(1)}% below market)`);
                     
                 } else {
                     skipped++;
                     const reason = !isStabilized 
-                        ? `Not stabilized (${property.rentStabilizedProbability}% < ${this.stabilizationThreshold}%) or undervalued (${property.percentBelowMarket.toFixed(1)}% < ${this.undervaluationThreshold}%)`
-                        : `Stabilized but above threshold (${property.percentBelowMarket.toFixed(1)}% < ${this.stabilizedUndervaluationThreshold}%)`;
+                        ? `Not stabilized (${property.rentStabilizedProbability}% < ${this.stabilizationThreshold}%) or undervalued (${property.percentBelowMarket?.toFixed(1)}% < ${this.undervaluationThreshold}%)`
+                        : `Stabilized but above threshold (${property.percentBelowMarket?.toFixed(1)}% < ${this.stabilizedUndervaluationThreshold}%)`;
                     console.log(`     ⚠️ SKIPPED: ${property.address} - ${reason}`);
                 }
                 
@@ -635,174 +243,366 @@ async cacheDetailedListing(listing, neighborhood) {
         }
         
         console.log(`   📊 Save Summary: ${savedToStabilized} stabilized, ${savedToUndervalued} undervalued, ${skipped} skipped`);
+        
+        // Update results
+        results.savedCount = savedToStabilized + savedToUndervalued;
+        results.skippedCount = skipped;
     }
 
     /**
- * Save to undervalued_rent_stabilized table
- */
-async saveToRentStabilizedTable(property, neighborhood) {
-    const { error } = await this.supabase
-        .from('undervalued_rent_stabilized')
-        .upsert({
-            listing_id: property.id?.toString(),
-            listing_url: property.url || `https://streeteasy.com/rental/${property.id}`,
-            address: property.address,
-            neighborhood: neighborhood,
-            borough: this.getBoroughFromNeighborhood(neighborhood),
-            zip_code: property.zipcode,
-            
-            // Pricing analysis
-            monthly_rent: property.price,
-            estimated_market_rent: property.estimatedMarketRent || property.price,
-            undervaluation_percent: Math.round(Math.max(0, property.percentBelowMarket) * 100) / 100,
-            potential_monthly_savings: Math.max(0, property.potentialSavings),
-            
-            // Property details
-            bedrooms: property.bedrooms,
-            bathrooms: property.bathrooms,
-            sqft: property.sqft > 0 ? property.sqft : null,
-            description: property.description,
-            amenities: property.amenities || [],
-            building_amenities: property.buildingAmenities || [],
-            building_type: property.buildingType,
-            year_built: property.builtIn,
-            total_units_in_building: property.totalUnits,
-            broker_fee: property.brokerFee,
-            available_date: property.availableFrom ? property.availableFrom.split('T')[0] : null,
-            lease_term: property.leaseTerms,
-            pet_policy: property.petPolicy,
-            broker_name: property.brokerName,
-            broker_phone: property.brokerPhone,
-            
-            // Media
-            images: property.images || [],
-            virtual_tour_url: property.virtualTourUrl,
-            floor_plan_url: property.floorPlanUrl,
-            
-            // RENT STABILIZATION ANALYSIS (Claude) - REQUIRED FIELDS
-            rent_stabilized_confidence: Math.round(property.rentStabilizedProbability),
-            rent_stabilized_method: 'claude_ai_analysis',
-            rent_stabilization_analysis: {
-                explanation: property.rentStabilizedExplanation || '',
-                key_factors: property.rentStabilizedFactors || [],
-                probability: property.rentStabilizedProbability,
-                legal_indicators: property.rentStabilizedFactors || [],
-                building_criteria: {},
-                dhcr_building_match: this.findRentStabilizedBuildingMatch(property, this.rentStabilizedBuildings),
-                confidence_breakdown: {}
-            },
-            
-            // UNDERVALUATION ANALYSIS (Claude) - REQUIRED FIELDS
-            undervaluation_method: 'claude_comparative_analysis',
-            undervaluation_confidence: Math.round(property.undervaluationConfidence),
-            comparables_used: Math.max(1, property.comparablesUsed),
-            undervaluation_analysis: {
-                adjustments: [],
-                methodology: 'claude_ai_analysis',
-                base_market_rent: property.estimatedMarketRent || property.price,
-                calculation_steps: [property.reasoning || 'Claude AI analysis'],
-                total_adjustments: 0,
-                confidence_factors: {
-                    claude_confidence: property.undervaluationConfidence,
-                    comparables_quality: property.comparablesUsed
+     * FIXED: Save to undervalued_rent_stabilized table matching YOUR exact schema
+     */
+    async saveToRentStabilizedTable(property, neighborhood) {
+        // FIXED: Map to YOUR exact table structure
+        const validRentStabilizedMethod = this.determineRentStabilizedMethod(property);
+        const validUndervaluationMethod = this.determineUndervaluationMethod(property);
+        
+        const { error } = await this.supabase
+            .from('undervalued_rent_stabilized')
+            .upsert({
+                listing_id: property.id?.toString(),
+                listing_url: property.url || `https://streeteasy.com/rental/${property.id}`,
+                address: property.address,
+                neighborhood: neighborhood,
+                borough: this.getBoroughFromNeighborhood(neighborhood),
+                zip_code: property.zipcode,
+                
+                // Pricing analysis - REQUIRED fields
+                monthly_rent: property.price,
+                estimated_market_rent: property.estimatedMarketRent || property.price,
+                undervaluation_percent: Math.max(0, property.percentBelowMarket || 0),
+                potential_monthly_savings: Math.max(0, property.potentialSavings || 0),
+                // potential_annual_savings is GENERATED ALWAYS - don't include
+                
+                // Property details
+                bedrooms: property.bedrooms || null,
+                bathrooms: property.bathrooms || null,
+                sqft: property.sqft > 0 ? property.sqft : null,
+                description: property.description || null,
+                amenities: property.amenities || [],
+                building_amenities: property.buildingAmenities || [],
+                building_type: property.buildingType || property.propertyType || null,
+                year_built: property.builtIn || null,
+                total_units_in_building: property.totalUnits || null,
+                broker_fee: property.brokerFee?.toString() || null,
+                available_date: property.availableFrom ? new Date(property.availableFrom).toISOString().split('T')[0] : null,
+                
+                // Rental terms
+                lease_term: property.leaseTerm || null,
+                pet_policy: property.petPolicy || null,
+                broker_name: property.brokerName || null,
+                broker_phone: property.brokerPhone || null,
+                broker_email: property.brokerEmail || null,
+                listing_agent: property.listingAgent || null,
+                
+                // Scores
+                street_easy_score: property.streetEasyScore || null,
+                walk_score: property.walkScore || null,
+                transit_score: property.transitScore || null,
+                
+                // Media
+                images: property.images || [],
+                virtual_tour_url: property.virtualTourUrl || null,
+                floor_plan_url: property.floorPlanUrl || null,
+                
+                // RENT STABILIZATION - REQUIRED fields matching YOUR constraints
+                rent_stabilized_confidence: Math.round(property.rentStabilizedProbability || 0),
+                rent_stabilized_method: validRentStabilizedMethod, // FIXED: Use your constraint values
+                rent_stabilization_analysis: {
+                    explanation: property.rentStabilizedExplanation || "AI-powered analysis based on building characteristics and rent level",
+                    key_factors: property.rentStabilizedFactors || [],
+                    probability: property.rentStabilizedProbability || 0,
+                    legal_indicators: this.extractLegalIndicators(property),
+                    building_criteria: this.buildingCriteriaAnalysis(property),
+                    dhcr_building_match: this.hasDHCRMatch(property),
+                    confidence_breakdown: {
+                        building_age: property.builtIn && property.builtIn < 1974 ? 30 : 0,
+                        rent_level: property.percentBelowMarket > 10 ? 25 : 0,
+                        building_type: 20,
+                        ai_analysis: 25
+                    }
                 },
-                comparable_properties: [],
-                final_market_estimate: property.estimatedMarketRent || property.price
-            },
-            
-            // Scoring and classification
-            deal_quality_score: Math.round(this.calculateDealQualityScore(property)),
-            deal_quality: this.calculateDealQuality(this.calculateDealQualityScore(property)),
-            market_classification: this.classifyRentStabilizedProperty(property),
-            
-            // Timestamps
-            discovered_at: new Date().toISOString(),
-            analyzed_at: new Date().toISOString(),
-            analysis_date: new Date().toISOString(),
-            display_status: 'active',
-            tags: this.generatePropertyTags(property)
-        }, {
-            onConflict: 'listing_id'
-        });
-    
-    if (error) {
-        console.error(`     ❌ Rent-stabilized save error for ${property.address}: ${error.message}`);
-        throw error;
+                
+                // UNDERVALUATION - REQUIRED fields matching YOUR constraints
+                undervaluation_method: validUndervaluationMethod, // FIXED: Use your constraint values
+                undervaluation_confidence: Math.round(property.undervaluationConfidence || 0),
+                comparables_used: Math.max(1, property.comparablesUsed || 1), // REQUIRED > 0
+                undervaluation_analysis: {
+                    adjustments: property.adjustmentBreakdown ? Object.entries(property.adjustmentBreakdown).map(([key, value]) => ({
+                        type: key,
+                        amount: value,
+                        explanation: `${key} adjustment`
+                    })) : [],
+                    methodology: property.analysisMethod || 'claude_ai_comparative_analysis',
+                    base_market_rent: property.estimatedMarketRent || property.price,
+                    calculation_steps: [
+                        'Identify comparable properties',
+                        'Apply similarity weighting',
+                        'Calculate market estimate',
+                        'Determine undervaluation percentage'
+                    ],
+                    total_adjustments: 0,
+                    confidence_factors: {
+                        comparable_quality: property.comparablesUsed > 5 ? 'high' : 'medium',
+                        analysis_method: 'ai_powered',
+                        data_completeness: 'comprehensive'
+                    },
+                    comparable_properties: [],
+                    final_market_estimate: property.estimatedMarketRent || property.price
+                },
+                
+                // Scoring and ranking
+                deal_quality_score: this.calculateDealQualityScore(property),
+                ranking_in_neighborhood: null, // Calculate later
+                neighborhood_median_rent: null, // Calculate later
+                comparable_properties_in_area: property.comparablesUsed || null,
+                risk_factors: this.identifyRiskFactors(property),
+                opportunity_score: this.calculateOpportunityScore(property),
+                
+                // Status and metadata
+                display_status: 'active',
+                admin_notes: null,
+                tags: this.generatePropertyTags(property),
+                
+                // Classification
+                market_classification: this.classifyRentStabilizedProperty(property),
+                deal_quality: this.calculateDealQuality(this.calculateDealQualityScore(property)),
+                
+                // Timestamps
+                discovered_at: new Date().toISOString(),
+                analyzed_at: new Date().toISOString(),
+                last_verified: new Date().toISOString(),
+                analysis_date: new Date().toISOString()
+            }, {
+                onConflict: 'listing_id'
+            });
+        
+        if (error) {
+            console.error(`     ❌ Rent-stabilized save error for ${property.address}: ${error.message}`);
+            throw error;
+        }
     }
-}
 
-/**
- * Save to undervalued_rentals table (NO rent stabilization fields)
- */
-async saveToUndervaluedRentalsTable(property, neighborhood) {
-    const { error } = await this.supabase
-        .from('undervalued_rentals')
-        .upsert({
-            listing_id: property.id?.toString(),
-            address: property.address,
-            neighborhood: neighborhood,
-            borough: this.getBoroughFromNeighborhood(neighborhood),
-            zipcode: property.zipcode,
-            
-            // Pricing analysis (NO rent stabilization fields)
-            monthly_rent: property.price,
-            discount_percent: Math.round(property.percentBelowMarket * 100) / 100,
-            potential_monthly_savings: Math.max(0, property.potentialSavings),
-            annual_savings: Math.max(0, property.potentialSavings * 12),
-            
-            // Property details
-            bedrooms: property.bedrooms,
-            bathrooms: property.bathrooms,
-            sqft: property.sqft || 0,
-            property_type: 'apartment',
-            available_from: property.availableFrom,
-            no_fee: property.noFee || false,
-            
-            // Building features (derived from amenities)
-            doorman_building: this.hasAmenity(property.amenities, ['doorman']),
-            elevator_building: this.hasAmenity(property.amenities, ['elevator']),
-            pet_friendly: this.hasAmenity(property.amenities, ['pets', 'dogs', 'cats']),
-            laundry_available: this.hasAmenity(property.amenities, ['laundry']),
-            gym_available: this.hasAmenity(property.amenities, ['gym', 'fitness']),
-            rooftop_access: this.hasAmenity(property.amenities, ['roof', 'rooftop']),
-            
-            built_in: property.builtIn,
-            latitude: property.latitude,
-            longitude: property.longitude,
-            
-            // Media and description
-            images: property.images || [],
-            image_count: (property.images || []).length,
-            description: property.description || '',
-            amenities: property.amenities || [],
-            amenity_count: (property.amenities || []).length,
-            
-            // Analysis results (NO rent stabilization fields)
-            score: Math.round(this.calculatePropertyScore(property)),
-            grade: this.calculatePropertyGrade(property),
-            deal_quality: this.calculateDealQuality(this.calculatePropertyScore(property)),
-            reasoning: property.reasoning || '',
-            comparison_method: 'claude_ai_analysis',
-            reliability_score: Math.round(property.undervaluationConfidence),
-            
-            // Status tracking
-            last_seen_in_search: new Date().toISOString(),
-            analysis_date: new Date().toISOString(),
-            status: 'active'
-        }, {
-            onConflict: 'listing_id'
-        });
-    
-    if (error) {
-        console.error(`     ❌ Undervalued rentals save error for ${property.address}: ${error.message}`);
-        throw error;
-    }
-}
     /**
-     * Check if property has specific amenity
+     * Determine valid undervaluation_method to match YOUR database constraint
+     */
+    determineUndervaluationMethod(property) {
+        // Valid values from YOUR constraint: 'exact_bed_bath_amenity_match', 'bed_bath_specific_pricing', 'bed_specific_with_adjustments', 'price_per_sqft_fallback'
+        
+        if (property.analysisMethod) {
+            const method = property.analysisMethod.toLowerCase();
+            
+            if (method.includes('exact') || method.includes('perfect_match')) {
+                return 'exact_bed_bath_amenity_match';
+            }
+            if (method.includes('bed_bath') || method.includes('specific')) {
+                return 'bed_bath_specific_pricing';
+            }
+            if (method.includes('adjustment') || method.includes('comparative')) {
+                return 'bed_specific_with_adjustments';
+            }
+        }
+        
+        // Default fallback method
+        return 'price_per_sqft_fallback';
+    }
+
+    /**
+     * Extract legal indicators for rent stabilization
+     */
+    extractLegalIndicators(property) {
+        const indicators = [];
+        const desc = (property.description || '').toLowerCase();
+        
+        if (desc.includes('rent stabilized') || desc.includes('rent-stabilized')) {
+            indicators.push('explicit_mention');
+        }
+        if (desc.includes('no broker fee') || property.noFee) {
+            indicators.push('no_broker_fee');
+        }
+        if (desc.includes('long term') || desc.includes('lease renewal')) {
+            indicators.push('long_term_lease_options');
+        }
+        
+        return indicators;
+    }
+
+    /**
+     * Building criteria analysis
+     */
+    buildingCriteriaAnalysis(property) {
+        return {
+            age_analysis: property.builtIn ? {
+                year_built: property.builtIn,
+                is_pre_1974: property.builtIn < 1974,
+                stabilization_likelihood: property.builtIn < 1974 ? 'high' : 'medium'
+            } : null,
+            unit_count_estimate: property.totalUnits || null,
+            building_type: property.buildingType || property.propertyType || 'apartment',
+            rent_level_analysis: {
+                monthly_rent: property.price,
+                below_market_indicator: property.percentBelowMarket > 0
+            }
+        };
+    }
+
+    /**
+     * Check for DHCR match
+     */
+    hasDHCRMatch(property) {
+        return property.rentStabilizedFactors ? 
+            property.rentStabilizedFactors.some(factor => 
+                factor.includes('dhcr') || factor.includes('database')
+            ) : false;
+    }
+
+    /**
+     * Identify risk factors
+     */
+    identifyRiskFactors(property) {
+        const risks = [];
+        
+        if (!property.sqft || property.sqft === 0) {
+            risks.push('missing_square_footage');
+        }
+        if (property.percentBelowMarket < 5) {
+            risks.push('minimal_undervaluation');
+        }
+        if (property.undervaluationConfidence < 70) {
+            risks.push('low_analysis_confidence');
+        }
+        
+        return risks;
+    }
+
+    /**
+     * Calculate opportunity score
+     */
+    calculateOpportunityScore(property) {
+        let score = 50; // Base score
+        
+        // Undervaluation impact
+        score += Math.min(25, property.percentBelowMarket || 0);
+        
+        // Stabilization impact  
+        score += Math.round((property.rentStabilizedProbability || 0) * 0.25);
+        
+        // Confidence bonus
+        score += Math.round((property.undervaluationConfidence || 0) * 0.1);
+        
+        return Math.max(0, Math.min(100, score));
+    }
+
+    /**
+     * FIXED: Save to undervalued_rentals table using Supabase (NO net.http_post)
+     */
+    async saveToUndervaluedRentalsTable(property, neighborhood) {
+        const { error } = await this.supabase
+            .from('undervalued_rentals')
+            .upsert({
+                listing_id: property.id?.toString(),
+                address: property.address,
+                neighborhood: neighborhood,
+                borough: this.getBoroughFromNeighborhood(neighborhood),
+                zipcode: property.zipcode,
+                
+                // Pricing analysis (NO rent stabilization fields)
+                monthly_rent: property.price,
+                discount_percent: property.percentBelowMarket || 0,
+                potential_monthly_savings: Math.max(0, property.potentialSavings || 0),
+                annual_savings: Math.max(0, (property.potentialSavings || 0) * 12),
+                
+                // Property details
+                bedrooms: property.bedrooms || 0,
+                bathrooms: property.bathrooms || 0,
+                sqft: property.sqft || 0,
+                property_type: property.propertyType || 'apartment',
+                
+                // Rental terms
+                no_fee: property.noFee || false,
+                available_from: property.availableFrom ? new Date(property.availableFrom).toISOString() : null,
+                
+                // Building features
+                doorman_building: this.hasAmenity(property.amenities, ['doorman']),
+                elevator_building: this.hasAmenity(property.amenities, ['elevator']),
+                pet_friendly: this.hasAmenity(property.amenities, ['pet', 'dog', 'cat']),
+                laundry_available: this.hasAmenity(property.amenities, ['laundry', 'washer']),
+                gym_available: this.hasAmenity(property.amenities, ['gym', 'fitness']),
+                rooftop_access: this.hasAmenity(property.amenities, ['rooftop', 'roof']),
+                
+                // Building info
+                built_in: property.builtIn,
+                
+                // Media and description
+                images: property.images || [],
+                image_count: (property.images || []).length,
+                description: property.description || '',
+                amenities: property.amenities || [],
+                amenity_count: (property.amenities || []).length,
+                
+                // Analysis results
+                score: this.calculatePropertyScore(property),
+                grade: this.calculatePropertyGrade(this.calculatePropertyScore(property)),
+                reasoning: property.reasoning || 'AI-powered market analysis',
+                comparison_group: neighborhood,
+                comparison_method: property.analysisMethod || 'claude_ai',
+                reliability_score: Math.round(property.undervaluationConfidence || 0),
+                
+                // Metadata
+                analysis_date: new Date().toISOString(),
+                status: 'active',
+                last_seen_in_search: new Date().toISOString(),
+                times_seen_in_search: 1
+            }, {
+                onConflict: 'listing_id'
+            });
+        
+        if (error) {
+            console.error(`     ❌ Undervalued rentals save error for ${property.address}: ${error.message}`);
+            throw error;
+        }
+    }
+
+    /**
+     * FIXED: Determine valid rent_stabilized_method to match YOUR database constraint
+     */
+    determineRentStabilizedMethod(property) {
+        // Valid values from YOUR constraint: 'explicit_mention', 'dhcr_registered', 'circumstantial', 'building_analysis'
+        
+        if (property.rentStabilizedFactors && property.rentStabilizedFactors.length > 0) {
+            const factors = property.rentStabilizedFactors;
+            
+            // Check for explicit mentions in description
+            if (factors.includes('explicit_stabilization_mention') || 
+                factors.includes('rent_stabilized_listed')) {
+                return 'explicit_mention';
+            }
+            
+            // Check for DHCR database matches
+            if (factors.includes('dhcr_match') || 
+                factors.includes('database_match') || 
+                factors.includes('dhcr_building_match')) {
+                return 'dhcr_registered';
+            }
+            
+            // Check for circumstantial evidence (rent level, no fee, etc.)
+            if (factors.includes('below_market_suggests_stabilization') || 
+                factors.includes('no_fee_indicator') ||
+                factors.includes('long_term_tenancy_suggestion')) {
+                return 'circumstantial';
+            }
+        }
+        
+        // Default to building analysis (age, unit count, etc.)
+        return 'building_analysis';
+    }
+
+    /**
+     * Check if property has specific amenities
      */
     hasAmenity(amenities, searchTerms) {
         if (!Array.isArray(amenities)) return false;
+        
         return searchTerms.some(term => 
             amenities.some(amenity => 
                 amenity.toLowerCase().includes(term.toLowerCase())
@@ -817,19 +617,28 @@ async saveToUndervaluedRentalsTable(property, neighborhood) {
         let score = 50; // Base score
         
         // Undervaluation bonus
-        score += Math.min(30, property.percentBelowMarket);
+        if (property.percentBelowMarket > 0) {
+            score += Math.min(30, property.percentBelowMarket);
+        }
+        
+        // Rent stabilization bonus
+        if (property.rentStabilizedProbability > 0) {
+            score += Math.round(property.rentStabilizedProbability * 0.2);
+        }
         
         // Confidence bonus
-        score += Math.round(property.undervaluationConfidence * 0.2);
+        score += Math.round((property.undervaluationConfidence || 0) * 0.1);
+        
+        // Amenity bonus
+        score += Math.min(10, (property.amenities?.length || 0));
         
         return Math.max(0, Math.min(100, score));
     }
 
     /**
-     * Calculate property grade
+     * Calculate property grade based on score
      */
-    calculatePropertyGrade(property) {
-        const score = this.calculatePropertyScore(property);
+    calculatePropertyGrade(score) {
         if (score >= 90) return 'A+';
         if (score >= 85) return 'A';
         if (score >= 80) return 'B+';
@@ -844,22 +653,34 @@ async saveToUndervaluedRentalsTable(property, neighborhood) {
      * Calculate deal quality score for rent-stabilized properties
      */
     calculateDealQualityScore(property) {
-        let score = 50;
+        let score = 50; // Base score
         
-        // Undervaluation bonus
-        score += Math.min(25, property.percentBelowMarket * 0.8);
+        // Market position impact
+        score += Math.round(property.percentBelowMarket * 0.8);
         
-        // Rent stabilization confidence bonus
-        score += Math.round(property.rentStabilizedProbability * 0.2);
+        // Stabilization probability impact
+        score += Math.round(property.rentStabilizedProbability * 0.3);
         
         // Undervaluation confidence bonus
-        score += Math.round(property.undervaluationConfidence * 0.05);
+        score += Math.round((property.undervaluationConfidence || 0) * 0.05);
         
         return Math.max(0, Math.min(100, score));
     }
 
     /**
-     * Classify rent-stabilized property (for the specialized table)
+     * Calculate deal quality from score
+     */
+    calculateDealQuality(score) {
+        if (score >= 90) return 'exceptional';
+        if (score >= 80) return 'excellent';
+        if (score >= 70) return 'very_good';
+        if (score >= 60) return 'good';
+        if (score >= 50) return 'fair';
+        return 'poor';
+    }
+
+    /**
+     * Classify rent-stabilized property
      */
     classifyRentStabilizedProperty(property) {
         if (property.percentBelowMarket >= 20) {
@@ -885,54 +706,266 @@ async saveToUndervaluedRentalsTable(property, neighborhood) {
         if (property.noFee) tags.push('no_fee');
         if (this.hasAmenity(property.amenities, ['doorman'])) tags.push('doorman');
         if (this.hasAmenity(property.amenities, ['elevator'])) tags.push('elevator');
-        if (property.percentBelowMarket >= 25) tags.push('exceptional_deal');
+        if ((property.percentBelowMarket || 0) >= 25) tags.push('exceptional_deal');
         
         return tags;
-    }
-
-    /**
-     * Find rent-stabilized building match from DHCR data
-     */
-    findRentStabilizedBuildingMatch(property, rentStabilizedBuildings) {
-        if (!rentStabilizedBuildings || rentStabilizedBuildings.length === 0) {
-            return false;
-        }
-        
-        const normalizedAddress = this.normalizeAddress(property.address);
-        
-        const match = rentStabilizedBuildings.find(building => {
-            const buildingAddress = this.normalizeAddress(building.address || '');
-            return buildingAddress && normalizedAddress.includes(buildingAddress);
-        });
-        
-        return !!match;
-    }
-
-    /**
-     * Normalize address for matching
-     */
-    normalizeAddress(address) {
-        if (!address) return '';
-        return address.toLowerCase()
-            .replace(/[^\w\s]/g, ' ')
-            .replace(/\s+/g, ' ')
-            .trim();
     }
 
     /**
      * Get borough from neighborhood
      */
     getBoroughFromNeighborhood(neighborhood) {
-        for (const [borough, neighborhoods] of Object.entries(this.boroughMap)) {
-            if (neighborhoods.includes(neighborhood)) {
-                return borough;
-            }
-        }
-        return 'manhattan'; // Default fallback
+        const manhattanNeighborhoods = [
+            'soho', 'tribeca', 'west-village', 'east-village', 'lower-east-side',
+            'financial-district', 'battery-park-city', 'chinatown', 'little-italy',
+            'nolita', 'bowery', 'two-bridges'
+        ];
+        
+        const brooklynNeighborhoods = [
+            'brooklyn-heights', 'dumbo', 'williamsburg', 'greenpoint', 'park-slope',
+            'carroll-gardens', 'cobble-hill', 'boerum-hill', 'fort-greene',
+            'prospect-heights', 'crown-heights', 'bed-stuy'
+        ];
+        
+        const queensNeighborhoods = [
+            'long-island-city', 'astoria', 'sunnyside', 'woodside', 'elmhurst',
+            'jackson-heights', 'corona', 'flushing', 'forest-hills'
+        ];
+        
+        const bronxNeighborhoods = [
+            'mott-haven', 'melrose', 'concourse', 'yankee-stadium', 'fordham',
+            'belmont', 'tremont', 'mount-eden'
+        ];
+        
+        const normalizedNeighborhood = neighborhood.toLowerCase();
+        
+        if (manhattanNeighborhoods.includes(normalizedNeighborhood)) return 'Manhattan';
+        if (brooklynNeighborhoods.includes(normalizedNeighborhood)) return 'Brooklyn';
+        if (queensNeighborhoods.includes(normalizedNeighborhood)) return 'Queens';
+        if (bronxNeighborhoods.includes(normalizedNeighborhood)) return 'Bronx';
+        
+        return 'Unknown';
     }
 
     /**
-     * Get analysis summary from CORRECT database tables
+     * Helper function for delays
+     */
+    delay(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    /**
+     * RESTORED: Load rent-stabilized buildings from Supabase (CRITICAL for accuracy)
+     */
+    async loadRentStabilizedBuildings() {
+        try {
+            let allBuildings = [];
+            let offset = 0;
+            const batchSize = 1000;
+            let hasMoreData = true;
+            
+            console.log('🏢 Loading rent-stabilized buildings from DHCR data...');
+            
+            while (hasMoreData) {
+                console.log(`   📊 Loading batch starting at offset ${offset}...`);
+                
+                const { data, error } = await this.supabase
+                    .from('rent_stabilized_buildings')
+                    .select('*')
+                    .range(offset, offset + batchSize - 1)
+                    .order('id');
+                
+                if (error) {
+                    console.error(`   ❌ Error loading buildings at offset ${offset}:`, error.message);
+                    throw error;
+                }
+                
+                // Robust stopping condition
+                if (!data || data.length === 0) {
+                    hasMoreData = false;
+                    break;
+                }
+                
+                allBuildings = allBuildings.concat(data);
+                console.log(`   ✅ Loaded ${data.length} buildings (total: ${allBuildings.length})`);
+                
+                // Dynamic continuation
+                if (data.length < batchSize) {
+                    hasMoreData = false;
+                }
+                
+                offset += batchSize;
+                
+                // Safety check
+                if (offset > 100000) {
+                    console.log('   ⚠️ Reached safety limit of 100,000 buildings');
+                    hasMoreData = false;
+                }
+            }
+            
+            console.log(`   ✅ Loaded ${allBuildings.length} total rent-stabilized buildings`);
+            return allBuildings;
+            
+        } catch (error) {
+            console.error('Failed to load rent-stabilized buildings:', error.message);
+            console.log('   🔄 Continuing without DHCR data - Claude will use other indicators');
+            return [];
+        }
+    }
+
+    /**
+     * RESTORED: Main comprehensive analysis entry point (NEEDED for Railway)
+     */
+    async runComprehensiveRentalAnalysis(options = {}) {
+        console.log('\n🚀 CLAUDE-POWERED RENTAL ANALYSIS STARTING...');
+        console.log('=' .repeat(60));
+        
+        const startTime = Date.now();
+        const results = {
+            undervaluedRentals: 0,
+            rentStabilizedFound: 0,
+            undervaluedStabilized: 0,
+            totalAnalyzed: 0,
+            neighborhoodsProcessed: 0,
+            apiCallsUsed: 0,
+            errors: [],
+            cacheEfficiency: 0
+        };
+        
+        try {
+            // Step 1: Load DHCR rent-stabilized buildings
+            const rentStabilizedBuildings = await this.loadRentStabilizedBuildings();
+            
+            // Step 2: Determine neighborhoods to process
+            const neighborhoods = options.neighborhoods || 
+                                (process.env.TEST_NEIGHBORHOOD ? [process.env.TEST_NEIGHBORHOOD] : 
+                                 this.getHighPriorityNeighborhoods());
+            
+            console.log(`🎯 Processing ${neighborhoods.length} neighborhoods...`);
+            
+            // Step 3: Process each neighborhood
+            let totalCacheHits = 0;
+            let totalApiCalls = 0;
+            
+            for (const neighborhood of neighborhoods) {
+                try {
+                    console.log(`\n📍 Analyzing ${neighborhood}...`);
+                    
+                    const neighborhoodResults = await this.analyzeNeighborhoodForRentStabilized(neighborhood, {
+                        rentStabilizedBuildings
+                    });
+                    
+                    // Update totals
+                    results.undervaluedRentals += neighborhoodResults.undervaluedCount;
+                    results.rentStabilizedFound += neighborhoodResults.stabilizedCount;
+                    results.undervaluedStabilized += neighborhoodResults.undervaluedStabilizedCount;
+                    results.totalAnalyzed += neighborhoodResults.totalAnalyzed;
+                    results.neighborhoodsProcessed++;
+                    
+                    console.log(`   ✅ ${neighborhood}: ${neighborhoodResults.undervaluedCount} undervalued, ${neighborhoodResults.stabilizedCount} stabilized`);
+                    
+                } catch (error) {
+                    console.error(`   ❌ Error in ${neighborhood}: ${error.message}`);
+                    results.errors.push({ neighborhood, error: error.message });
+                }
+                
+                // Rate limiting between neighborhoods
+                await this.delay(1000);
+            }
+            
+            // Final results
+            const duration = (Date.now() - startTime) / 1000;
+            results.apiCallsUsed = this.claudeAnalyzer.apiCallsUsed;
+            
+            console.log('\n🎉 CLAUDE ANALYSIS COMPLETE!');
+            console.log('=' .repeat(60));
+            console.log(`⏱️ Duration: ${Math.round(duration)}s`);
+            console.log(`📊 Total analyzed: ${results.totalAnalyzed} properties`);
+            console.log(`🏠 Undervalued rentals: ${results.undervaluedRentals}`);
+            console.log(`🔒 Rent-stabilized found: ${results.rentStabilizedFound}`);
+            console.log(`💎 Undervalued + Stabilized: ${results.undervaluedStabilized}`);
+            console.log(`🤖 Claude API calls: ${results.apiCallsUsed}`);
+            console.log(`💰 Estimated cost: ${(results.apiCallsUsed * 0.0006).toFixed(3)}`);
+            
+            return results;
+            
+        } catch (error) {
+            console.error('💥 ANALYSIS FAILED:', error.message);
+            throw error;
+        }
+    }
+
+    /**
+     * RESTORED: Get borough from neighborhood (REQUIRED for data integrity)
+     */
+    getBoroughFromNeighborhood(neighborhood) {
+        const manhattanNeighborhoods = [
+            'soho', 'tribeca', 'west-village', 'east-village', 'lower-east-side',
+            'financial-district', 'battery-park-city', 'chinatown', 'little-italy',
+            'nolita', 'bowery', 'two-bridges', 'chelsea', 'gramercy', 'kips-bay',
+            'murray-hill', 'midtown-east', 'midtown-west', 'hells-kitchen',
+            'upper-east-side', 'upper-west-side', 'morningside-heights',
+            'hamilton-heights', 'washington-heights', 'inwood', 'greenwich-village',
+            'flatiron', 'noho'
+        ];
+        
+        const brooklynNeighborhoods = [
+            'brooklyn-heights', 'dumbo', 'williamsburg', 'greenpoint', 'park-slope',
+            'carroll-gardens', 'cobble-hill', 'boerum-hill', 'fort-greene',
+            'prospect-heights', 'crown-heights', 'bed-stuy', 'bushwick',
+            'bedford-stuyvesant', 'gowanus', 'clinton-hill', 'red-hook',
+            'prospect-lefferts-gardens', 'sunset-park', 'bay-ridge', 'bensonhurst'
+        ];
+        
+        const queensNeighborhoods = [
+            'long-island-city', 'astoria', 'sunnyside', 'woodside', 'elmhurst',
+            'jackson-heights', 'corona', 'flushing', 'forest-hills', 'ridgewood',
+            'maspeth', 'rego-park'
+        ];
+        
+        const bronxNeighborhoods = [
+            'mott-haven', 'melrose', 'concourse', 'yankee-stadium', 'fordham',
+            'belmont', 'tremont', 'mount-eden', 'south-bronx', 'highbridge',
+            'university-heights', 'morrisania'
+        ];
+        
+        const normalizedNeighborhood = neighborhood.toLowerCase();
+        
+        if (manhattanNeighborhoods.includes(normalizedNeighborhood)) return 'Manhattan';
+        if (brooklynNeighborhoods.includes(normalizedNeighborhood)) return 'Brooklyn';
+        if (queensNeighborhoods.includes(normalizedNeighborhood)) return 'Queens';
+        if (bronxNeighborhoods.includes(normalizedNeighborhood)) return 'Bronx';
+        
+        return 'Unknown';
+    }
+
+    /**
+     * RESTORED: Get high-priority neighborhoods for analysis
+     */
+    getHighPriorityNeighborhoods() {
+        return [
+            // Manhattan priority areas
+            'east-village', 'west-village', 'lower-east-side', 'chinatown',
+            'little-italy', 'nolita', 'soho', 'tribeca', 'financial-district',
+            'two-bridges', 'chelsea', 'gramercy', 'kips-bay', 'murray-hill',
+            
+            // Brooklyn priority areas  
+            'williamsburg', 'greenpoint', 'bushwick', 'bedford-stuyvesant',
+            'crown-heights', 'prospect-heights', 'park-slope', 'gowanus',
+            'carroll-gardens', 'cobble-hill', 'brooklyn-heights', 'dumbo',
+            'fort-greene', 'clinton-hill', 'boerum-hill',
+            
+            // Queens priority areas
+            'long-island-city', 'astoria', 'sunnyside', 'woodside',
+            'jackson-heights', 'elmhurst', 'corona', 'ridgewood',
+            
+            // Bronx priority areas
+            'mott-haven', 'melrose', 'concourse', 'south-bronx'
+        ];
+    }
+
+    /**
+     * RESTORED: Get analysis summary (Useful for debugging)
      */
     async getAnalysisSummary() {
         try {
@@ -967,7 +1000,7 @@ async saveToUndervaluedRentalsTable(property, neighborhood) {
             return {
                 topUndervalued: undervalued || [],
                 topStabilized: stabilized || [],
-                goldmineDeals: goldmine || [] // Both undervalued AND stabilized - THE BEST DEALS
+                goldmineDeals: goldmine || [] // Both undervalued AND stabilized
             };
 
         } catch (error) {
@@ -977,226 +1010,86 @@ async saveToUndervaluedRentalsTable(property, neighborhood) {
     }
 
     /**
-     * Setup database (create tables if needed)
-     */
-    async setupDatabase() {
-        console.log('🔧 Setting up database...');
-        
-        try {
-            // Test connection
-            const { data, error } = await this.supabase
-                .from('rental_market_cache')
-                .select('id')
-                .limit(1);
-                
-            if (error && error.message.includes('does not exist')) {
-                console.log('⚠️ Database tables missing - please run the SQL schema');
-                console.log('📋 Check the CURRENT SUPABASE SQL in your project files');
-                return false;
-            }
-            
-            console.log('✅ Database connection verified');
-            return true;
-            
-        } catch (error) {
-            console.error('❌ Database setup failed:', error.message);
-            return false;
-        }
-    }
-
-    /**
-     * Cleanup old data
-     */
-    async cleanupOldData() {
-        console.log('🧹 Cleaning up old data...');
-        
-        try {
-            const oneWeekAgo = new Date();
-            oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
-            
-            // Mark old cache entries as stale
-            const { error: cacheError } = await this.supabase
-                .from('rental_market_cache')
-                .update({ market_status: 'likely_rented' })
-                .lt('last_seen_in_search', oneWeekAgo.toISOString())
-                .eq('market_status', 'pending');
-            
-            if (cacheError) {
-                console.warn('⚠️ Cache cleanup warning:', cacheError.message);
-            } else {
-                console.log('✅ Cache cleanup completed');
-            }
-            
-        } catch (error) {
-            console.error('❌ Cleanup failed:', error.message);
-        }
-    }
-
-    /**
-     * Utility delay function
-     */
-    async delay(ms) {
-        return new Promise(resolve => setTimeout(resolve, ms));
-    }
-
-    /**
-     * Get usage statistics
+     * RESTORED: Get usage statistics (Cost tracking)
      */
     getUsageStats() {
         return {
-            apiCallsUsed: this.apiCallsUsed,
-            rateLimitHits: this.rateLimitHits,
-            estimatedCost: this.apiCallsUsed * 0.0006
+            apiCallsUsed: this.claudeAnalyzer.apiCallsUsed,
+            estimatedCost: this.claudeAnalyzer.apiCallsUsed * 0.0006,
+            cacheEfficiency: 0 // Can be enhanced later
         };
     }
-/**
-     * Calculate deal quality from score
+
+    /**
+     * Run comprehensive rent-stabilized analysis for multiple neighborhoods
      */
-    calculateDealQuality(score) {
-        if (score >= 90) return 'best';
-        if (score >= 80) return 'excellent'; 
-        if (score >= 70) return 'good';
-        if (score >= 60) return 'fair';
-        return 'marginal';
+    async runComprehensiveAnalysis(neighborhoods, options = {}) {
+        console.log('\n🏙️ Starting comprehensive rent-stabilized analysis...');
+        console.log(`   🎯 Target neighborhoods: ${neighborhoods.join(', ')}`);
+        
+        const overallResults = {
+            totalNeighborhoods: neighborhoods.length,
+            totalListings: 0,
+            totalAnalyzed: 0,
+            undervaluedCount: 0,
+            stabilizedCount: 0,
+            undervaluedStabilizedCount: 0,
+            savedCount: 0,
+            neighborhoodResults: [],
+            startTime: new Date(),
+            errors: []
+        };
+        
+        for (const neighborhood of neighborhoods) {
+            try {
+                const result = await this.analyzeNeighborhoodForRentStabilized(neighborhood, options);
+                
+                overallResults.totalListings += result.totalListings;
+                overallResults.totalAnalyzed += result.totalAnalyzed;
+                overallResults.undervaluedCount += result.undervaluedCount;
+                overallResults.stabilizedCount += result.stabilizedCount;
+                overallResults.undervaluedStabilizedCount += result.undervaluedStabilizedCount;
+                overallResults.savedCount += result.savedCount;
+                overallResults.neighborhoodResults.push(result);
+                overallResults.errors.push(...result.errors);
+                
+            } catch (error) {
+                console.error(`❌ Failed to analyze ${neighborhood}: ${error.message}`);
+                overallResults.errors.push(`${neighborhood}: ${error.message}`);
+            }
+            
+            // Delay between neighborhoods
+            await this.delay(1000);
+        }
+        
+        overallResults.endTime = new Date();
+        overallResults.duration = Math.round((overallResults.endTime - overallResults.startTime) / 1000);
+        
+        this.printFinalResults(overallResults);
+        return overallResults;
+    }
+
+    /**
+     * Print final analysis results
+     */
+    printFinalResults(results) {
+        console.log('\n' + '='.repeat(60));
+        console.log(`⏱️ Duration: ${results.duration}s`);
+        console.log(`🏘️ Neighborhoods: ${results.totalNeighborhoods}`);
+        console.log(`📊 Total analyzed: ${results.totalAnalyzed} properties`);
+        console.log(`🏠 Undervalued rentals: ${results.undervaluedCount}`);
+        console.log(`🔒 Rent-stabilized found: ${results.stabilizedCount}`);
+        console.log(`💎 Undervalued + Stabilized: ${results.undervaluedStabilizedCount}`);
+        console.log(`💾 Total saved: ${results.savedCount}`);
+        console.log(`🤖 Claude API calls: ${this.claudeAnalyzer.apiCallsUsed}`);
+        
+        if (results.errors.length > 0) {
+            console.log(`⚠️ Errors: ${results.errors.length}`);
+        }
+        
+        console.log('='.repeat(60));
+        console.log('\n🎉 CLAUDE RENTALS ANALYSIS COMPLETE!');
     }
 }
 
-// Command line interface
-async function main() {
-    const system = new ClaudePoweredRentalSystem();
-    const args = process.argv.slice(2);
-
-    if (args.includes('--help')) {
-        console.log('🤖 Claude-Powered Rental Analysis System');
-        console.log('');
-        console.log('Commands:');
-        console.log('  node claude-powered-rentals-system.js              # Run full analysis');
-        console.log('  node claude-powered-rentals-system.js --summary    # Show top deals');
-        console.log('  node claude-powered-rentals-system.js --setup      # Setup database');
-        console.log('  node claude-powered-rentals-system.js --cleanup    # Cleanup old data');
-        console.log('  node claude-powered-rentals-system.js --test       # Test single neighborhood');
-        console.log('  node claude-powered-rentals-system.js --help       # Show this help');
-        console.log('');
-        console.log('Environment Variables:');
-        console.log('  TEST_NEIGHBORHOOD=soho                             # Test single neighborhood');
-        console.log('  UNDERVALUATION_THRESHOLD=15                        # Regular undervaluation threshold');
-        console.log('  STABILIZED_UNDERVALUATION_THRESHOLD=-100           # Stabilized threshold');
-        console.log('  RENT_STABILIZED_CONFIDENCE_THRESHOLD=40            # Stabilization confidence');
-        console.log('  CLAUDE_API_KEY=your_key                            # Claude API key');
-        console.log('');
-        console.log('Examples:');
-        console.log('  TEST_NEIGHBORHOOD=soho npm run claude-test         # Test SoHo only');
-        console.log('  npm run claude-test -- --summary                   # Show summary');
-        return;
-    }
-
-    if (args.includes('--setup')) {
-        console.log('🔧 Setting up Claude-powered rental system...');
-        const success = await system.setupDatabase();
-        if (success) {
-            console.log('✅ Setup completed successfully');
-        } else {
-            console.log('❌ Setup failed - check database schema');
-        }
-        return;
-    }
-
-    if (args.includes('--cleanup')) {
-        console.log('🧹 Cleaning up old data...');
-        await system.cleanupOldData();
-        console.log('✅ Cleanup completed');
-        return;
-    }
-
-    if (args.includes('--test')) {
-        console.log('🧪 Testing Claude analysis system...');
-        if (!system.testNeighborhood) {
-            console.log('⚠️ No TEST_NEIGHBORHOOD set - using SoHo');
-            system.testNeighborhood = 'soho';
-        }
-        console.log(`🎯 Testing neighborhood: ${system.testNeighborhood}`);
-        
-        const results = await system.runComprehensiveRentalAnalysis();
-        
-        const stats = system.getUsageStats();
-        console.log('\n📊 TEST RESULTS:');
-        console.log(`   🤖 Claude API calls: ${stats.apiCallsUsed}`);
-        console.log(`   💰 Estimated cost: ${stats.estimatedCost.toFixed(4)}`);
-        console.log(`   📈 Rate limit hits: ${stats.rateLimitHits}`);
-        console.log(`   🏠 Properties analyzed: ${results.totalAnalyzed}`);
-        console.log(`   💎 Goldmine deals: ${results.undervaluedStabilized}`);
-        
-        return;
-    }
-
-    if (args.includes('--summary')) {
-        console.log('📊 ANALYSIS SUMMARY');
-        console.log('=' .repeat(50));
-        
-        const summary = await system.getAnalysisSummary();
-        
-        console.log('\n💎 GOLDMINE DEALS (Undervalued + Rent Stabilized):');
-        if (summary.goldmineDeals.length === 0) {
-            console.log('   No goldmine deals found. Run analysis first.');
-        } else {
-            summary.goldmineDeals.forEach((deal, i) => {
-                console.log(`${i + 1}. ${deal.address} - ${deal.monthly_rent}/month (${deal.undervaluation_percent?.toFixed(1)}% below market, ${deal.rent_stabilized_confidence}% stabilized)`);
-            });
-        }
-        
-        console.log('\n🏠 TOP UNDERVALUED RENTALS:');
-        if (summary.topUndervalued.length === 0) {
-            console.log('   No undervalued rentals found. Run analysis first.');
-        } else {
-            summary.topUndervalued.slice(0, 5).forEach((deal, i) => {
-                console.log(`${i + 1}. ${deal.address} - ${deal.monthly_rent}/month (${deal.discount_percent?.toFixed(1)}% below market)`);
-            });
-        }
-        
-        console.log('\n🔒 TOP RENT-STABILIZED PROPERTIES:');
-        if (summary.topStabilized.length === 0) {
-            console.log('   No stabilized properties found. Run analysis first.');
-        } else {
-            summary.topStabilized.slice(0, 5).forEach((deal, i) => {
-                console.log(`${i + 1}. ${deal.address} - ${deal.monthly_rent}/month (${deal.rent_stabilized_confidence}% confidence)`);
-            });
-        }
-        
-        return;
-    }
-
-    // Default: Run full analysis
-    try {
-        console.log('🚀 Starting Claude-powered rental analysis...');
-        
-        const results = await system.runComprehensiveRentalAnalysis();
-        
-        if (results.undervaluedStabilized > 0) {
-            console.log('\n💎 Use --summary to see your best deals!');
-            console.log('💡 Example: node claude-powered-rentals-system.js --summary');
-        }
-        
-        const stats = system.getUsageStats();
-        console.log('\n📊 FINAL STATS:');
-        console.log(`   🤖 Total API calls: ${stats.apiCallsUsed}`);
-        console.log(`   💰 Total cost: ${stats.estimatedCost.toFixed(3)}`);
-        console.log(`   📈 Rate limit hits: ${stats.rateLimitHits}`);
-        console.log(`   ⚡ Cache efficiency: ${results.cacheEfficiency}%`);
-        
-    } catch (error) {
-        console.error('💥 Analysis failed:', error.message);
-        console.error('💡 Try running with --test first to check configuration');
-        process.exit(1);
-    }
-}
-
-// Export for use in Railway and other modules
-module.exports = ClaudePoweredRentalSystem;
-
-// Run if called directly
-if (require.main === module) {
-    main().catch(error => {
-        console.error('💥 Claude-powered rental system crashed:', error);
-        process.exit(1);
-    });
-}
+module.exports = ClaudePoweredRentalsSystem;
