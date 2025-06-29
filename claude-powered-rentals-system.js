@@ -882,6 +882,7 @@ cleanAnalysisData(analysis) {
         // Analysis results with BULLETPROOF conversion
         score: this.safeInt(this.calculatePropertyScore(property)),
         grade: this.calculatePropertyGrade(this.calculatePropertyScore(property)),
+        deal_quality: this.safeDealQuality(this.calculatePropertyScore(property)),
         reasoning: property.reasoning || 'AI-powered market analysis',
         comparison_group: neighborhood,
         comparison_method: property.analysisMethod || 'claude_ai',
@@ -898,6 +899,7 @@ cleanAnalysisData(analysis) {
     console.log(`     discount_percent: ${saveData.discount_percent} (${typeof saveData.discount_percent})`);
     console.log(`     reliability_score: ${saveData.reliability_score} (${typeof saveData.reliability_score})`);
     console.log(`     score: ${saveData.score} (${typeof saveData.score})`);
+    console.log(`     deal_quality: ${saveData.deal_quality} (${typeof saveData.deal_quality})`);
     
     const { error } = await this.supabase
         .from('undervalued_rentals')
