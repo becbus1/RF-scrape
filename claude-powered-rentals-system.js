@@ -5,8 +5,11 @@
 // 2. Fixed rent_stabilized_method constraint violations 
 // 3. Enhanced JSON parsing error handling
 // 4. Fixed targetProperty reference errors
+// 5. Added smart caching to reduce API calls
+// 6. Fixed fetchActiveListings syntax
 
 require('dotenv').config();
+const axios = require('axios');
 const { createClient } = require('@supabase/supabase-js');
 const EnhancedClaudeMarketAnalyzer = require('./claude-market-analyzer.js');
 
@@ -196,6 +199,94 @@ class ClaudePoweredRentalsSystem {
         } catch (error) {
             console.warn(`   ⚠️ Failed to get cached listings: ${error.message}`);
             return [];
+        }
+    }
+
+    /**
+     * Fetch detailed property information with caching
+     * RESTORED: This function was referenced but missing
+     */
+    async fetchDetailedListingsWithCache(listings, neighborhood) {
+        const detailed = [];
+        
+        for (const listing of listings) {
+            try {
+                this.apiCallsUsed++;
+                
+                const response = await axios.get(`https://streeteasy-api.p.rapidapi.com/rentals/${listing.id}`, {
+                    headers: {
+                        'X-RapidAPI-Key': this.rapidApiKey,
+                        'X-RapidAPI-Host': 'streeteasy-api.p.rapidapi.com'
+                    },
+                    timeout: 15000
+                });
+                
+                if (response.data) {
+                    const detailedListing = {
+                        ...listing,
+                        ...response.data,
+                        neighborhood: neighborhood
+                    };
+                    
+                    detailed.push(detailedListing);
+                    
+                    // Cache the detailed listing
+                    await this.cacheDetailedListing(detailedListing, neighborhood);
+                }
+                
+            } catch (error) {
+                if (error.response?.status === 429) {
+                    console.warn(`     ⚠️ Rate limit hit for listing ${listing.id}`);
+                    await this.delay(2000);
+                } else {
+                    console.warn(`     ⚠️ Failed to fetch details for ${listing.id}: ${error.message}`);
+                }
+            }
+            
+            await this.delay(200); // Rate limiting
+        }
+        
+        return detailed;
+    }
+
+    /**
+     * Cache detailed listing information
+     * RESTORED: This function was referenced but missing
+     */
+    async cacheDetailedListing(listing, neighborhood) {
+        // ONLY CACHE IF FULLY DETAILED:
+        if (!listing.address || listing.bedrooms === undefined) {
+            console.warn(`     ⚠️ Not caching incomplete listing ${listing.id}`);
+            return;
+        }
+        
+        try {
+            const cacheData = {
+                listing_id: listing.id?.toString(),
+                address: listing.address,  // Now guaranteed to exist
+                monthly_rent: listing.price,
+                bedrooms: listing.bedrooms,
+                bathrooms: listing.bathrooms,
+                sqft: listing.sqft || 0,
+                neighborhood: neighborhood,
+                borough: this.getBoroughFromNeighborhood(neighborhood),
+                amenities: listing.amenities || [],
+                description: listing.description || '',
+                market_status: 'pending',
+                last_seen_in_search: new Date().toISOString(),
+                last_checked: new Date().toISOString(),
+                times_seen: 1
+            };
+                
+            const { error } = await this.supabase
+                .from('rental_market_cache')
+                .upsert(cacheData, { onConflict: 'listing_id' });
+            
+            if (error) {
+                console.warn(`     ⚠️ Failed to cache listing: ${error.message}`);
+            }
+        } catch (error) {
+            console.warn(`     ⚠️ Exception caching listing: ${error.message}`);
         }
     }
 
@@ -1066,6 +1157,11 @@ class ClaudePoweredRentalsSystem {
      * RESTORED: Get high-priority neighborhoods for analysis
      */
     getHighPriorityNeighborhoods() {
+        // NEW: If testing single listing, just use one neighborhood
+        if (this.testSingleListing) {
+            return ['dumbo']; // Use dumbo since it worked well before
+        }
+        
         return [
             // Manhattan priority areas
             'east-village', 'west-village', 'lower-east-side', 'chinatown',
