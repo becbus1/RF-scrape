@@ -172,6 +172,7 @@ class ClaudePoweredRentalsSystem {
                 .select('*')
                 .eq('neighborhood', neighborhood)
                 .neq('market_status', 'fetch_failed')
+                .not('address', 'is', null)  // Only get listings with complete details
                 .order('last_seen_in_search', { ascending: false })
                 .limit(this.maxListingsPerNeighborhood);
             
@@ -195,6 +196,128 @@ class ClaudePoweredRentalsSystem {
         } catch (error) {
             console.warn(`   ⚠️ Failed to get cached listings: ${error.message}`);
             return [];
+        }
+    }
+
+    /**
+     * RESTORED: Smart caching - check which listings need individual API calls
+     */
+    async getListingsNeedingFetch(activeListings, cachedListings) {
+        const cachedIds = new Set(cachedListings.map(c => c.id));
+        const needFetch = [];
+        const priceUpdates = [];
+        
+        for (const listing of activeListings) {
+            const cached = cachedListings.find(c => c.id === listing.id);
+            
+            if (!cached) {
+                // New listing - needs full fetch
+                needFetch.push(listing);
+            } else if (cached.price !== listing.price) {
+                // Price changed - needs re-fetch and analysis update
+                console.log(`   💰 Price change detected for ${listing.id}: ${cached.price} → ${listing.price}`);
+                needFetch.push(listing);
+                priceUpdates.push({ id: listing.id, oldPrice: cached.price, newPrice: listing.price });
+            }
+            // else: cached and price same - no fetch needed
+        }
+        
+        return { needFetch, priceUpdates, cacheHits: activeListings.length - needFetch.length };
+    }
+
+    /**
+     * RESTORED: Mark missing listings as likely rented
+     */
+    async markMissingListingsAsRented(currentListingIds, neighborhood) {
+        try {
+            const currentIds = new Set(currentListingIds.map(id => id.toString()));
+            
+            // Find cached listings not in current search
+            const { data: cachedListings, error } = await this.supabase
+                .from('rental_market_cache')
+                .select('listing_id')
+                .eq('neighborhood', neighborhood)
+                .not('address', 'is', null)
+                .neq('market_status', 'likely_rented');
+            
+            if (error) throw error;
+            
+            const missingIds = (cachedListings || [])
+                .map(row => row.listing_id)
+                .filter(id => !currentIds.has(id));
+            
+            if (missingIds.length > 0) {
+                // Mark as likely rented
+                const { error: updateError } = await this.supabase
+                    .from('rental_market_cache')
+                    .update({ 
+                        market_status: 'likely_rented',
+                        last_checked: new Date().toISOString()
+                    })
+                    .in('listing_id', missingIds);
+                
+                if (updateError) throw updateError;
+                
+                console.log(`   🔄 Marked ${missingIds.length} missing listings as likely rented`);
+                
+                // Also remove from analysis tables (simpler than updating)
+                await this.removeRentedFromAnalysisTables(missingIds);
+            }
+            
+        } catch (error) {
+            console.warn(`   ⚠️ Error marking missing listings: ${error.message}`);
+        }
+    }
+
+    /**
+     * Remove likely rented properties from analysis tables
+     */
+    async removeRentedFromAnalysisTables(listingIds) {
+        try {
+            // Remove from both tables - simpler than updating status
+            await Promise.all([
+                this.supabase.from('undervalued_rentals').delete().in('listing_id', listingIds),
+                this.supabase.from('undervalued_rent_stabilized').delete().in('listing_id', listingIds)
+            ]);
+            
+            console.log(`   🗑️ Removed ${listingIds.length} rented properties from analysis tables`);
+        } catch (error) {
+            console.warn(`   ⚠️ Error removing rented properties: ${error.message}`);
+        }
+    }
+
+    /**
+     * Handle price change updates (re-analyze and update tables)
+     */
+    async handlePriceChangeUpdates(priceUpdates, analyzedProperties) {
+        for (const update of priceUpdates) {
+            try {
+                // Find the re-analyzed property
+                const property = analyzedProperties.find(p => p.id === update.id);
+                if (!property) continue;
+                
+                console.log(`   🔄 Updating analysis for ${property.address} (price: ${update.oldPrice} → ${update.newPrice})`);
+                
+                // Update cache with new price
+                await this.supabase
+                    .from('rental_market_cache')
+                    .update({ 
+                        monthly_rent: update.newPrice,
+                        last_checked: new Date().toISOString() 
+                    })
+                    .eq('listing_id', update.id);
+                
+                // Remove old analysis (if exists) and re-save with new analysis
+                await Promise.all([
+                    this.supabase.from('undervalued_rentals').delete().eq('listing_id', update.id),
+                    this.supabase.from('undervalued_rent_stabilized').delete().eq('listing_id', update.id)
+                ]);
+                
+                // Re-save will happen in normal save flow with updated analysis
+                
+            } catch (error) {
+                console.warn(`   ⚠️ Error handling price update for ${update.id}: ${error.message}`);
+            }
         }
     }
 
