@@ -975,41 +975,6 @@ cleanAnalysisData(analysis) {
     if (intScore >= 50) return 'fair';
     return 'poor';
 }
-    safeInt(value, defaultValue = 0) {
-        if (value === null || value === undefined) return defaultValue;
-        const num = parseFloat(value);
-        return isNaN(num) ? defaultValue : Math.round(num);
-    }
-
-    /**
-     * BULLETPROOF: Convert any value to decimal safely
-     */
-    safeDecimal(value, decimals = 2, defaultValue = 0) {
-        if (value === null || value === undefined) return defaultValue;
-        const num = parseFloat(value);
-        return isNaN(num) ? defaultValue : parseFloat(num.toFixed(decimals));
-    }
-
-    /**
-     * BULLETPROOF: Ensure deal quality is valid constraint value
-     */
-    safeDealQuality(score) {
-        const intScore = this.safeInt(score, 50);
-        if (intScore >= 90) return 'best';
-        if (intScore >= 80) return 'excellent'; 
-        if (intScore >= 70) return 'good';
-        if (intScore >= 60) return 'fair';
-        return 'marginal';
-    }
-    hasAmenity(amenities, searchTerms) {
-        if (!Array.isArray(amenities)) return false;
-        
-        return searchTerms.some(term => 
-            amenities.some(amenity => 
-                amenity.toLowerCase().includes(term.toLowerCase())
-            )
-        );
-    }
 
     /**
      * Calculate property score (0-100)
