@@ -485,10 +485,10 @@ class EnhancedClaudeMarketAnalyzer {
      * Calculate grade from score (matches database constraint)
      */
     calculateGradeFromScore(score) {
-        if (score >= 95) return 'A+';
-        if (score >= 90) return 'A';
-        if (score >= 85) return 'B+';
-        if (score >= 80) return 'B';
+        if (score >= 98) return 'A+';
+        if (score >= 93) return 'A';
+        if (score >= 88) return 'B+';
+        if (score >= 83) return 'B';
         if (score >= 75) return 'C+';
         if (score >= 70) return 'C';
         if (score >= 60) return 'D';
@@ -550,6 +550,14 @@ RENT STABILIZATION RULES:
 - If probability is below 60%, do not mention it in your reasoning
 - Base assessment on building age, unit count, rent level, and legal indicators
 
+Only assign a rentStabilizedProbability ≥ 60 if there is strong evidence. This includes:
+	•	Direct mention of “rent-stabilized”, “regulated”, or “long-term tenant” or similar indicators in the listing description
+	•	Matching building in DHCR database
+	•	Buildings constructed between 1947 and 1973 with 6 or more units are potentially rent-stabilized, but this must be confirmed through direct evidence (listing description or DHCR match).
+
+
+Be cautious with assumptions based on rent level or age alone — those are not conclusive.
+
 REASONING STYLE:
 Write naturally and conversationally, like explaining to a friend. Example:
 "This rental offers excellent value at 23% below similar properties in the area. The $4,200/month rent compares favorably to nearby 2BR apartments which typically rent for $5,500-$6,000. The below-market pricing is due to the building's 1960s construction and basic amenities, but you still get the prime location benefits."
@@ -562,7 +570,7 @@ RESPONSE FORMAT (JSON):
   "potentialSavings": number,
   "reasoning": "Natural, conversational explanation of the value and market positioning",
   "rentStabilizedProbability": number,
-  "rentStabilizedFactors": ["building_age", "unit_count", "rent_level"],
+  "rentStabilizedFactors": ["dhcr_database", "building_age", "unit_count", "rent_level"],
   "rentStabilizedExplanation": "Only include if probability >= 60%",
   "detailedAnalysis": {
     "valueExplanation": "Why this property offers good/poor value",
