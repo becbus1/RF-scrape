@@ -32,64 +32,103 @@ class EnhancedClaudeMarketAnalyzer {
     }
 
     /**
-     * ENHANCED RENTALS ANALYSIS with hierarchical filtering + Claude AI
-     * Supports both undervalued_rentals and undervalued_rent_stabilized tables
+     * ENHANCED RENTALS ANALYSIS - SIMPLIFIED VERSION (matches working pattern)
      */
     async analyzeRentalsUndervaluation(targetProperty, comparableProperties, neighborhood, options = {}) {
         const threshold = options.undervaluationThreshold || 15;
-        const tableType = options.tableType || 'undervalued_rentals'; // or 'undervalued_rent_stabilized'
         
-        console.log(`🤖 Claude analyzing rental: ${targetProperty.address} (${tableType})`);
+        console.log(`🤖 Claude analyzing rental: ${targetProperty.address}`);
         
         try {
-            // STEP 1: Pre-filter comparables using hierarchy
+            // STEP 1: Pre-filter comparables using hierarchy (KEEP THIS - it works)
             const filteredComparables = this.filterComparablesUsingHierarchy(targetProperty, comparableProperties);
             console.log(`   🎯 Filtered to ${filteredComparables.selectedComparables.length} specific matches using ${filteredComparables.method}`);
             
             // STEP 2: Build context with filtered comparables for Claude
             const enhancedContext = this.buildEnhancedRentalsContext(targetProperty, filteredComparables.selectedComparables, neighborhood, options);
-            enhancedContext.valuationMethod = filteredComparables.method;
-            enhancedContext.filteredInfo = filteredComparables;
             
             // STEP 3: Let Claude analyze the specific comparables naturally
             const claudeResponse = await this.callClaudeForEnhancedRentalsAnalysis(enhancedContext, threshold);
             
             if (!claudeResponse.success) {
-                return this.createFailedRentalsResponse(targetProperty, claudeResponse.error, tableType);
+                return {
+                    isUndervalued: false,
+                    percentBelowMarket: 0,
+                    estimatedMarketRent: targetProperty.price,
+                    actualRent: targetProperty.price,
+                    confidence: 0,
+                    method: 'claude_analysis_failed',
+                    reasoning: claudeResponse.error || 'Analysis failed',
+                    rentStabilizedProbability: 0,
+                    rentStabilizedFactors: [],
+                    rentStabilizedExplanation: 'Analysis failed'
+                };
             }
             
             const analysis = claudeResponse.analysis;
             
-            // Validate Claude's response
-            if (!this.validateEnhancedRentalsAnalysis(analysis)) {
+            // STEP 4: Simple validation (like working version)
+            if (!analysis.estimatedMarketRent || !analysis.percentBelowMarket) {
                 throw new Error('Invalid analysis structure from Claude');
             }
             
-            console.log(`   💰 Claude estimate: $${analysis.estimatedMarketRent?.toLocaleString()}/month`);
+            // STEP 5: Calculate confidence from method (since Claude doesn't provide it)
+            const calculatedConfidence = this.calculateConfidenceFromMethod(filteredComparables.method, filteredComparables.selectedComparables.length);
+            
+            console.log(`   💰 Claude estimate: ${analysis.estimatedMarketRent?.toLocaleString()}/month`);
             console.log(`   📊 Below market: ${analysis.percentBelowMarket?.toFixed(1)}%`);
             if (analysis.rentStabilizedProbability >= 60) {
                 console.log(`   🔒 Rent stabilized: ${analysis.rentStabilizedProbability}%`);
             }
             
-            // STEP 4: Map to correct database structure
-            const mappedResponse = this.mapRentalsResponseToDatabase(analysis, targetProperty, filteredComparables, threshold, tableType);
-            
-            // STEP 5: Validate required fields for database insertion
-            if (!this.validateDatabaseResponse(mappedResponse, tableType)) {
-                throw new Error(`Missing required database fields for ${tableType}`);
-            }
-            
-            return mappedResponse;
+            // STEP 6: Return SIMPLE structure (like working version)
+            return {
+                isUndervalued: analysis.percentBelowMarket >= threshold && calculatedConfidence >= 60,
+                percentBelowMarket: analysis.percentBelowMarket || 0,
+                estimatedMarketRent: analysis.estimatedMarketRent || targetProperty.price,
+                actualRent: targetProperty.price,
+                potentialSavings: analysis.potentialSavings || 0,
+                confidence: calculatedConfidence,
+                method: 'claude_hierarchical_analysis',
+                comparablesUsed: filteredComparables.selectedComparables.length,
+                reasoning: analysis.reasoning || 'Claude AI market analysis',
+                undervaluationConfidence: calculatedConfidence,
+                
+                // Rent stabilization analysis
+                rentStabilizedProbability: analysis.rentStabilizedProbability || 0,
+                rentStabilizedFactors: analysis.rentStabilizedFactors || [],
+                rentStabilizedExplanation: analysis.rentStabilizedExplanation || 'No stabilization indicators found',
+                
+                // Enhanced metrics for compatibility
+                detailedAnalysis: analysis.detailedAnalysis || {},
+                valuationMethod: filteredComparables.method,
+                baseMarketRent: analysis.baseMarketRent || analysis.estimatedMarketRent,
+                adjustmentBreakdown: analysis.adjustmentBreakdown || {},
+                legalProtectionValue: analysis.rentStabilizedProbability >= 60 ? (analysis.potentialSavings || 0) * 12 : 0,
+                investmentMerit: analysis.percentBelowMarket >= 25 ? 'strong' : analysis.percentBelowMarket >= 15 ? 'moderate' : 'low'
+            };
             
         } catch (error) {
             console.warn(`   ⚠️ Claude analysis error: ${error.message}`);
-            return this.createFailedRentalsResponse(targetProperty, error.message, tableType);
+            return {
+                isUndervalued: false,
+                percentBelowMarket: 0,
+                estimatedMarketRent: targetProperty.price,
+                actualRent: targetProperty.price,
+                confidence: 0,
+                method: 'claude_analysis_failed',
+                reasoning: `Analysis failed: ${error.message}`,
+                comparablesUsed: 0,
+                undervaluationConfidence: 0,
+                rentStabilizedProbability: 0,
+                rentStabilizedFactors: [],
+                rentStabilizedExplanation: 'Analysis failed'
+            };
         }
     }
 
     /**
-     * ENHANCED SALES ANALYSIS with hierarchical filtering + Claude AI
-     * Supports undervalued_sales table
+     * ENHANCED SALES ANALYSIS - SIMPLIFIED VERSION (matches working pattern)
      */
     async analyzeSalesUndervaluation(targetProperty, comparableProperties, neighborhood, options = {}) {
         const threshold = options.undervaluationThreshold || 10;
@@ -103,39 +142,66 @@ class EnhancedClaudeMarketAnalyzer {
             
             // STEP 2: Build context with filtered comparables for Claude
             const enhancedContext = this.buildEnhancedSalesContext(targetProperty, filteredComparables.selectedComparables, neighborhood, options);
-            enhancedContext.valuationMethod = filteredComparables.method;
-            enhancedContext.filteredInfo = filteredComparables;
             
             // STEP 3: Let Claude analyze the specific comparables naturally
             const claudeResponse = await this.callClaudeForEnhancedSalesAnalysis(enhancedContext, threshold);
             
             if (!claudeResponse.success) {
-                return this.createFailedSalesResponse(targetProperty, claudeResponse.error);
+                return {
+                    isUndervalued: false,
+                    discountPercent: 0,
+                    estimatedMarketPrice: targetProperty.salePrice || targetProperty.price,
+                    actualPrice: targetProperty.salePrice || targetProperty.price,
+                    confidence: 0,
+                    method: 'claude_analysis_failed',
+                    reasoning: claudeResponse.error || 'Analysis failed',
+                    comparablesUsed: 0
+                };
             }
             
             const analysis = claudeResponse.analysis;
             
-            // Validate Claude's response
-            if (!this.validateEnhancedSalesAnalysis(analysis)) {
+            // STEP 4: Simple validation (like working version)
+            if (!analysis.estimatedMarketPrice || !analysis.discountPercent) {
                 throw new Error('Invalid analysis structure from Claude');
             }
             
-            console.log(`   💰 Claude estimate: $${analysis.estimatedMarketPrice?.toLocaleString()}`);
+            // STEP 5: Calculate confidence from method (since Claude doesn't provide it)
+            const calculatedConfidence = this.calculateConfidenceFromMethod(filteredComparables.method, filteredComparables.selectedComparables.length);
+            
+            console.log(`   💰 Claude estimate: ${analysis.estimatedMarketPrice?.toLocaleString()}`);
             console.log(`   📊 Below market: ${analysis.discountPercent?.toFixed(1)}%`);
             
-            // STEP 4: Map to correct database structure
-            const mappedResponse = this.mapSalesResponseToDatabase(analysis, targetProperty, filteredComparables, threshold);
-            
-            // STEP 5: Validate required fields for database insertion
-            if (!this.validateDatabaseResponse(mappedResponse, 'undervalued_sales')) {
-                throw new Error('Missing required database fields for undervalued_sales');
-            }
-            
-            return mappedResponse;
+            // STEP 6: Return SIMPLE structure (like working version)
+            return {
+                isUndervalued: analysis.discountPercent >= threshold && calculatedConfidence >= 60,
+                discountPercent: analysis.discountPercent || 0,
+                estimatedMarketPrice: analysis.estimatedMarketPrice || targetProperty.salePrice || targetProperty.price,
+                actualPrice: targetProperty.salePrice || targetProperty.price,
+                potentialSavings: (analysis.estimatedMarketPrice || 0) - (targetProperty.salePrice || targetProperty.price || 0),
+                confidence: calculatedConfidence,
+                method: 'claude_hierarchical_analysis',
+                comparablesUsed: filteredComparables.selectedComparables.length,
+                reasoning: analysis.reasoning || 'Claude AI market analysis',
+                
+                // Enhanced metrics for compatibility
+                detailedAnalysis: analysis.detailedAnalysis || {},
+                adjustmentBreakdown: analysis.adjustmentBreakdown || {},
+                valuationMethod: filteredComparables.method
+            };
             
         } catch (error) {
             console.warn(`   ⚠️ Claude sales analysis error: ${error.message}`);
-            return this.createFailedSalesResponse(targetProperty, error.message);
+            return {
+                isUndervalued: false,
+                discountPercent: 0,
+                estimatedMarketPrice: targetProperty.salePrice || targetProperty.price,
+                actualPrice: targetProperty.salePrice || targetProperty.price,
+                confidence: 0,
+                method: 'claude_analysis_failed',
+                reasoning: `Analysis failed: ${error.message}`,
+                comparablesUsed: 0
+            };
         }
     }
 
