@@ -88,86 +88,98 @@ class ClaudePoweredRentalsSystem {
         
         results.totalListings = activeListings.length;
         
-        // FIXED STEP 5: Analyze only new/changed listings
-        const analyzedProperties = [];
+       // STEP 5: Fetch detailed listing data FIRST, then analyze with Claude
+console.log(`   🔍 Fetching detailed data for ${needFetch.length} properties...`);
+const detailedListings = await this.fetchDetailedListingsWithCache(needFetch.slice(0, this.maxListingsPerNeighborhood), neighborhood);
+
+console.log(`   ✅ Got detailed data for ${detailedListings.length} properties`);
+
+// STEP 6: Now analyze with Claude using COMPLETE data (with real addresses)
+const analyzedProperties = [];
+
+for (const listing of detailedListings) {
+    try {
+        console.log(`🤖 Enhanced Claude analyzing rental: ${listing.address}`);
         
-        for (const listing of needFetch.slice(0, this.maxListingsPerNeighborhood)) {
-            try {
-                console.log(`🤖 Enhanced Claude analyzing rental: ${listing.address}`);
-                
-                // Get rent stabilization data for context
-                const rentStabilizedBuildings = options.rentStabilizedBuildings || [];
-                
-                // Call Claude for comprehensive analysis
-                const analysis = await this.claudeAnalyzer.analyzeRentalsUndervaluation(
-                    listing,
-                    activeListings, // Use active listings as comparables
-                    neighborhood,
-                    { 
-                        undervaluationThreshold: this.undervaluationThreshold,
-                        rentStabilizedBuildings
-                    }
-                );
-                
-                if (analysis && analysis.confidence > 0) {
-                    // FIXED: Convert data types at source
-                    const cleanAnalysis = this.cleanAnalysisData(analysis);
-                    
-                    // Determine classifications
-                    const isUndervalued = cleanAnalysis.percentBelowMarket >= this.undervaluationThreshold;
-                    const isStabilized = cleanAnalysis.rentStabilizedProbability >= this.stabilizationThreshold;
-                    
-                    const analyzedProperty = {
-                        ...listing,
-                        
-                        // Market analysis results - FIXED: Proper data types
-                        percentBelowMarket: cleanAnalysis.percentBelowMarket,
-                        estimatedMarketRent: cleanAnalysis.estimatedMarketRent || listing.price,
-                        potentialSavings: cleanAnalysis.potentialSavings,
-                        undervaluationConfidence: cleanAnalysis.undervaluationConfidence,
-                        
-                        // Rent stabilization analysis - FIXED: Proper data types
-                        rentStabilizedProbability: cleanAnalysis.rentStabilizedProbability,
-                        rentStabilizedFactors: cleanAnalysis.rentStabilizedFactors,
-                        rentStabilizedExplanation: cleanAnalysis.rentStabilizedExplanation,
-                        
-                        // Classifications
-                        isUndervalued: isUndervalued,
-                        isRentStabilized: isStabilized,
-                        isUndervaluedStabilized: isUndervalued && isStabilized,
-                        
-                        // Analysis metadata
-                        analysisMethod: 'claude_ai',
-                        reasoning: cleanAnalysis.reasoning,
-                        comparablesUsed: activeListings.length,
-                        fromCache: false
-                    };
-                    
-                    analyzedProperties.push(analyzedProperty);
-                    
-                    // Cache the detailed listing and analysis
-                    await this.cacheDetailedListing(analyzedProperty, neighborhood);
-                    
-                    // Update counts
-                    if (isUndervalued) results.undervaluedCount++;
-                    if (isStabilized) results.stabilizedCount++;
-                    if (isUndervalued && isStabilized) results.undervaluedStabilizedCount++;
-                    
-                    console.log(`     ✅ ${listing.address}: ${cleanAnalysis.percentBelowMarket}% below market, ${cleanAnalysis.rentStabilizedProbability}% stabilized`);
-                } else {
-                    console.log(`     ⚠️ Analysis failed for ${listing.address}: ${analysis?.error || 'Unknown error'}`);
-                }
-                
-            } catch (error) {
-                console.warn(`     ⚠️ Analysis exception for ${listing.address}: ${error.message}`);
-                results.errors.push(`${listing.address}: ${error.message}`);
-            }
-            
-            results.totalAnalyzed++;
-            
-            // Rate limiting between properties
-            await this.delay(100);
+        // Skip if still no address after detailed fetch
+        if (!listing.address || listing.address === 'Address not available') {
+            console.log(`     ⚠️ SKIPPED: Still no address after detailed fetch for ${listing.id}`);
+            continue;
         }
+        
+        // Get rent stabilization data for context
+        const rentStabilizedBuildings = options.rentStabilizedBuildings || [];
+        
+        // Call Claude for comprehensive analysis
+        const analysis = await this.claudeAnalyzer.analyzeRentalsUndervaluation(
+            listing,
+            detailedListings, // Use detailed listings as comparables (not activeListings)
+            neighborhood,
+            { 
+                undervaluationThreshold: this.undervaluationThreshold,
+                rentStabilizedBuildings
+            }
+        );
+        
+        if (analysis && analysis.confidence > 0) {
+            // FIXED: Convert data types at source
+            const cleanAnalysis = this.cleanAnalysisData(analysis);
+            
+            // Determine classifications
+            const isUndervalued = cleanAnalysis.percentBelowMarket >= this.undervaluationThreshold;
+            const isStabilized = cleanAnalysis.rentStabilizedProbability >= this.stabilizationThreshold;
+            
+            const analyzedProperty = {
+                ...listing,
+                
+                // Market analysis results - FIXED: Proper data types
+                percentBelowMarket: cleanAnalysis.percentBelowMarket,
+                estimatedMarketRent: cleanAnalysis.estimatedMarketRent || listing.price,
+                potentialSavings: cleanAnalysis.potentialSavings,
+                undervaluationConfidence: cleanAnalysis.undervaluationConfidence,
+                
+                // Rent stabilization analysis - FIXED: Proper data types
+                rentStabilizedProbability: cleanAnalysis.rentStabilizedProbability,
+                rentStabilizedFactors: cleanAnalysis.rentStabilizedFactors,
+                rentStabilizedExplanation: cleanAnalysis.rentStabilizedExplanation,
+                
+                // Classifications
+                isUndervalued: isUndervalued,
+                isRentStabilized: isStabilized,
+                isUndervaluedStabilized: isUndervalued && isStabilized,
+                
+                // Analysis metadata
+                analysisMethod: 'claude_ai',
+                reasoning: cleanAnalysis.reasoning,
+                comparablesUsed: detailedListings.length,
+                fromCache: false
+            };
+            
+            analyzedProperties.push(analyzedProperty);
+            
+            // Cache the detailed listing and analysis
+            await this.cacheDetailedListing(analyzedProperty, neighborhood);
+            
+            // Update counts
+            if (isUndervalued) results.undervaluedCount++;
+            if (isStabilized) results.stabilizedCount++;
+            if (isUndervalued && isStabilized) results.undervaluedStabilizedCount++;
+            
+            console.log(`     ✅ ${listing.address}: ${cleanAnalysis.percentBelowMarket}% below market, ${cleanAnalysis.rentStabilizedProbability}% stabilized`);
+        } else {
+            console.log(`     ⚠️ Analysis failed for ${listing.address}: ${analysis?.error || 'Unknown error'}`);
+        }
+        
+    } catch (error) {
+        console.warn(`     ⚠️ Analysis exception for ${listing.address}: ${error.message}`);
+        results.errors.push(`${listing.address}: ${error.message}`);
+    }
+    
+    results.totalAnalyzed++;
+    
+    // Rate limiting between properties
+    await this.delay(100);
+}
         
         // FIXED STEP 6: Save results using separate thresholds
         if (analyzedProperties.length > 0) {
