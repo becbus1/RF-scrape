@@ -26,7 +26,7 @@ class ClaudePoweredRentalsSystem {
         this.claudeAnalyzer = new EnhancedClaudeMarketAnalyzer();
         
         // Analysis thresholds
-        this.stabilizationThreshold = parseInt(process.env.RENT_STABILIZED_CONFIDENCE_THRESHOLD) || 40;
+        this.stabilizationThreshold = parseInt(process.env.RENT_STABILIZED_CONFIDENCE_THRESHOLD) || 60;
         this.undervaluationThreshold = parseInt(process.env.UNDERVALUATION_THRESHOLD) || 15;
         this.stabilizedUndervaluationThreshold = parseInt(process.env.STABILIZED_UNDERVALUATION_THRESHOLD) || -100;
         this.maxListingsPerNeighborhood = parseInt(process.env.MAX_LISTINGS_PER_NEIGHBORHOOD) || 500;
