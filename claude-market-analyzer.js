@@ -1,5 +1,5 @@
 // claude-market-analyzer.js
-// ENHANCED CLAUDE-POWERED MARKET ANALYSIS ENGINE
+// ENHANCED CLAUDE-POWERED MARKET ANALYSIS ENGINE - FIXED VERSION
 // Provides sophisticated comparative market analysis with comprehensive reasoning
 // for both sales and rentals with rent-stabilization detection
 require('dotenv').config();
@@ -85,336 +85,112 @@ class EnhancedClaudeMarketAnalyzer {
                 comparableInsights: analysis.comparableInsights || {},
                 investmentRating: analysis.investmentRating || 'B',
                 marketPosition: analysis.marketPosition || 'mid-market',
-                riskFactors: analysis.riskFactors || [],
-                roi: ((analysis.estimatedMarketPrice - targetProperty.salePrice) / targetProperty.salePrice * 100)
             };
             
         } catch (error) {
-            console.warn(`   ⚠️ Enhanced Claude sales analysis error: ${error.message}`);
+            console.warn(`   ⚠️ Enhanced Claude analysis error: ${error.message}`);
             return {
                 isUndervalued: false,
                 discountPercent: 0,
                 estimatedMarketPrice: targetProperty.salePrice,
                 actualPrice: targetProperty.salePrice,
                 confidence: 0,
-                method: 'enhanced_claude_error',
-                reasoning: `Enhanced analysis error: ${error.message}`
+                method: 'enhanced_claude_analysis_failed',
+                reasoning: `Enhanced analysis failed: ${error.message}`
             };
         }
     }
 
     /**
-     * ENHANCED RENTALS ANALYSIS with comprehensive reasoning and detailed insights
+     * ENHANCED RENTALS ANALYSIS with rent stabilization detection
      */
-    async analyzeRentalsUndervaluation(targetProperty, comparableProperties, rentStabilizedBuildings, neighborhood, options = {}) {
+    async analyzeRentalsUndervaluation(targetProperty, comparableProperties, neighborhood, options = {}) {
         const threshold = options.undervaluationThreshold || 15;
         
         console.log(`🤖 Enhanced Claude analyzing rental: ${targetProperty.address}`);
         
         try {
-            // Build enhanced rental market context
-            const enhancedContext = this.buildEnhancedRentalsContext(
-                targetProperty, 
-                comparableProperties, 
-                rentStabilizedBuildings, 
-                neighborhood
-            );
+            // Prepare enhanced context with rent stabilization data
+            const enhancedContext = this.buildEnhancedRentalsContext(targetProperty, comparableProperties, neighborhood, options);
             
-            // Get Claude's sophisticated rental analysis
+            // Get Claude's sophisticated analysis
             const claudeResponse = await this.callClaudeForEnhancedRentalsAnalysis(enhancedContext, threshold);
             
             if (!claudeResponse.success) {
                 return {
-                    success: false,
-                    error: claudeResponse.error || 'Enhanced analysis failed',
-                    estimatedMarketRent: targetProperty.price,
+                    isUndervalued: false,
                     percentBelowMarket: 0,
+                    estimatedMarketRent: targetProperty.price,
+                    actualRent: targetProperty.price,
                     confidence: 0,
-                    method: 'enhanced_claude_analysis_failed'
+                    method: 'enhanced_claude_analysis_failed',
+                    reasoning: claudeResponse.error || 'Enhanced analysis failed',
+                    rentStabilizedProbability: 0,
+                    rentStabilizedFactors: [],
+                    rentStabilizedExplanation: 'Analysis failed'
                 };
             }
             
             const analysis = claudeResponse.analysis;
             
-            // Validate enhanced response
+            // Validate enhanced response structure
             if (!this.validateEnhancedRentalsAnalysis(analysis)) {
-                throw new Error('Invalid enhanced rental analysis structure from Claude');
+                throw new Error('Invalid enhanced analysis structure from Claude');
             }
             
             // Build comprehensive reasoning
             const comprehensiveReasoning = this.buildComprehensiveRentalsReasoning(analysis, targetProperty, enhancedContext);
             
-            console.log(`   💰 Claude enhanced market rent: $${analysis.estimatedMarketRent.toLocaleString()}`);
-            console.log(`   📊 Below market: ${analysis.percentBelowMarket.toFixed(1)}%`);
+            console.log(`   💰 Claude enhanced estimate: $${analysis.estimatedMarketRent?.toLocaleString()}/month`);
+            console.log(`   📊 Market position: ${analysis.percentBelowMarket?.toFixed(1)}%`);
+            console.log(`   🔒 Rent stabilized: ${analysis.rentStabilizedProbability || 0}%`);
             console.log(`   ✅ Confidence: ${analysis.confidence}%`);
-            console.log(`   🏠 Rent stabilized probability: ${analysis.rentStabilizedProbability}%`);
-            console.log(`   🎯 Deal quality: ${analysis.dealQuality || 'fair'} (${analysis.score || 50}/100)`);
             
             return {
-                success: true,
-                estimatedMarketRent: analysis.estimatedMarketRent,
-                percentBelowMarket: analysis.percentBelowMarket,
-                confidence: analysis.confidence,
-                score: analysis.score,
-                dealQuality: analysis.dealQuality,
+                isUndervalued: analysis.percentBelowMarket >= threshold && analysis.confidence >= 60,
+                percentBelowMarket: analysis.percentBelowMarket || 0,
+                estimatedMarketRent: analysis.estimatedMarketRent || targetProperty.price,
+                actualRent: targetProperty.price,
+                potentialSavings: analysis.potentialMonthlySavings || 0,
+                confidence: analysis.confidence || 0,
                 method: 'enhanced_claude_comparative_analysis',
                 comparablesUsed: comparableProperties.length,
-                adjustments: analysis.adjustmentBreakdown || [],
-                calculationSteps: analysis.calculationSteps || [],
-                baseMarketRent: analysis.baseMarketRent,
-                totalAdjustments: analysis.totalAdjustments || 0,
-                confidenceFactors: analysis.confidenceFactors || {},
                 reasoning: comprehensiveReasoning,
-                // Enhanced rent stabilization analysis
-                rentStabilizedProbability: analysis.rentStabilizedProbability,
+                undervaluationConfidence: analysis.undervaluationConfidence || analysis.confidence || 0,
+                
+                // Rent stabilization analysis
+                rentStabilizedProbability: analysis.rentStabilizedProbability || 0,
                 rentStabilizedFactors: analysis.rentStabilizedFactors || [],
-                rentStabilizedExplanation: analysis.rentStabilizedExplanation,
+                rentStabilizedExplanation: analysis.rentStabilizedExplanation || 'No stabilization indicators found',
+                
                 // Enhanced metrics
                 detailedAnalysis: analysis.detailedAnalysis || {},
                 keyMetrics: analysis.keyMetrics || {},
                 comparableInsights: analysis.comparableInsights || {},
-                investmentRating: analysis.investmentRating || 'B',
-                marketPosition: analysis.marketPosition || 'mid-market',
-                riskFactors: analysis.riskFactors || [],
-                annualSavings: (analysis.estimatedMarketRent - targetProperty.price) * 12,
-                effectiveValue: analysis.effectiveValue || analysis.estimatedMarketRent
+                legalProtectionValue: analysis.legalProtectionValue || 0,
+                investmentMerit: analysis.investmentMerit || 'low'
             };
             
         } catch (error) {
-            console.warn(`   ⚠️ Enhanced Claude rental analysis error: ${error.message}`);
+            console.warn(`   ⚠️ Enhanced Claude analysis error: ${error.message}`);
             return {
-                success: false,
-                error: `Enhanced analysis error: ${error.message}`,
-                estimatedMarketRent: targetProperty.price,
+                isUndervalued: false,
                 percentBelowMarket: 0,
+                estimatedMarketRent: targetProperty.price,
+                actualRent: targetProperty.price,
                 confidence: 0,
-                method: 'enhanced_claude_error'
+                method: 'enhanced_claude_analysis_failed',
+                reasoning: `Enhanced analysis failed: ${error.message}`,
+                rentStabilizedProbability: 0,
+                rentStabilizedFactors: [],
+                rentStabilizedExplanation: 'Analysis failed'
             };
         }
     }
 
     /**
-     * Build enhanced market context for sales analysis with comprehensive data
-     */
-    buildEnhancedSalesContext(targetProperty, comparables, neighborhood) {
-        // Calculate detailed market statistics
-        const marketStats = this.calculateEnhancedMarketStats(comparables, 'sales');
-        
-        // Analyze property details comprehensively
-        const propertyAnalysis = this.analyzePropertyDetails(targetProperty, 'sales');
-        
-        // Get neighborhood context and insights
-        const neighborhoodContext = this.getNeighborhoodContext(neighborhood);
-        
-        // Analyze comparables by tiers and similarity
-        const comparableAnalysis = this.analyzeComparablesByTiers(comparables, targetProperty, 'sales');
-        
-        // Filter and enhance comparables
-        const enhancedComparables = comparables
-            .filter(comp => comp.salePrice > 0 && comp.bedrooms !== undefined)
-            .slice(0, 20) // Increased for better analysis
-            .map(comp => ({
-                address: comp.address,
-                price: comp.salePrice,
-                bedrooms: comp.bedrooms,
-                bathrooms: comp.bathrooms,
-                sqft: comp.sqft || null,
-                pricePerSqft: comp.sqft > 0 ? comp.salePrice / comp.sqft : null,
-                builtIn: comp.builtIn || null,
-                amenities: (comp.amenities || []).slice(0, 15),
-                description: (comp.description || '').substring(0, 400) + '...',
-                daysOnMarket: comp.daysOnMarket || null,
-                similarity: this.calculateSimilarityScore(comp, targetProperty)
-            }))
-            .sort((a, b) => b.similarity - a.similarity);
-
-        return {
-            targetProperty: {
-                address: targetProperty.address,
-                price: targetProperty.salePrice,
-                bedrooms: targetProperty.bedrooms,
-                bathrooms: targetProperty.bathrooms,
-                sqft: targetProperty.sqft || null,
-                pricePerSqft: targetProperty.sqft > 0 ? targetProperty.salePrice / targetProperty.sqft : null,
-                builtIn: targetProperty.builtIn || null,
-                amenities: targetProperty.amenities || [],
-                description: (targetProperty.description || '').substring(0, 600) + '...',
-                neighborhood: neighborhood,
-                borough: targetProperty.borough,
-                analysis: propertyAnalysis
-            },
-            comparables: enhancedComparables,
-            marketStats: marketStats,
-            neighborhood: neighborhoodContext,
-            comparableAnalysis: comparableAnalysis,
-            totalComparables: comparables.length
-        };
-    }
-
-    /**
-     * Build enhanced market context for rentals analysis with comprehensive data
-     */
-    buildEnhancedRentalsContext(targetProperty, comparables, rentStabilizedBuildings, neighborhood) {
-        // Calculate detailed market statistics
-        const marketStats = this.calculateEnhancedMarketStats(comparables, 'rentals');
-        
-        // Analyze property details comprehensively
-        const propertyAnalysis = this.analyzePropertyDetails(targetProperty, 'rentals');
-        
-        // Get neighborhood context and insights
-        const neighborhoodContext = this.getNeighborhoodContext(neighborhood);
-        
-        // Analyze comparables by tiers and similarity
-        const comparableAnalysis = this.analyzeComparablesByTiers(comparables, targetProperty, 'rentals');
-        
-        // Enhanced rent stabilization analysis
-        const rentStabilizationContext = this.buildEnhancedRentStabilizationContext(
-            targetProperty, 
-            rentStabilizedBuildings, 
-            neighborhood
-        );
-
-        // Filter and enhance comparables
-        const enhancedComparables = comparables
-            .filter(comp => comp.price > 0 && comp.bedrooms !== undefined)
-            .slice(0, 20)
-            .map(comp => ({
-                address: comp.address,
-                price: comp.price,
-                bedrooms: comp.bedrooms,
-                bathrooms: comp.bathrooms,
-                sqft: comp.sqft || null,
-                pricePerSqft: comp.sqft > 0 ? comp.price / comp.sqft : null,
-                amenities: (comp.amenities || []).slice(0, 15),
-                noFee: comp.noFee || false,
-                description: (comp.description || '').substring(0, 400) + '...',
-                similarity: this.calculateSimilarityScore(comp, targetProperty)
-            }))
-            .sort((a, b) => b.similarity - a.similarity);
-
-        return {
-            targetProperty: {
-                address: targetProperty.address,
-                price: targetProperty.price,
-                bedrooms: targetProperty.bedrooms,
-                bathrooms: targetProperty.bathrooms,
-                sqft: targetProperty.sqft || null,
-                pricePerSqft: targetProperty.sqft > 0 ? targetProperty.price / targetProperty.sqft : null,
-                builtIn: targetProperty.builtIn || null,
-                amenities: targetProperty.amenities || [],
-                description: (targetProperty.description || '').substring(0, 600) + '...',
-                neighborhood: neighborhood,
-                borough: targetProperty.borough,
-                noFee: targetProperty.noFee || false,
-                analysis: propertyAnalysis
-            },
-            comparables: enhancedComparables,
-            marketStats: marketStats,
-            neighborhood: neighborhoodContext,
-            comparableAnalysis: comparableAnalysis,
-            rentStabilizationContext: rentStabilizationContext,
-            totalComparables: comparables.length
-        };
-    }
-
-    /**
-     * Calculate enhanced market statistics with comprehensive metrics
-     */
-    calculateEnhancedMarketStats(comparables, type) {
-        const prices = comparables.map(c => type === 'sales' ? c.salePrice : c.price).filter(p => p > 0);
-        const psfs = comparables
-            .filter(c => c.sqft > 0)
-            .map(c => (type === 'sales' ? c.salePrice : c.price) / c.sqft)
-            .filter(p => p > 0 && isFinite(p));
-        const doms = comparables.map(c => c.daysOnMarket || 0).filter(d => d >= 0);
-        
-        const sortedPrices = [...prices].sort((a, b) => a - b);
-        const sortedPsfs = [...psfs].sort((a, b) => a - b);
-        
-        return {
-            priceStats: {
-                median: this.calculateMedian(prices),
-                mean: prices.reduce((a, b) => a + b, 0) / prices.length,
-                min: Math.min(...prices),
-                max: Math.max(...prices),
-                stdDev: this.calculateStandardDeviation(prices),
-                q1: this.calculatePercentile(sortedPrices, 25),
-                q3: this.calculatePercentile(sortedPrices, 75),
-                range: Math.max(...prices) - Math.min(...prices)
-            },
-            psfStats: {
-                median: this.calculateMedian(psfs),
-                mean: psfs.reduce((a, b) => a + b, 0) / psfs.length,
-                min: Math.min(...psfs),
-                max: Math.max(...psfs),
-                stdDev: this.calculateStandardDeviation(psfs),
-                q1: this.calculatePercentile(sortedPsfs, 25),
-                q3: this.calculatePercentile(sortedPsfs, 75)
-            },
-            marketVelocity: {
-                avgDaysOnMarket: doms.length > 0 ? doms.reduce((a, b) => a + b, 0) / doms.length : null,
-                fastSales: doms.filter(d => d <= 30).length,
-                slowSales: doms.filter(d => d > 90).length,
-                medianDOM: this.calculateMedian(doms)
-            },
-            bedBathDistribution: this.analyzeBedBathDistribution(comparables),
-            amenityFrequency: this.analyzeAmenityFrequency(comparables),
-            priceDistribution: this.analyzePriceDistribution(prices),
-            dataQuality: {
-                totalSamples: comparables.length,
-                withSqft: comparables.filter(c => c.sqft > 0).length,
-                withAmenities: comparables.filter(c => (c.amenities || []).length > 0).length,
-                completeness: this.calculateDataCompleteness(comparables)
-            }
-        };
-    }
-
-    /**
-     * Analyze property details comprehensively
-     */
-    analyzePropertyDetails(property, type) {
-    // FIXED: Safely handle null/undefined address AND keep all original functionality
-    const address = property.address || '';
-    const description = property.description || '';
-    const sqft = property.sqft || 0;
-    const price = type === 'sales' ? property.salePrice : property.price;
-    
-    return {
-        pricePerSqft: sqft > 0 ? price / sqft : null,
-        spaceEfficiency: this.calculateSpaceEfficiency(property),
-        amenityScore: this.calculateAmenityScore(property.amenities || []),
-        amenityCount: (property.amenities || []).length,
-        descriptionAnalysis: this.analyzeDescription(description),
-        buildingQuality: this.assessBuildingQuality(property),
-        locationFactors: this.analyzeLocationFactors(property),
-        marketPosition: this.assessMarketPosition(property, type),
-        conditionScore: this.assessConditionFromDescription(description),
-        uniqueFeatures: this.extractUniqueFeatures(description, property.amenities || [])
-    };
-}
-
-    /**
-     * Call Claude API for enhanced sales analysis
-     */
-    async callClaudeForEnhancedSalesAnalysis(enhancedContext, threshold) {
-        const systemPrompt = this.buildEnhancedSalesSystemPrompt();
-        const userPrompt = this.buildEnhancedSalesUserPrompt(enhancedContext, threshold);
-        
-        return await this.callClaude(systemPrompt, userPrompt, 'enhanced_sales');
-    }
-
-    /**
-     * Call Claude API for enhanced rentals analysis
-     */
-    async callClaudeForEnhancedRentalsAnalysis(enhancedContext, threshold) {
-        const systemPrompt = this.buildEnhancedRentalsSystemPrompt();
-        const userPrompt = this.buildEnhancedRentalsUserPrompt(enhancedContext, threshold);
-        
-        return await this.callClaude(systemPrompt, userPrompt, 'enhanced_rentals');
-    }
-
-    /**
      * Core Claude API call with enhanced error handling and retry logic
+     * FIXED: Improved JSON parsing and error handling
      */
     async callClaude(systemPrompt, userPrompt, analysisType) {
         const maxRetries = 3;
@@ -429,8 +205,8 @@ class EnhancedClaudeMarketAnalyzer {
                     'https://api.anthropic.com/v1/messages',
                     {
                         model: 'claude-3-haiku-20240307',
-                        max_tokens: 2000, // Increased for detailed analysis
-                        temperature: 0.05, // Very low for consistent analysis
+                        max_tokens: 2000,
+                        temperature: 0.05,
                         system: systemPrompt,
                         messages: [{
                             role: 'user',
@@ -443,75 +219,48 @@ class EnhancedClaudeMarketAnalyzer {
                             'x-api-key': this.claudeApiKey,
                             'anthropic-version': '2023-06-01'
                         },
-                        timeout: 45000 // Increased timeout for complex analysis
+                        timeout: 45000
                     }
                 );
                 
                 const responseText = response.data.content[0].text;
                 console.log(`   ✅ Enhanced Claude response received (${responseText.length} chars)`);
                 
-              // Parse JSON response with enhanced error handling
-try {
-    // Clean the response before parsing
-    let cleanedResponse = responseText
-        .replace(/[\u0000-\u001F\u007F-\u009F]/g, "") // Remove control characters
-        .replace(/\\/g, "\\\\") // Escape backslashes
-        .replace(/\n/g, "\\n") // Escape newlines
-        .replace(/\r/g, "\\r") // Escape carriage returns
-        .replace(/\t/g, "\\t"); // Escape tabs
-    
-    const analysis = JSON.parse(cleanedResponse);
-    return { success: true, analysis };
-} catch (parseError) {
-    console.warn(`   ⚠️ JSON parse error, attempting enhanced extraction: ${parseError.message}`);
-    
-    // Clean the response for fallback attempts too
-    let cleanedResponse = responseText
-        .replace(/[\u0000-\u001F\u007F-\u009F]/g, "") // Remove control characters
-        .replace(/\\/g, "\\\\") // Escape backslashes
-        .replace(/\n/g, "\\n") // Escape newlines
-        .replace(/\r/g, "\\r") // Escape carriage returns
-        .replace(/\t/g, "\\t"); // Escape tabs
-    
-    // Enhanced JSON extraction with better regex
-    const jsonMatch = cleanedResponse.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-        try {
-            const analysis = JSON.parse(jsonMatch[0]);
-            return { success: true, analysis };
-        } catch (secondParseError) {
-            console.warn(`   ⚠️ Second parse attempt failed: ${secondParseError.message}`);
-        }
-    }
-    
-    // Fallback: extract key-value pairs
-    const extractedData = this.extractDataFromResponse(cleanedResponse);
-    if (extractedData) {
-        return { success: true, analysis: extractedData };
-    }
-    
-    // Ultra-aggressive fallback - extract numbers from response
-console.warn(`   🔧 Using ultra-aggressive fallback for: ${targetProperty.address}`);
-const rentMatch = responseText.match(/estimatedMarketRent["\s:]+(\d+)/i);
-const percentMatch = responseText.match(/percentBelowMarket["\s:]+(\d+\.?\d*)/i);
-const confidenceMatch = responseText.match(/confidence["\s:]+(\d+)/i);
-const stabMatch = responseText.match(/rentStabilizedProbability["\s:]+(\d+)/i);
-
-return {
-    success: true,
-    analysis: {
-        estimatedMarketRent: rentMatch ? parseInt(rentMatch[1]) : Math.round(targetProperty.price * 1.2),
-        percentBelowMarket: percentMatch ? parseFloat(percentMatch[1]) : 0,
-        confidence: confidenceMatch ? parseInt(confidenceMatch[1]) : 30,
-        score: 30,
-        dealQuality: 'marginal',
-        reasoning: 'Parsed from malformed JSON response',
-        rentStabilizedProbability: stabMatch ? parseInt(stabMatch[1]) : 0,
-        rentStabilizedFactors: [],
-        rentStabilizedExplanation: 'Extracted from partial response'
-    }
-};
-}
+                // FIXED: Enhanced JSON parsing with better error handling
+                try {
+                    // First, try to extract JSON from the response
+                    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+                    if (!jsonMatch) {
+                        throw new Error('No JSON found in response');
+                    }
+                    
+                    let jsonString = jsonMatch[0];
+                    
+                    // Clean common JSON issues
+                    jsonString = jsonString
+                        .replace(/[\u0000-\u001F\u007F-\u009F]/g, "") // Remove control characters
+                        .replace(/\\(?!["\\/bfnrt]|u[0-9a-fA-F]{4})/g, "\\\\") // Fix invalid escapes
+                        .replace(/\n/g, "\\n") // Escape newlines properly
+                        .replace(/\r/g, "\\r") // Escape carriage returns
+                        .replace(/\t/g, "\\t") // Escape tabs
+                        .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":') // Quote unquoted keys
+                        .replace(/:\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*([,}])/g, ': "$1"$2') // Quote unquoted string values
+                        .replace(/,\s*([}\]])/g, '$1'); // Remove trailing commas
+                    
+                    const analysis = JSON.parse(jsonString);
+                    return { success: true, analysis };
+                    
+                } catch (parseError) {
+                    console.warn(`   ⚠️ JSON parse error, attempting enhanced extraction: ${parseError.message}`);
+                    
+                    // Fallback: extract key-value pairs manually
+                    const extractedData = this.extractDataFromResponse(responseText);
+                    if (extractedData && Object.keys(extractedData).length > 3) {
+                        return { success: true, analysis: extractedData };
+                    }
+                    
+                    throw new Error('Could not parse enhanced Claude response as JSON');
+                }
                 
             } catch (error) {
                 attempt++;
@@ -531,6 +280,384 @@ return {
     }
 
     /**
+     * FIXED: Enhanced data extraction from malformed responses
+     */
+    extractDataFromResponse(responseText) {
+        try {
+            const extracted = {};
+            
+            // Extract key numerical values using regex patterns
+            const patterns = {
+                estimatedMarketPrice: /(?:estimatedMarketPrice|estimated.*price|market.*price)[\s\S]*?(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/i,
+                estimatedMarketRent: /(?:estimatedMarketRent|estimated.*rent|market.*rent)[\s\S]*?(\d{1,3}(?:,\d{3})*)/i,
+                discountPercent: /(?:discountPercent|discount|below.*market)[\s\S]*?(-?\d+(?:\.\d+)?)/i,
+                percentBelowMarket: /(?:percentBelowMarket|percent.*below|market.*position)[\s\S]*?(-?\d+(?:\.\d+)?)/i,
+                confidence: /(?:confidence|certainty)[\s\S]*?(\d+(?:\.\d+)?)/i,
+                rentStabilizedProbability: /(?:rentStabilizedProbability|rent.*stabilized|stabilization)[\s\S]*?(\d+(?:\.\d+)?)/i,
+                score: /(?:score|rating)[\s\S]*?(\d+(?:\.\d+)?)/i
+            };
+            
+            for (const [key, pattern] of Object.entries(patterns)) {
+                const match = responseText.match(pattern);
+                if (match) {
+                    let value = parseFloat(match[1].replace(/,/g, ''));
+                    if (!isNaN(value)) {
+                        extracted[key] = value;
+                    }
+                }
+            }
+            
+            // Extract string values
+            const stringPatterns = {
+                reasoning: /(?:reasoning|analysis)[\s\S]*?[":]\s*["']?([^"'}\n]{20,200})/i,
+                dealQuality: /(?:dealQuality|deal.*quality)[\s\S]*?[":]\s*["']?(excellent|good|fair|poor|best)/i,
+                rentStabilizedExplanation: /(?:rentStabilizedExplanation|stabilization.*explanation)[\s\S]*?[":]\s*["']?([^"'}\n]{10,150})/i
+            };
+            
+            for (const [key, pattern] of Object.entries(stringPatterns)) {
+                const match = responseText.match(pattern);
+                if (match) {
+                    extracted[key] = match[1].trim();
+                }
+            }
+            
+            // Set reasonable defaults if we extracted some data
+            if (Object.keys(extracted).length > 0) {
+                extracted.confidence = extracted.confidence || 50;
+                extracted.reasoning = extracted.reasoning || 'Analysis based on extracted data';
+                extracted.rentStabilizedFactors = [];
+                extracted.rentStabilizedExplanation = extracted.rentStabilizedExplanation || 'No specific indicators found';
+            }
+            
+            return Object.keys(extracted).length > 3 ? extracted : null;
+            
+        } catch (error) {
+            console.warn(`   ⚠️ Data extraction failed: ${error.message}`);
+            return null;
+        }
+    }
+
+    /**
+     * Build enhanced sales context for Claude analysis
+     */
+    buildEnhancedSalesContext(targetProperty, comparableProperties, neighborhood) {
+        // FIXED: Ensure targetProperty is properly referenced
+        const target = {
+            address: targetProperty.address || 'Unknown Address',
+            salePrice: targetProperty.salePrice || targetProperty.price || 0,
+            bedrooms: targetProperty.bedrooms || 0,
+            bathrooms: targetProperty.bathrooms || 0,
+            sqft: targetProperty.sqft || 0,
+            builtIn: targetProperty.builtIn || null,
+            neighborhood: neighborhood || targetProperty.neighborhood || 'Unknown',
+            borough: targetProperty.borough || 'Unknown',
+            amenities: targetProperty.amenities || [],
+            description: targetProperty.description || '',
+            propertyType: targetProperty.propertyType || 'unknown',
+            monthlyHoa: targetProperty.monthlyHoa || 0,
+            monthlyTax: targetProperty.monthlyTax || 0,
+            pricePerSqft: targetProperty.sqft > 0 ? (targetProperty.salePrice || targetProperty.price || 0) / targetProperty.sqft : null
+        };
+
+        const marketStats = this.calculateMarketStatistics(comparableProperties, 'sales');
+        const comparableAnalysis = this.analyzeComparables(target, comparableProperties, 'sales');
+        const neighborhoodAnalysis = this.analyzeNeighborhood(neighborhood, 'sales');
+
+        return {
+            targetProperty: target,
+            marketStats,
+            comparables: comparableAnalysis.topComparables,
+            comparableAnalysis,
+            neighborhood: neighborhoodAnalysis,
+            totalComparables: comparableProperties.length
+        };
+    }
+
+    /**
+     * Build enhanced rentals context for Claude analysis
+     */
+    buildEnhancedRentalsContext(targetProperty, comparableProperties, neighborhood, options = {}) {
+        // FIXED: Ensure targetProperty is properly referenced
+        const target = {
+            address: targetProperty.address || 'Unknown Address',
+            price: targetProperty.price || targetProperty.monthlyRent || 0,
+            bedrooms: targetProperty.bedrooms || 0,
+            bathrooms: targetProperty.bathrooms || 0,
+            sqft: targetProperty.sqft || 0,
+            builtIn: targetProperty.builtIn || null,
+            neighborhood: neighborhood || targetProperty.neighborhood || 'Unknown',
+            borough: targetProperty.borough || 'Unknown',
+            amenities: targetProperty.amenities || [],
+            description: targetProperty.description || '',
+            noFee: targetProperty.noFee || false,
+            availableFrom: targetProperty.availableFrom || null,
+            pricePerSqft: targetProperty.sqft > 0 ? (targetProperty.price || 0) / targetProperty.sqft : null,
+            analysis: {
+                amenityScore: this.calculateAmenityScore(targetProperty.amenities || []),
+                conditionScore: this.assessConditionFromDescription(targetProperty.description || '')
+            }
+        };
+
+        const marketStats = this.calculateMarketStatistics(comparableProperties, 'rentals');
+        const comparableAnalysis = this.analyzeComparables(target, comparableProperties, 'rentals');
+        const neighborhoodAnalysis = this.analyzeNeighborhood(neighborhood, 'rentals');
+        const rentStabilizationContext = this.buildRentStabilizationContext(target, options.rentStabilizedBuildings || []);
+
+        return {
+            targetProperty: target,
+            marketStats,
+            comparables: comparableAnalysis.topComparables,
+            comparableAnalysis,
+            neighborhood: neighborhoodAnalysis,
+            rentStabilizationContext,
+            totalComparables: comparableProperties.length
+        };
+    }
+
+    /**
+     * Build rent stabilization context for analysis
+     */
+    buildRentStabilizationContext(targetProperty, rentStabilizedBuildings) {
+        const buildingMatches = this.findPotentialStabilizedMatches(targetProperty, rentStabilizedBuildings);
+        const strongestMatch = buildingMatches.length > 0 ? buildingMatches[0] : null;
+        
+        return {
+            buildingMatches,
+            strongestMatch,
+            buildingAgeFactor: this.assessBuildingAge(targetProperty.builtIn),
+            unitCountFactor: this.assessUnitCount(targetProperty),
+            rentLevelFactor: this.assessRentLevel(targetProperty),
+            legalIndicators: this.identifyLegalIndicators(targetProperty)
+        };
+    }
+
+    /**
+     * Calculate market statistics for comparables
+     */
+    calculateMarketStatistics(comparables, type) {
+        if (!comparables || comparables.length === 0) {
+            return { priceStats: {}, psfStats: {} };
+        }
+        
+        const priceField = type === 'sales' ? 'salePrice' : 'price';
+        const prices = comparables.map(comp => comp[priceField] || comp.price || 0).filter(p => p > 0);
+        const psfs = comparables.map(comp => comp.pricePerSqft || (comp.sqft > 0 ? (comp[priceField] || comp.price || 0) / comp.sqft : 0)).filter(p => p > 0);
+        
+        const calculateStats = (values) => {
+            if (values.length === 0) return {};
+            const sorted = values.slice().sort((a, b) => a - b);
+            const sum = values.reduce((a, b) => a + b, 0);
+            const mean = sum / values.length;
+            const variance = values.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / values.length;
+            
+            return {
+                min: sorted[0],
+                max: sorted[sorted.length - 1],
+                median: sorted[Math.floor(sorted.length / 2)],
+                mean: Math.round(mean),
+                stdDev: Math.round(Math.sqrt(variance)),
+                q1: sorted[Math.floor(sorted.length * 0.25)],
+                q3: sorted[Math.floor(sorted.length * 0.75)]
+            };
+        };
+        
+        return {
+            priceStats: calculateStats(prices),
+            psfStats: calculateStats(psfs)
+        };
+    }
+
+    /**
+     * Analyze comparables and create similarity rankings
+     */
+    analyzeComparables(targetProperty, comparables, type) {
+        const scoredComparables = comparables.map(comp => ({
+            ...comp,
+            similarity: this.calculatePropertySimilarity(targetProperty, comp, type)
+        })).sort((a, b) => b.similarity - a.similarity);
+        
+        // Create analysis tiers
+        const tiers = [
+            {
+                description: 'Exact matches (same bed/bath)',
+                properties: scoredComparables.filter(c => c.bedrooms === targetProperty.bedrooms && c.bathrooms === targetProperty.bathrooms),
+                count: 0,
+                avgPrice: 0,
+                avgPsf: 0
+            },
+            {
+                description: 'Close matches (±1 bed/bath)',
+                properties: scoredComparables.filter(c => 
+                    Math.abs(c.bedrooms - targetProperty.bedrooms) <= 1 && 
+                    Math.abs(c.bathrooms - targetProperty.bathrooms) <= 0.5
+                ),
+                count: 0,
+                avgPrice: 0,
+                avgPsf: 0
+            },
+            {
+                description: 'Similar properties',
+                properties: scoredComparables.filter(c => c.similarity >= 6),
+                count: 0,
+                avgPrice: 0,
+                avgPsf: 0
+            }
+        ];
+        
+        // Calculate tier statistics
+        tiers.forEach(tier => {
+            tier.count = tier.properties.length;
+            if (tier.count > 0) {
+                const priceField = type === 'sales' ? 'salePrice' : 'price';
+                const prices = tier.properties.map(p => p[priceField] || p.price || 0).filter(p => p > 0);
+                const psfs = tier.properties.map(p => p.pricePerSqft || 0).filter(p => p > 0);
+                
+                tier.avgPrice = prices.length > 0 ? Math.round(prices.reduce((a, b) => a + b, 0) / prices.length) : 0;
+                tier.avgPsf = psfs.length > 0 ? psfs.reduce((a, b) => a + b, 0) / psfs.length : 0;
+            }
+        });
+        
+        return {
+            topComparables: scoredComparables.slice(0, 12),
+            tiers: tiers.filter(t => t.count > 0)
+        };
+    }
+
+    /**
+     * Calculate property similarity score (0-10)
+     */
+    calculatePropertySimilarity(target, comparable, type) {
+        let score = 0;
+        
+        // Bedroom/bathroom match (40% of score)
+        if (target.bedrooms === comparable.bedrooms) score += 2;
+        else if (Math.abs(target.bedrooms - comparable.bedrooms) === 1) score += 1;
+        
+        if (Math.abs(target.bathrooms - comparable.bathrooms) <= 0.5) score += 2;
+        else if (Math.abs(target.bathrooms - comparable.bathrooms) <= 1) score += 1;
+        
+        // Square footage similarity (20% of score)
+        if (target.sqft > 0 && comparable.sqft > 0) {
+            const sqftDiff = Math.abs(target.sqft - comparable.sqft) / target.sqft;
+            if (sqftDiff <= 0.1) score += 2;
+            else if (sqftDiff <= 0.2) score += 1.5;
+            else if (sqftDiff <= 0.3) score += 1;
+        }
+        
+        // Building age similarity (10% of score)
+        if (target.builtIn && comparable.builtIn) {
+            const ageDiff = Math.abs(target.builtIn - comparable.builtIn);
+            if (ageDiff <= 5) score += 1;
+            else if (ageDiff <= 15) score += 0.5;
+        }
+        
+        // Amenity overlap (20% of score)
+        const targetAmenities = new Set(target.amenities || []);
+        const comparableAmenities = new Set(comparable.amenities || []);
+        const intersection = new Set([...targetAmenities].filter(x => comparableAmenities.has(x)));
+        const union = new Set([...targetAmenities, ...comparableAmenities]);
+        
+        if (union.size > 0) {
+            score += (intersection.size / union.size) * 2;
+        }
+        
+        // Price range reasonableness (10% of score)
+        const priceField = type === 'sales' ? 'salePrice' : 'price';
+        const targetPrice = target[priceField] || target.price || 0;
+        const compPrice = comparable[priceField] || comparable.price || 0;
+        
+        if (targetPrice > 0 && compPrice > 0) {
+            const priceDiff = Math.abs(targetPrice - compPrice) / targetPrice;
+            if (priceDiff <= 0.3) score += 1;
+            else if (priceDiff <= 0.5) score += 0.5;
+        }
+        
+        return Math.min(10, Math.max(0, score));
+    }
+
+    /**
+     * Validation functions
+     */
+    validateEnhancedSalesAnalysis(analysis) {
+        return analysis && 
+               typeof analysis.estimatedMarketPrice === 'number' &&
+               typeof analysis.discountPercent === 'number' &&
+               typeof analysis.confidence === 'number' &&
+               analysis.confidence >= 0 && analysis.confidence <= 100;
+    }
+
+    validateEnhancedRentalsAnalysis(analysis) {
+        return analysis && 
+               (typeof analysis.estimatedMarketRent === 'number' || typeof analysis.estimatedMarketPrice === 'number') &&
+               typeof analysis.percentBelowMarket === 'number' &&
+               typeof analysis.confidence === 'number' &&
+               analysis.confidence >= 0 && analysis.confidence <= 100 &&
+               typeof analysis.rentStabilizedProbability === 'number';
+    }
+
+    /**
+     * Helper functions for rent stabilization context
+     */
+    findPotentialStabilizedMatches(targetProperty, rentStabilizedBuildings) {
+        if (!rentStabilizedBuildings || rentStabilizedBuildings.length === 0) {
+            return [];
+        }
+        
+        const normalizedAddress = this.normalizeAddress(targetProperty.address);
+        const matches = [];
+        
+        for (const building of rentStabilizedBuildings) {
+            const buildingAddress = this.normalizeAddress(building.address || '');
+            if (!buildingAddress) continue;
+            
+            const similarity = this.calculateAddressSimilarity(normalizedAddress, buildingAddress);
+            if (similarity > 0.6) {
+                matches.push({
+                    ...building,
+                    confidence: Math.round(similarity * 100),
+                    similarity
+                });
+            }
+        }
+        
+        return matches.sort((a, b) => b.similarity - a.similarity).slice(0, 5);
+    }
+
+    calculateAmenityScore(amenities) {
+        const standardAmenities = [
+            'doorman', 'elevator', 'laundry', 'gym', 'rooftop', 'parking',
+            'dishwasher', 'air-conditioning', 'hardwood-floors', 'balcony'
+        ];
+        
+        let score = 0;
+        for (const amenity of amenities) {
+            const normalizedAmenity = amenity.toLowerCase();
+            if (standardAmenities.some(std => normalizedAmenity.includes(std))) {
+                score += 10;
+            }
+        }
+        
+        return Math.min(100, score);
+    }
+
+    assessConditionFromDescription(description) {
+        const desc = description.toLowerCase();
+        let score = 50; // Base score
+        
+        // Positive indicators
+        if (desc.includes('renovated') || desc.includes('updated')) score += 20;
+        if (desc.includes('new') || desc.includes('modern')) score += 15;
+        if (desc.includes('luxury') || desc.includes('high-end')) score += 15;
+        if (desc.includes('pristine') || desc.includes('immaculate')) score += 10;
+        
+        // Negative indicators
+        if (desc.includes('needs work') || desc.includes('fixer')) score -= 30;
+        if (desc.includes('original') && !desc.includes('restored')) score -= 10;
+        
+        return Math.min(100, Math.max(0, score));
+    }
+
+    /**
      * ENHANCED SYSTEM PROMPT FOR SALES ANALYSIS with sophisticated reasoning
      */
     buildEnhancedSalesSystemPrompt() {
@@ -542,89 +669,13 @@ ENHANCED ANALYSIS FRAMEWORK:
 3. Investment merit assessment with ROI projections
 4. Risk factor identification and mitigation strategies
 5. Market timing and velocity considerations
-6. Neighborhood-specific premium/discount analysis
+6. Building quality and amenity valuation
+7. Neighborhood tier adjustments and premium/discount analysis
+8. Financial modeling with cash flow projections
+9. Detailed confidence scoring with supporting rationale
+10. Specific investment recommendations with risk-adjusted returns
 
-NYC NEIGHBORHOOD MARKET TIERS (affects base pricing):
-TIER 1 (Ultra-Premium +35-50%): SoHo, Tribeca, West Village, Greenwich Village
-TIER 2 (Premium +25-35%): NoLita, Chelsea, Gramercy, Dumbo, Brooklyn Heights
-TIER 3 (High-End +15-25%): Upper East Side, Upper West Side, Park Slope, Williamsburg
-TIER 4 (Desirable +10-20%): East Village, Lower East Side, Long Island City, Fort Greene
-TIER 5 (Emerging +5-15%): Crown Heights, Prospect Heights, Astoria, Bed-Stuy
-TIER 6 (Value 0-10%): Bushwick, Ridgewood, Mott Haven, Concourse
-
-SALES DEAL SCORING FRAMEWORK (0-100):
-90-100 (BEST): 25%+ below market in any area OR 20%+ in ultra-premium
-80-89 (Excellent): 20%+ below market OR 15%+ in premium neighborhoods  
-70-79 (Good): 15%+ below market (strong deals)
-60-69 (Fair): 10-15% below market (meets threshold, worth considering)
-50-59 (Marginal): 5-10% below market (close to threshold but doesn't qualify)
-40-49 (Slight): 0-5% below market
-30-39 (Market Rate): At market rate
-20-29 (Above Market): 5%+ above market
-10-19 (Overpriced): 10%+ above market  
-0-9 (Avoid): 15%+ above market
-
-Only properties scoring 60+ (10%+ below market) will be saved to the database.
-Be conservative with scoring. Most analyzed properties should score 30-60, with only genuine deals scoring 70+
-
-ENHANCED BUILDING ANALYSIS:
-PRE-WAR LUXURY (pre-1940):
-- Manhattan: +$200-500k (architectural details, high ceilings, solid construction)
-- Brooklyn: +$100-300k (brownstone/limestone premium, character)
-- Queens/Bronx: +$50-150k (solid construction, architectural interest)
-
-POST-WAR CLASSIC (1940-1980):
-- Manhattan: Baseline to +$100k (solid construction, less character)
-- Brooklyn: -$50k to +$50k (functional but less desirable than pre-war)
-- Queens/Bronx: Baseline (standard construction for area)
-
-MODERN LUXURY (1980-2010):
-- Manhattan: +$100-300k (modern systems, better layouts)
-- Brooklyn: +$50-200k (contemporary amenities, efficiency)
-- Queens/Bronx: +$25-100k (modern conveniences)
-
-NEW DEVELOPMENT (post-2010):
-- Manhattan: +$150-400k (luxury amenities, warranties, smart systems)
-- Brooklyn: +$75-250k (modern design, energy efficiency, amenities)
-- Queens/Bronx: +$50-150k (contemporary features, efficiency)
-
-SOPHISTICATED AMENITY VALUATION:
-MANHATTAN LUXURY AMENITIES:
-- Full-time doorman: +$250-500k (essential luxury service)
-- Concierge services: +$100-200k (premium convenience)
-- Fitness center/gym: +$100-250k (valuable space-saving amenity)
-- Roof deck/terrace: +$150-400k (rare outdoor space premium)
-- Swimming pool: +$200-500k (ultra-luxury amenity)
-- Parking (deeded): +$200-400k (extremely valuable in Manhattan)
-- In-unit laundry: +$75-150k (major convenience)
-- Central air: +$50-100k (comfort factor)
-- Private outdoor space: +$200-600k (balcony/terrace premium)
-- Smart home features: +$25-75k (modern convenience)
-
-BROOKLYN PREMIUM AMENITIES:
-- Full-time doorman: +$125-250k (luxury in outer borough)
-- Fitness center: +$75-150k (valuable amenity)
-- Roof deck: +$100-200k (outdoor space value)
-- Parking: +$100-200k (valuable but more available)
-- In-unit laundry: +$50-100k (convenience factor)
-- Private outdoor space: +$100-300k (outdoor space premium)
-
-CONDITION AND QUALITY PREMIUMS:
-- "Gut renovated" with high-end finishes: +20-30% premium
-- "Recently renovated" with quality materials: +10-20% premium
-- "Move-in ready" condition: +5-10% premium
-- "Mint condition" luxury finishes: +15-25% premium
-- "Original condition" in good building: Baseline
-- "Needs updating" or "TLC": -10-20% discount
-- "Fixer-upper" or major renovation needed: -20-35% discount
-
-MARKET TIMING CONSIDERATIONS:
-- Spring market (Mar-May): +2-5% premium (peak activity)
-- Summer market (Jun-Aug): Baseline to +2%
-- Fall market (Sep-Nov): +3-7% premium (peak luxury market)
-- Winter market (Dec-Feb): -5-10% discount (slower market)
-
-ENHANCED VALUATION METHODOLOGY:
+ANALYSIS METHODOLOGY:
 1. Identify exact comparable matches by bed/bath in same neighborhood
 2. Weight comparables by similarity score (location, building type, amenities)
 3. Apply neighborhood tier adjustment to establish base market range
@@ -640,9 +691,9 @@ REQUIRED RESPONSE FORMAT (JSON only):
 {
   "estimatedMarketPrice": number,
   "discountPercent": number,
-  "confidence": number (0-100),
-  "score": number (0-100),
-"dealQuality": "best|excellent|good|fair|marginal",
+  "confidence": number,
+  "score": number,
+  "dealQuality": "best|excellent|good|fair|marginal",
   "baseMarketPrice": number,
   "adjustmentBreakdown": {
     "neighborhoodTier": number,
@@ -661,12 +712,12 @@ REQUIRED RESPONSE FORMAT (JSON only):
     "riskFactors": "Specific risks and mitigation strategies"
   },
   "keyMetrics": {
-    "pricePercentile": number (0-100),
-    "amenityScore": number (0-100),
-    "marketVelocityScore": number (0-100),
-    "neighborhoodDesirability": number (1-10),
-    "buildingQuality": number (1-10),
-    "investmentGrade": "A+", "A", "B+", "B", "C+", "C", "D"
+    "pricePercentile": number,
+    "amenityScore": number,
+    "marketVelocityScore": number,
+    "neighborhoodDesirability": number,
+    "buildingQuality": number,
+    "investmentGrade": "A+|A|B+|B|C+|C|D"
   },
   "comparableInsights": {
     "bestComparables": ["top 3 most similar addresses"],
@@ -675,10 +726,10 @@ REQUIRED RESPONSE FORMAT (JSON only):
     "competitivePosition": "premium|competitive|value|discount"
   },
   "investmentAnalysis": {
-    "roi": number (potential return percentage),
-    "paybackPeriod": number (years),
+    "roi": number,
+    "paybackPeriod": number,
     "marketAppreciation": "strong|moderate|weak",
-    "liquidityScore": number (1-10),
+    "liquidityScore": number,
     "cashFlow": "positive|neutral|negative"
   },
   "riskFactors": ["specific risk factor 1", "risk factor 2"],
@@ -689,212 +740,72 @@ Be exceptionally detailed, specific, and data-driven. Include exact figures, per
     }
 
     /**
-     * ENHANCED SYSTEM PROMPT FOR RENTALS ANALYSIS with sophisticated reasoning
+     * ENHANCED SYSTEM PROMPT FOR RENTALS ANALYSIS with rent stabilization detection
      */
     buildEnhancedRentalsSystemPrompt() {
-        return `You are an expert NYC rental market analyst and rent stabilization authority with deep knowledge of micro-market pricing, legal frameworks, and investment analysis. Your analysis must provide exceptional detail on market positioning, rent stabilization probability, and investment value.
+        return `You are an expert NYC rental market analyst and rent stabilization authority with deep knowledge of micro-market pricing, legal frameworks, and investment analysis. Your expertise spans comparative market analysis, tenant protection laws, and sophisticated investment evaluation.
 
-ENHANCED RENTAL ANALYSIS FRAMEWORK:
-1. Comprehensive market rent assessment with percentile rankings
-2. Detailed rent stabilization legal analysis with confidence scoring
-3. Investment merit evaluation for rental properties
-4. Risk assessment and tenant protection analysis
-5. Market timing and seasonal considerations
-6. Neighborhood-specific rent premium analysis
+COMPREHENSIVE ANALYSIS FRAMEWORK:
+1. Advanced comparative market positioning with statistical analysis
+2. Detailed rent stabilization probability assessment using legal indicators
+3. Investment merit evaluation with cash flow projections
+4. Legal protection value quantification
+5. Market timing and velocity considerations
+6. Building characteristics and amenity premium analysis
+7. Neighborhood tier adjustments and rental market dynamics
+8. Tenant protection value assessment
+9. Risk factor identification with mitigation strategies
+10. Actionable investment recommendations with legal considerations
 
-NYC NEIGHBORHOOD RENTAL MARKET TIERS:
-TIER 1 (Ultra-Premium +40-60%): SoHo, Tribeca, West Village, Greenwich Village
-TIER 2 (Premium +30-40%): NoLita, Chelsea, Gramercy, Dumbo, Brooklyn Heights
-TIER 3 (High-End +20-30%): Upper East Side, Upper West Side, Park Slope, Williamsburg
-TIER 4 (Desirable +15-25%): East Village, Lower East Side, Long Island City, Fort Greene
-TIER 5 (Emerging +10-20%): Crown Heights, Prospect Heights, Astoria, Bed-Stuy
-TIER 6 (Value +5-15%): Bushwick, Ridgewood, Mott Haven, Concourse
-
-RENTAL DEAL SCORING FRAMEWORK (0-100):
-90-100 (BEST): 25%+ below market + rent stabilized OR 35%+ below market
-80-89 (Excellent): 20%+ below market + some stabilization indicators OR 25%+ below market
-70-79 (Good): 15%+ below market OR strong rent stabilization (80%+ confidence)
-60-69 (Fair): 10-15% below market OR moderate stabilization (60-80% confidence)
-50-59 (Marginal): 5-10% below market OR weak stabilization indicators
-40-49 (Slight): 0-5% below market
-30-39 (Market Rate): At market rate
-20-29 (Above Market): 5%+ above market
-10-19 (Overpriced): 10%+ above market
-0-9 (Avoid): 15%+ above market
-
-DEAL QUALITY CLASSIFICATIONS:
-- BEST: Score 90-100 (rare, goldmine deals)
-- excellent: Score 80-89 (strong deals worth acting on)
-- good: Score 70-79 (solid opportunities)
-- fair: Score 60-69 (consider if few alternatives)
-- poor: Score below 60 (generally avoid)
-
-Be conservative with scoring. Most properties should score 30-70, not 80-100.
-
-RENT STABILIZATION LEGAL FRAMEWORK:
-DEFINITIVE INDICATORS (95-100% confidence):
-- Explicit "rent stabilized" mention in listing
-- "Preferential rent" language (legal term for below-maximum stabilized rent)
-- "DHCR guidelines" or "Rent Guidelines Board" references
-- "Legal regulated rent" or "maximum legal rent" mentions
-- Building in official DHCR stabilized database
-
-STRONG LEGAL INDICATORS (85-95% confidence):
-- Building constructed pre-1974 + 6+ units (automatic RSC coverage)
-- Building 1974-2019 + 6+ units + rent 30%+ below market (likely stabilized)
-- "No rent increases above guidelines" language
-- "Lease renewal follows RGB guidelines"
-- Historical rent stabilization registration records
-
-CIRCUMSTANTIAL INDICATORS (60-80% confidence):
-- No broker fee + rent 25%+ below market + 6+ unit building
-- Significantly below-market rent in older building (6+ units)
-- Long-term lease availability (2+ years) at below-market rates
-- Building characteristics matching stabilized profile
-- Neighborhood with high stabilization rates
-
-BUILDING TYPE RENT PREMIUMS:
-PRE-WAR LUXURY (pre-1940):
-- Manhattan: +$300-800/month (architectural character, high ceilings)
-- Brooklyn: +$200-500/month (brownstone charm, period details)
-- Queens/Bronx: +$100-300/month (solid construction, character)
-
-POST-WAR CLASSIC (1940-1980):
-- Manhattan: Baseline to +$200/month (solid but less character)
-- Brooklyn: -$100 to +$100/month (functional construction)
-- Queens/Bronx: Baseline (standard for area)
-
-MODERN BUILDINGS (1980-2010):
-- Manhattan: +$200-500/month (modern systems, layouts)
-- Brooklyn: +$100-300/month (contemporary amenities)
-- Queens/Bronx: +$50-200/month (modern conveniences)
-
-NEW LUXURY (post-2010):
-- Manhattan: +$400-1000/month (luxury amenities, smart features)
-- Brooklyn: +$200-600/month (modern design, efficiency)
-- Queens/Bronx: +$100-400/month (contemporary features)
-
-SOPHISTICATED AMENITY RENT ADJUSTMENTS:
-MANHATTAN LUXURY AMENITIES:
-- Full-time doorman: +$400-800/month (essential luxury service)
-- Concierge services: +$200-400/month (premium convenience)
-- Fitness center: +$150-350/month (valuable space-saving amenity)
-- Roof deck/pool: +$200-500/month (rare outdoor space)
-- In-unit laundry: +$150-300/month (major convenience)
-- Dishwasher: +$75-150/month (kitchen convenience)
-- Central air: +$100-200/month (comfort premium)
-- Parking (deeded): +$300-600/month (extremely valuable)
-- Balcony/terrace: +$300-800/month (outdoor space premium)
-- Gym/pool in building: +$200-400/month (luxury amenity)
-
-BROOKLYN PREMIUM AMENITIES:
-- Full-time doorman: +$200-400/month (luxury in outer borough)
-- Fitness center: +$100-200/month (valuable amenity)
-- Roof deck: +$150-300/month (outdoor space value)
-- In-unit laundry: +$100-200/month (major convenience)
-- Parking: +$150-300/month (valuable but more available)
-- Balcony/terrace: +$150-400/month (outdoor space)
-
-QUEENS/BRONX AMENITIES:
-- Doorman: +$100-250/month (luxury amenity)
-- Fitness center: +$75-150/month (valuable feature)
-- Parking: +$100-200/month (expected but valuable)
-- In-unit laundry: +$75-150/month (convenience)
-
-BROKER FEE IMPACT ON EFFECTIVE VALUE:
-- No Fee: Equivalent to 1-2 months rent savings (15-30% value increase)
-- 1 Month Fee: Standard market (baseline)
-- 2+ Month Fee: Above market (reduces effective value by 10-20%)
-
-SEASONAL RENT TIMING:
-- September peak: +8-15% above baseline (college/corporate moves)
-- October-November: +5-10% above baseline (peak activity)
-- December-February: -10-15% below baseline (winter valley)
-- March-May: -5-10% below baseline (pre-peak season)
-- June-August: Baseline to +5% (summer activity)
-
-ENHANCED RENT STABILIZATION DETECTION:
-LEGAL ANALYSIS FACTORS:
-1. Building construction date and unit count (automatic qualification)
-2. Rent level vs. market rate (stabilized units often below market)
-3. Lease language and renewal terms (guidelines-based increases)
-4. Building registration status in DHCR database
-5. Historical rent progression (consistent with guidelines)
-6. Landlord behavior patterns (renewals, increases)
-
-MARKET VALUATION METHODOLOGY:
-1. Identify non-stabilized comparables with similar characteristics
-2. Weight comparables by similarity and reliability
-3. Apply neighborhood tier premium to establish market baseline
-4. Adjust for building type and construction era
-5. Add amenity premiums using borough-specific values
-6. Factor broker fee situation into effective value
-7. Apply seasonal timing adjustments
-8. Calculate stabilization probability and protection value
-9. Assess investment merit and cash flow potential
-10. Provide comprehensive risk and opportunity analysis
+RENT STABILIZATION ANALYSIS METHODOLOGY:
+1. Building age analysis (pre-1974 buildings have higher probability)
+2. Unit count assessment (6+ units often indicate rent stabilization)
+3. Rent level evaluation (below-market rents suggest stabilization)
+4. Building type classification (walk-ups vs high-rises)
+5. Neighborhood rent control patterns
+6. Legal protection indicators from description/amenities
+7. Market positioning relative to comparable stabilized units
+8. Long-term tenant protection value calculation
 
 REQUIRED RESPONSE FORMAT (JSON only):
 {
   "estimatedMarketRent": number,
   "percentBelowMarket": number,
-  "confidence": number (0-100),
-  "score": number (0-100),
-"dealQuality": "best|excellent|good|fair|marginal",
-  "baseMarketRent": number,
-  "totalAdjustments": number,
-  "adjustmentBreakdown": [
-    {"factor": "neighborhood_tier", "adjustment": number, "reasoning": "detailed explanation"},
-    {"factor": "building_type", "adjustment": number, "reasoning": "detailed explanation"},
-    {"factor": "amenities", "adjustment": number, "reasoning": "detailed explanation"},
-    {"factor": "broker_fee", "adjustment": number, "reasoning": "detailed explanation"},
-    {"factor": "seasonal_timing", "adjustment": number, "reasoning": "detailed explanation"}
-  ],
+  "confidence": number,
+  "undervaluationConfidence": number,
+  "rentStabilizedProbability": number,
+  "rentStabilizedFactors": ["factor1", "factor2", "factor3"],
+  "rentStabilizedExplanation": "Detailed explanation of stabilization indicators",
+  "potentialMonthlySavings": number,
+  "legalProtectionValue": number,
   "reasoning": "Comprehensive 3-4 sentence analysis with specific data points",
   "detailedAnalysis": {
-    "rentAnalysis": "Detailed rent positioning with percentiles and market context",
-    "amenityAnalysis": "Comprehensive amenity value assessment",
-    "stabilizationAnalysis": "Detailed rent stabilization legal and circumstantial analysis",
-    "investmentMerit": "Investment opportunity assessment with cash flow analysis",
-    "riskFactors": "Specific risks and tenant protection considerations"
+    "priceAnalysis": "Detailed rent positioning with percentiles and comparables",
+    "amenityAnalysis": "Comprehensive amenity value assessment with specifics",
+    "marketComparison": "Market tier positioning and competitive analysis",
+    "stabilizationAnalysis": "Legal protection and stabilization probability assessment",
+    "investmentMerit": "Investment opportunity assessment with cash flow projections"
   },
   "keyMetrics": {
-    "rentPercentile": number (0-100),
-    "amenityScore": number (0-100),
-    "marketVelocityScore": number (0-100),
-    "neighborhoodDesirability": number (1-10),
-    "buildingQuality": number (1-10),
-    "stabilizationConfidence": number (0-100)
+    "rentPercentile": number,
+    "amenityScore": number,
+    "buildingQuality": number,
+    "legalProtectionScore": number,
+    "marketVelocityScore": number,
+    "stabilizationConfidence": number
   },
-  "rentStabilizedProbability": number (0-100),
-  "rentStabilizedFactors": ["specific legal indicator 1", "indicator 2"],
-  "rentStabilizedExplanation": "Comprehensive legal and circumstantial analysis",
   "comparableInsights": {
     "bestComparables": ["top 3 most similar addresses"],
     "rentRange": "rent range of most similar properties",
-    "marketSegment": "ultra-luxury|luxury|mid-luxury|mid-market|value",
+    "marketSegment": "luxury|mid-luxury|mid-market|value|affordable",
     "competitivePosition": "premium|competitive|value|discount"
   },
-  "investmentAnalysis": {
-    "annualSavings": number (below-market savings per year),
-    "effectiveValue": number (including broker fee consideration),
-    "stabilizationValue": number (value of rent protection),
-    "liquidityScore": number (1-10),
-    "tenantProtection": "strong|moderate|weak"
-  },
-  "confidenceFactors": {
-    "data_quality": number (0-100),
-    "comparable_match": number (0-100),
-    "stabilization_indicators": number (0-100),
-    "legal_framework": number (0-100)
-  },
-  "riskFactors": ["specific risk factor 1", "risk factor 2"],
-  "marketPosition": "ultra-luxury|luxury|mid-market|value|stabilized",
-  "effectiveValue": number,
-  "marketTiming": "peak|high|baseline|low|valley"
+  "investmentMerit": "exceptional|strong|moderate|weak|poor",
+  "tenantProtections": ["protection1", "protection2"],
+  "riskFactors": ["specific risk factor 1", "risk factor 2"]
 }
 
-Be exceptionally detailed and legally precise. Include specific data points, percentiles, and actionable investment insights.`;
+Focus on actionable insights, legal protections, and investment merit. Be exceptionally detailed with rent stabilization probability assessment.`;
     }
 
     /**
@@ -905,100 +816,63 @@ Be exceptionally detailed and legally precise. Include specific data points, per
         const market = enhancedContext.marketStats;
         const neighborhood = enhancedContext.neighborhood;
         
-        return `Analyze this NYC property for sophisticated investment opportunity assessment:
+        return `Analyze this NYC property for comprehensive market positioning and investment merit:
 
 TARGET PROPERTY DETAILS:
 Address: ${target.address}
-Current Price: ${target.price.toLocaleString()}
-Price/sqft: ${target.pricePerSqft?.toFixed(0) || 'N/A'}
+Sale Price: $${target.salePrice.toLocaleString()}
+Price/sqft: $${target.pricePerSqft?.toFixed(2) || 'N/A'}
 Layout: ${target.bedrooms}BR/${target.bathrooms}BA
 Square Feet: ${target.sqft || 'Not listed'}
 Built: ${target.builtIn || 'Unknown'}
+Property Type: ${target.propertyType}
 Neighborhood: ${target.neighborhood} (${target.borough})
+Monthly HOA: $${target.monthlyHoa.toLocaleString()}
+Monthly Tax: $${target.monthlyTax.toLocaleString()}
 Amenities: ${target.amenities.join(', ') || 'None listed'}
-Amenity Score: ${target.analysis.amenityScore}/100
-Condition Score: ${target.analysis.conditionScore}/100
 Description: ${target.description}
 
 ENHANCED MARKET CONTEXT:
 Total Comparables: ${enhancedContext.totalComparables}
-Median Price: ${market.priceStats.median?.toLocaleString()}
-Mean Price: ${market.priceStats.mean?.toLocaleString()}
-Price Range: ${market.priceStats.min?.toLocaleString()} - ${market.priceStats.max?.toLocaleString()}
-Standard Deviation: ${market.priceStats.stdDev?.toLocaleString()}
-Q1 (25th percentile): ${market.priceStats.q1?.toLocaleString()}
-Q3 (75th percentile): ${market.priceStats.q3?.toLocaleString()}
+Median Price: $${market.priceStats.median?.toLocaleString()}
+Mean Price: $${market.priceStats.mean?.toLocaleString()}
+Price Range: $${market.priceStats.min?.toLocaleString()} - $${market.priceStats.max?.toLocaleString()}
+Standard Deviation: $${market.priceStats.stdDev?.toLocaleString()}
+Q1 (25th percentile): $${market.priceStats.q1?.toLocaleString()}
+Q3 (75th percentile): $${market.priceStats.q3?.toLocaleString()}
 
 PRICE PER SQFT ANALYSIS:
-Median PSF: ${market.psfStats.median?.toFixed(0)}
-Mean PSF: ${market.psfStats.mean?.toFixed(0)}
-PSF Range: ${market.psfStats.min?.toFixed(0)} - ${market.psfStats.max?.toFixed(0)}
-PSF Std Dev: ${market.psfStats.stdDev?.toFixed(0)}
+Median PSF: $${market.psfStats.median?.toFixed(2)}
+Mean PSF: $${market.psfStats.mean?.toFixed(2)}
+PSF Range: $${market.psfStats.min?.toFixed(2)} - $${market.psfStats.max?.toFixed(2)}
+PSF Std Dev: $${market.psfStats.stdDev?.toFixed(2)}
 
-MARKET VELOCITY INDICATORS:
-Avg Days on Market: ${market.marketVelocity.avgDaysOnMarket?.toFixed(0) || 'N/A'} days
-Fast Sales (<30 days): ${market.marketVelocity.fastSales}/${enhancedContext.totalComparables}
-Slow Sales (>90 days): ${market.marketVelocity.slowSales}/${enhancedContext.totalComparables}
-Median DOM: ${market.marketVelocity.medianDOM?.toFixed(0) || 'N/A'} days
-
-TOP COMPARABLE PROPERTIES (by similarity):
+TOP COMPARABLE SALES (by similarity):
 ${enhancedContext.comparables.slice(0, 8).map((comp, i) => 
-  `${i+1}. ${comp.address} - ${comp.price.toLocaleString()} | ${comp.bedrooms}BR/${comp.bathrooms}BA | ${comp.sqft || 'N/A'} sqft | ${comp.pricePerSqft?.toFixed(0) || 'N/A'}/sqft | Built: ${comp.builtIn || 'N/A'} | DOM: ${comp.daysOnMarket || 'N/A'} | Similarity: ${comp.similarity?.toFixed(1) || 'N/A'}/10 | Amenities: ${comp.amenities.slice(0, 5).join(', ')}`
+  `${i+1}. ${comp.address} - ${comp.salePrice?.toLocaleString() || comp.price?.toLocaleString()} | ${comp.bedrooms}BR/${comp.bathrooms}BA | ${comp.sqft || 'N/A'} sqft | ${comp.pricePerSqft?.toFixed(2) || 'N/A'}/sqft | Similarity: ${comp.similarity?.toFixed(1) || 'N/A'}/10 | Built: ${comp.builtIn || 'N/A'} | Amenities: ${comp.amenities?.slice(0, 3).join(', ') || 'None'}`
 ).join('\n')}
 
 NEIGHBORHOOD ANALYSIS:
 Market Tier: ${neighborhood.tier}
 Desirability Score: ${neighborhood.desirabilityScore}/10
 Price Premium: ${neighborhood.pricePremium}
-Typical Buyer Profile: ${neighborhood.buyerProfile}
-Market Velocity: ${neighborhood.velocity}
 Investment Outlook: ${neighborhood.investmentOutlook}
-
-BED/BATH DISTRIBUTION IN MARKET:
-${Object.entries(market.bedBathDistribution).map(([key, count]) => 
-  `${key}: ${count} properties`
-).join(', ')}
-
-AMENITY FREQUENCY ANALYSIS:
-${Object.entries(market.amenityFrequency).slice(0, 10).map(([amenity, count]) => 
-  `${amenity}: ${count} properties (${((count/enhancedContext.totalComparables)*100).toFixed(1)}%)`
-).join(', ')}
-
-DATA QUALITY METRICS:
-Total Samples: ${market.dataQuality.totalSamples}
-With Square Footage: ${market.dataQuality.withSqft} (${((market.dataQuality.withSqft/market.dataQuality.totalSamples)*100).toFixed(1)}%)
-With Amenities: ${market.dataQuality.withAmenities} (${((market.dataQuality.withAmenities/market.dataQuality.totalSamples)*100).toFixed(1)}%)
-Data Completeness: ${market.dataQuality.completeness.toFixed(1)}%
+Market Velocity: ${neighborhood.velocity}
 
 COMPARABLE ANALYSIS TIERS:
 ${enhancedContext.comparableAnalysis.tiers.map((tier, i) => 
-  `Tier ${i+1} (${tier.description}): ${tier.count} properties, Avg: ${tier.avgPrice?.toLocaleString()}, Avg PSF: ${tier.avgPsf?.toFixed(0)}`
+  `Tier ${i+1} (${tier.description}): ${tier.count} properties, Avg: ${tier.avgPrice?.toLocaleString()}, Avg PSF: ${tier.avgPsf?.toFixed(2)}`
 ).join('\n')}
 
 ANALYSIS REQUIREMENTS:
 - Determine if property is ${threshold}%+ below sophisticated market valuation
 - Provide percentile ranking within neighborhood and building type
-- Calculate investment-grade metrics (ROI, payback period, market position)
-- Assess competitive positioning and market timing
+- Calculate comprehensive investment merit and ROI potential
+- Assess market positioning and competitive advantages
 - Identify specific value drivers and risk factors
 - Provide detailed confidence scoring with supporting data
 
-RESPONSE LENGTH LIMITS:
-- "reasoning": Maximum 200 characters, single sentence
-- "detailedAnalysis" fields: Maximum 150 characters each
-- "rentStabilizedExplanation": Maximum 100 characters
-- Keep all explanations concise and avoid quotes or special characters
-
-CRITICAL JSON FORMATTING RULES:
-- Return ONLY valid JSON, no additional text before or after
-- Use double quotes for all string values
-- Escape all quotes inside strings with \"
-- Replace all newlines in strings with \\n
-- Do not include any unescaped quotes, tabs, or special characters in strings
-- Keep all string values on single lines
-- All reasoning and explanation text must be properly escaped
-
-Return only the JSON object with no additional commentary.`;
+Return comprehensive analysis as JSON only.`;
     }
 
     /**
@@ -1043,7 +917,7 @@ PSF Std Dev: ${market.psfStats.stdDev?.toFixed(2)}
 
 TOP COMPARABLE RENTALS (by similarity):
 ${enhancedContext.comparables.slice(0, 8).map((comp, i) => 
-  `${i+1}. ${comp.address} - ${comp.price.toLocaleString()}/month | ${comp.bedrooms}BR/${comp.bathrooms}BA | ${comp.sqft || 'N/A'} sqft | ${comp.pricePerSqft?.toFixed(2) || 'N/A'}/sqft | No Fee: ${comp.noFee ? 'YES' : 'NO'} | Similarity: ${comp.similarity?.toFixed(1) || 'N/A'}/10 | Amenities: ${comp.amenities.slice(0, 5).join(', ')}`
+  `${i+1}. ${comp.address} - ${comp.price?.toLocaleString()}/month | ${comp.bedrooms}BR/${comp.bathrooms}BA | ${comp.sqft || 'N/A'} sqft | ${comp.pricePerSqft?.toFixed(2) || 'N/A'}/sqft | No Fee: ${comp.noFee ? 'YES' : 'NO'} | Similarity: ${comp.similarity?.toFixed(1) || 'N/A'}/10 | Amenities: ${comp.amenities?.slice(0, 5).join(', ') || 'None'}`
 ).join('\n')}
 
 NEIGHBORHOOD ANALYSIS:
@@ -1057,37 +931,11 @@ Rental Market Outlook: ${neighborhood.rentalOutlook}
 RENT STABILIZATION CONTEXT:
 Building Database Matches: ${rsContext.buildingMatches.length}
 Strongest Match: ${rsContext.strongestMatch ? 
-  `${rsContext.strongestMatch.address} (Confidence: ${rsContext.matchConfidence}%)` : 'None'}
-Registration Status: ${rsContext.registrationStatus}
-Legal Indicators: ${rsContext.legalIndicators.length} found
-Stabilization Probability: ${rsContext.stabilizationProbability}%
-
-LEGAL STABILIZATION INDICATORS:
-${rsContext.legalIndicators.map(indicator => 
-  `- ${indicator.type}: ${indicator.description} (Confidence: ${indicator.confidence}%)`
-).join('\n')}
-
-NEIGHBORHOOD STABILIZATION ANALYSIS:
-Total Stabilized Buildings in Area: ${rsContext.neighborhoodAnalysis.stabilizedCount}
-Stabilization Rate: ${rsContext.neighborhoodAnalysis.stabilizationRate?.toFixed(1)}%
-Average Building Age: ${rsContext.neighborhoodAnalysis.avgBuildingAge} years
-Pre-1974 Buildings (Auto-Stabilized): ${rsContext.neighborhoodAnalysis.pre1974Count}
-
-BED/BATH DISTRIBUTION IN MARKET:
-${Object.entries(market.bedBathDistribution).map(([key, count]) => 
-  `${key}: ${count} properties`
-).join(', ')}
-
-AMENITY FREQUENCY ANALYSIS:
-${Object.entries(market.amenityFrequency).slice(0, 10).map(([amenity, count]) => 
-  `${amenity}: ${count} properties (${((count/enhancedContext.totalComparables)*100).toFixed(1)}%)`
-).join(', ')}
-
-DATA QUALITY METRICS:
-Total Samples: ${market.dataQuality.totalSamples}
-With Square Footage: ${market.dataQuality.withSqft} (${((market.dataQuality.withSqft/market.dataQuality.totalSamples)*100).toFixed(1)}%)
-With Amenities: ${market.dataQuality.withAmenities} (${((market.dataQuality.withAmenities/market.dataQuality.totalSamples)*100).toFixed(1)}%)
-Data Completeness: ${market.dataQuality.completeness.toFixed(1)}%
+  `${rsContext.strongestMatch.address} (${rsContext.strongestMatch.confidence}% confidence)` : 'None found'}
+Building Age Factor: ${rsContext.buildingAgeFactor}
+Unit Count Factor: ${rsContext.unitCountFactor}
+Rent Level Factor: ${rsContext.rentLevelFactor}
+Legal Indicators: ${rsContext.legalIndicators.join(', ') || 'None identified'}
 
 COMPARABLE ANALYSIS TIERS:
 ${enhancedContext.comparableAnalysis.tiers.map((tier, i) => 
@@ -1103,31 +951,36 @@ ANALYSIS REQUIREMENTS:
 - Identify specific value drivers and tenant protection benefits
 - Provide detailed confidence scoring across multiple factors
 
-RESPONSE LENGTH LIMITS:
-- "reasoning": Maximum 200 characters, single sentence
-- "detailedAnalysis" fields: Maximum 150 characters each
-- "rentStabilizedExplanation": Maximum 100 characters
-- Keep all explanations concise and avoid quotes or special characters
-
-CRITICAL JSON FORMATTING RULES:
-- Return ONLY valid JSON, no additional text before or after
-- Use double quotes for all string values
-- Escape all quotes inside strings with \"
-- Replace all newlines in strings with \\n
-- Do not include any unescaped quotes, tabs, or special characters in strings
-- Keep all string values on single lines
-- All reasoning and explanation text must be properly escaped
-
-Return only the JSON object with no additional commentary.`;
+Return comprehensive analysis as JSON only.`;
     }
 
     /**
-     * Build comprehensive sales reasoning from Claude's detailed analysis - Mixed investor/consumer approach
+     * Call Claude API for enhanced sales analysis
+     */
+    async callClaudeForEnhancedSalesAnalysis(enhancedContext, threshold) {
+        const systemPrompt = this.buildEnhancedSalesSystemPrompt();
+        const userPrompt = this.buildEnhancedSalesUserPrompt(enhancedContext, threshold);
+        
+        return await this.callClaude(systemPrompt, userPrompt, 'enhanced_sales');
+    }
+
+    /**
+     * Call Claude API for enhanced rentals analysis
+     */
+    async callClaudeForEnhancedRentalsAnalysis(enhancedContext, threshold) {
+        const systemPrompt = this.buildEnhancedRentalsSystemPrompt();
+        const userPrompt = this.buildEnhancedRentalsUserPrompt(enhancedContext, threshold);
+        
+        return await this.callClaude(systemPrompt, userPrompt, 'enhanced_rentals');
+    }
+
+    /**
+     * Build comprehensive sales reasoning from Claude's detailed analysis
      */
     buildComprehensiveSalesReasoning(analysis, targetProperty, context) {
         const segments = [];
         
-        // Market positioning with specific data (consumer-friendly language)
+        // Market positioning with specific data
         if (analysis.keyMetrics?.pricePercentile) {
             segments.push(
                 `This property is priced ${analysis.discountPercent}% below its estimated market value of ${analysis.estimatedMarketPrice?.toLocaleString()}, ` +
@@ -1135,713 +988,328 @@ Return only the JSON object with no additional commentary.`;
             );
         } else {
             segments.push(
-                `This property offers excellent value at ${analysis.discountPercent}% below estimated market price of ${analysis.estimatedMarketPrice?.toLocaleString()}, ` +
-                `based on careful comparison with ${context.totalComparables} similar properties in the area.`
+                `This property offers excellent value at ${analysis.discountPercent}% below estimated market price of ${analysis.estimatedMarketPrice?.toLocaleString()}.`
             );
         }
         
-        // Detailed market comparison (lifestyle + investment blend)
-        if (analysis.detailedAnalysis?.marketComparison) {
-            segments.push(analysis.detailedAnalysis.marketComparison);
+        // Investment merit and deal quality
+        if (analysis.dealQuality && analysis.score) {
+            segments.push(
+                `The deal represents ${analysis.dealQuality} investment quality with a score of ${analysis.score}/100, ` +
+                `offering ${analysis.investmentAnalysis?.roi ? `an estimated ${analysis.investmentAnalysis.roi}% ROI` : 'strong return potential'}.`
+            );
         }
         
-        // Amenity and building analysis (consumer benefits focus)
-        if (analysis.detailedAnalysis?.amenityAnalysis) {
-            segments.push(analysis.detailedAnalysis.amenityAnalysis);
+        // Comparable analysis insight
+        if (analysis.comparableInsights?.marketSegment) {
+            segments.push(
+                `Based on analysis of ${context.totalComparables} comparable sales, this ${analysis.comparableInsights.marketSegment} property ` +
+                `is positioned as a ${analysis.comparableInsights.competitivePosition} offering in the current market.`
+            );
         }
         
-        // Investment merit (accessible financial language)
-        if (analysis.detailedAnalysis?.investmentMerit) {
-            const friendlyMerit = analysis.detailedAnalysis.investmentMerit
-                .replace(/ROI/g, 'potential returns')
-                .replace(/cash-on-cash/g, 'yearly income')
-                .replace(/investment-grade/g, 'high-quality')
-                .replace(/liquidity/g, 'resale potential');
-            segments.push(friendlyMerit);
-        }
-        
-        // Risk considerations (practical concerns)
-        if (analysis.detailedAnalysis?.riskFactors && analysis.confidence < 85) {
-            const friendlyRisks = analysis.detailedAnalysis.riskFactors
-                .replace(/risk factors/g, 'things to consider')
-                .replace(/mitigation/g, 'ways to address');
-            segments.push(`Important considerations: ${friendlyRisks}`);
-        }
-        
-        // Confidence and methodology (accessible explanation)
-        const methodology = analysis.comparableInsights?.bestComparables?.length ? 
-            `${analysis.comparableInsights.bestComparables.length} very similar properties` : 
-            `${context.totalComparables} comparable properties`;
-            
-        const qualityDescription = analysis.keyMetrics?.buildingQuality >= 8 ? 'excellent' :
-                                 analysis.keyMetrics?.buildingQuality >= 6 ? 'good' : 'average';
-            
+        // Risk and confidence assessment
         segments.push(
-            `Our analysis has ${analysis.confidence}% confidence based on ${methodology} ` +
-            `and shows this is a ${qualityDescription} building in a ${this.getNeighborhoodDescription(targetProperty.neighborhood)} neighborhood.`
+            `Analysis confidence is ${analysis.confidence}% based on ${analysis.detailedAnalysis ? 'comprehensive' : 'standard'} market comparison` +
+            `${analysis.riskFactors && analysis.riskFactors.length > 0 ? ` with identified risks including ${analysis.riskFactors.slice(0, 2).join(' and ')}` : ''}.`
         );
         
         return segments.join(' ');
     }
 
     /**
-     * Build comprehensive rentals reasoning from Claude's detailed analysis - Mixed investor/consumer approach
+     * Build comprehensive rentals reasoning from Claude's detailed analysis
      */
     buildComprehensiveRentalsReasoning(analysis, targetProperty, context) {
         const segments = [];
         
-        // Market positioning with percentile (consumer-friendly language)
-        if (analysis.keyMetrics?.rentPercentile) {
+        // Market positioning
+        if (analysis.percentBelowMarket && analysis.estimatedMarketRent) {
+            const marketPosition = analysis.percentBelowMarket > 0 ? 'below' : 'above';
             segments.push(
-                `This rental is priced ${analysis.percentBelowMarket}% below the typical market rent of ${analysis.estimatedMarketRent?.toLocaleString()}/month, ` +
-                `offering better value than ${100 - analysis.keyMetrics.rentPercentile}% of similar rentals in ${targetProperty.neighborhood}.`
-            );
-        } else {
-            segments.push(
-                `This rental offers excellent value at ${analysis.percentBelowMarket}% below market rate of ${analysis.estimatedMarketRent?.toLocaleString()}/month, ` +
-                `based on comparison with ${context.totalComparables} similar rentals in the area.`
+                `This rental is priced ${Math.abs(analysis.percentBelowMarket)}% ${marketPosition} its estimated market value of ${analysis.estimatedMarketRent.toLocaleString()}/month, ` +
+                `${analysis.keyMetrics?.rentPercentile ? `placing it in the ${100 - analysis.keyMetrics.rentPercentile}th percentile for value in ${targetProperty.neighborhood}` : 'representing significant market value'}.`
             );
         }
         
-        // Rent stabilization analysis (practical benefits language)
-        const stabilizationDescription = analysis.rentStabilizedProbability >= 80 ? 'very likely' :
-                                        analysis.rentStabilizedProbability >= 60 ? 'likely' :
-                                        analysis.rentStabilizedProbability >= 40 ? 'possibly' : 'unlikely to be';
+        // Rent stabilization assessment
+        if (analysis.rentStabilizedProbability > 0) {
+            segments.push(
+                `The property has a ${analysis.rentStabilizedProbability}% probability of being rent-stabilized based on ` +
+                `${analysis.rentStabilizedFactors?.length || 0} key indicators` +
+                `${analysis.rentStabilizedFactors?.length > 0 ? ` including ${analysis.rentStabilizedFactors.slice(0, 2).join(' and ')}` : ''}.`
+            );
+        }
         
+        // Investment merit
+        if (analysis.investmentMerit && analysis.legalProtectionValue) {
+            segments.push(
+                `Investment merit is rated as ${analysis.investmentMerit} with ${analysis.legalProtectionValue.toLocaleString()} in estimated legal protection value, ` +
+                `making it ${analysis.investmentMerit === 'exceptional' || analysis.investmentMerit === 'strong' ? 'an attractive' : 'a moderate'} opportunity.`
+            );
+        }
+        
+        // Confidence and analysis quality
         segments.push(
-            `This unit is ${stabilizationDescription} rent-stabilized (${analysis.rentStabilizedProbability}% chance), ` +
-            `which means ${this.explainRentStabilizationBenefits(analysis.rentStabilizedProbability)} ` +
-            `based on ${analysis.rentStabilizedFactors?.length || 0} key indicators like ${analysis.rentStabilizedFactors?.slice(0, 2).join(' and ') || 'building characteristics'}.`
-        );
-        
-        // Market comparison (lifestyle focus)
-        if (analysis.detailedAnalysis?.rentAnalysis) {
-            const friendlyRentAnalysis = analysis.detailedAnalysis.rentAnalysis
-                .replace(/market positioning/g, 'compared to similar rentals')
-                .replace(/percentile/g, 'compared to others')
-                .replace(/market velocity/g, 'how quickly rentals are rented');
-            segments.push(friendlyRentAnalysis);
-        }
-        
-        // Investment value (practical savings focus)
-        if (analysis.investmentAnalysis?.annualSavings || (analysis.estimatedMarketRent - targetProperty.price) * 12 > 0) {
-            const annualSavings = analysis.investmentAnalysis?.annualSavings || (analysis.estimatedMarketRent - targetProperty.price) * 12;
-            const protectionLevel = analysis.investmentAnalysis?.tenantProtection || 
-                                  (analysis.rentStabilizedProbability >= 70 ? 'strong' : 
-                                   analysis.rentStabilizedProbability >= 40 ? 'moderate' : 'limited');
-            
-            segments.push(
-                `You could save approximately ${annualSavings.toLocaleString()} per year compared to market rate, ` +
-                `plus enjoy ${protectionLevel} protection from unexpected rent increases.`
-            );
-        }
-        
-        // Risk and protection analysis (practical considerations)
-        if (analysis.detailedAnalysis?.riskFactors) {
-            const friendlyRisks = analysis.detailedAnalysis.riskFactors
-                .replace(/risk factors/g, 'things to keep in mind')
-                .replace(/tenant protection/g, 'renter protections');
-            segments.push(`Important considerations: ${friendlyRisks}`);
-        }
-        
-        // Confidence breakdown (accessible explanation)
-        const dataQuality = analysis.confidenceFactors?.data_quality || analysis.confidence;
-        const legalFramework = analysis.confidenceFactors?.legal_framework || analysis.rentStabilizedProbability;
-        
-        const qualityDescription = dataQuality >= 85 ? 'excellent' : dataQuality >= 70 ? 'good' : 'fair';
-        const legalDescription = legalFramework >= 80 ? 'strong' : legalFramework >= 60 ? 'solid' : 'limited';
-        
-        segments.push(
-            `Our analysis has ${analysis.confidence}% confidence with ${qualityDescription} data quality and ${legalDescription} legal indicators, ` +
-            `using ${context.totalComparables} comparable rentals and comprehensive rent stabilization research.`
+            `Analysis confidence is ${analysis.confidence || analysis.undervaluationConfidence}% based on comparison with ${context.totalComparables} market comparables` +
+            `${analysis.detailedAnalysis ? ' using comprehensive market analysis' : ''}.`
         );
         
         return segments.join(' ');
     }
 
     /**
-     * Helper method to explain rent stabilization benefits in consumer-friendly terms
+     * Build rent stabilization context for analysis
      */
-    explainRentStabilizationBenefits(probability) {
-        if (probability >= 80) {
-            return "you'll have strong protection from large rent increases, with annual increases typically limited to 2-4%";
-        } else if (probability >= 60) {
-            return "you may have good protection from excessive rent increases";
-        } else if (probability >= 40) {
-            return "there could be some protection from rent increases";
+    buildRentStabilizationContext(targetProperty, rentStabilizedBuildings) {
+        const buildingMatches = this.findPotentialStabilizedMatches(targetProperty, rentStabilizedBuildings);
+        const strongestMatch = buildingMatches.length > 0 ? buildingMatches[0] : null;
+        
+        return {
+            buildingMatches,
+            strongestMatch,
+            buildingAgeFactor: this.assessBuildingAge(targetProperty.builtIn),
+            unitCountFactor: this.assessUnitCount(targetProperty),
+            rentLevelFactor: this.assessRentLevel(targetProperty),
+            legalIndicators: this.identifyLegalIndicators(targetProperty)
+        };
+    }
+
+    /**
+     * Find potential rent-stabilized building matches
+     */
+    findPotentialStabilizedMatches(targetProperty, rentStabilizedBuildings) {
+        if (!rentStabilizedBuildings || rentStabilizedBuildings.length === 0) {
+            return [];
+        }
+        
+        const normalizedAddress = this.normalizeAddress(targetProperty.address);
+        const matches = [];
+        
+        for (const building of rentStabilizedBuildings) {
+            const buildingAddress = this.normalizeAddress(building.address || '');
+            if (!buildingAddress) continue;
+            
+            const similarity = this.calculateAddressSimilarity(normalizedAddress, buildingAddress);
+            if (similarity > 0.6) {
+                matches.push({
+                    ...building,
+                    confidence: Math.round(similarity * 100),
+                    similarity
+                });
+            }
+        }
+        
+        return matches.sort((a, b) => b.similarity - a.similarity).slice(0, 5);
+    }
+
+    /**
+     * Calculate market statistics for comparables
+     */
+    calculateMarketStatistics(comparables, type) {
+        if (!comparables || comparables.length === 0) {
+            return { priceStats: {}, psfStats: {} };
+        }
+        
+        const priceField = type === 'sales' ? 'salePrice' : 'price';
+        const prices = comparables.map(comp => comp[priceField] || comp.price || 0).filter(p => p > 0);
+        const psfs = comparables.map(comp => comp.pricePerSqft || (comp.sqft > 0 ? (comp[priceField] || comp.price || 0) / comp.sqft : 0)).filter(p => p > 0);
+        
+        const calculateStats = (values) => {
+            if (values.length === 0) return {};
+            const sorted = values.slice().sort((a, b) => a - b);
+            const sum = values.reduce((a, b) => a + b, 0);
+            const mean = sum / values.length;
+            const variance = values.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / values.length;
+            
+            return {
+                min: sorted[0],
+                max: sorted[sorted.length - 1],
+                median: sorted[Math.floor(sorted.length / 2)],
+                mean: Math.round(mean),
+                stdDev: Math.round(Math.sqrt(variance)),
+                q1: sorted[Math.floor(sorted.length * 0.25)],
+                q3: sorted[Math.floor(sorted.length * 0.75)]
+            };
+        };
+        
+        return {
+            priceStats: calculateStats(prices),
+            psfStats: calculateStats(psfs)
+        };
+    }
+
+    /**
+     * Analyze comparables and create similarity rankings
+     */
+    analyzeComparables(targetProperty, comparables, type) {
+        const scoredComparables = comparables.map(comp => ({
+            ...comp,
+            similarity: this.calculatePropertySimilarity(targetProperty, comp, type)
+        })).sort((a, b) => b.similarity - a.similarity);
+        
+        // Create analysis tiers
+        const tiers = [
+            {
+                description: 'Exact matches (same bed/bath)',
+                properties: scoredComparables.filter(c => c.bedrooms === targetProperty.bedrooms && c.bathrooms === targetProperty.bathrooms),
+                count: 0,
+                avgPrice: 0,
+                avgPsf: 0
+            },
+            {
+                description: 'Close matches (±1 bed/bath)',
+                properties: scoredComparables.filter(c => 
+                    Math.abs(c.bedrooms - targetProperty.bedrooms) <= 1 && 
+                    Math.abs(c.bathrooms - targetProperty.bathrooms) <= 0.5
+                ),
+                count: 0,
+                avgPrice: 0,
+                avgPsf: 0
+            },
+            {
+                description: 'Similar properties',
+                properties: scoredComparables.filter(c => c.similarity >= 6),
+                count: 0,
+                avgPrice: 0,
+                avgPsf: 0
+            }
+        ];
+        
+        // Calculate tier statistics
+        tiers.forEach(tier => {
+            tier.count = tier.properties.length;
+            if (tier.count > 0) {
+                const priceField = type === 'sales' ? 'salePrice' : 'price';
+                const prices = tier.properties.map(p => p[priceField] || p.price || 0).filter(p => p > 0);
+                const psfs = tier.properties.map(p => p.pricePerSqft || 0).filter(p => p > 0);
+                
+                tier.avgPrice = prices.length > 0 ? Math.round(prices.reduce((a, b) => a + b, 0) / prices.length) : 0;
+                tier.avgPsf = psfs.length > 0 ? psfs.reduce((a, b) => a + b, 0) / psfs.length : 0;
+            }
+        });
+        
+        return {
+            topComparables: scoredComparables.slice(0, 12),
+            tiers: tiers.filter(t => t.count > 0)
+        };
+    }
+
+    /**
+     * Calculate property similarity score (0-10)
+     */
+    calculatePropertySimilarity(target, comparable, type) {
+        let score = 0;
+        
+        // Bedroom/bathroom match (40% of score)
+        if (target.bedrooms === comparable.bedrooms) score += 2;
+        else if (Math.abs(target.bedrooms - comparable.bedrooms) === 1) score += 1;
+        
+        if (Math.abs(target.bathrooms - comparable.bathrooms) <= 0.5) score += 2;
+        else if (Math.abs(target.bathrooms - comparable.bathrooms) <= 1) score += 1;
+        
+        // Square footage similarity (20% of score)
+        if (target.sqft > 0 && comparable.sqft > 0) {
+            const sqftDiff = Math.abs(target.sqft - comparable.sqft) / target.sqft;
+            if (sqftDiff <= 0.1) score += 2;
+            else if (sqftDiff <= 0.2) score += 1.5;
+            else if (sqftDiff <= 0.3) score += 1;
+        }
+        
+        // Building age similarity (10% of score)
+        if (target.builtIn && comparable.builtIn) {
+            const ageDiff = Math.abs(target.builtIn - comparable.builtIn);
+            if (ageDiff <= 5) score += 1;
+            else if (ageDiff <= 15) score += 0.5;
+        }
+        
+        // Amenity overlap (20% of score)
+        const targetAmenities = new Set(target.amenities || []);
+        const comparableAmenities = new Set(comparable.amenities || []);
+        const intersection = new Set([...targetAmenities].filter(x => comparableAmenities.has(x)));
+        const union = new Set([...targetAmenities, ...comparableAmenities]);
+        
+        if (union.size > 0) {
+            score += (intersection.size / union.size) * 2;
+        }
+        
+        // Price range reasonableness (10% of score)
+        const priceField = type === 'sales' ? 'salePrice' : 'price';
+        const targetPrice = target[priceField] || target.price || 0;
+        const compPrice = comparable[priceField] || comparable.price || 0;
+        
+        if (targetPrice > 0 && compPrice > 0) {
+            const priceDiff = Math.abs(targetPrice - compPrice) / targetPrice;
+            if (priceDiff <= 0.3) score += 1;
+            else if (priceDiff <= 0.5) score += 0.5;
+        }
+        
+        return Math.min(10, Math.max(0, score));
+    }
+
+    /**
+     * Analyze neighborhood characteristics
+     */
+    analyzeNeighborhood(neighborhood, type) {
+        // Default neighborhood analysis - can be enhanced with real data
+        const neighborhoodData = {
+            'soho': { tier: 'luxury', desirabilityScore: 9, pricePremium: '+40%', velocity: 'fast' },
+            'tribeca': { tier: 'ultra-luxury', desirabilityScore: 10, pricePremium: '+60%', velocity: 'fast' },
+            'west-village': { tier: 'luxury', desirabilityScore: 9, pricePremium: '+35%', velocity: 'moderate' },
+            'east-village': { tier: 'mid-luxury', desirabilityScore: 8, pricePremium: '+20%', velocity: 'fast' },
+            'lower-east-side': { tier: 'mid-market', desirabilityScore: 7, pricePremium: '+10%', velocity: 'fast' },
+            'financial-district': { tier: 'mid-luxury', desirabilityScore: 7, pricePremium: '+15%', velocity: 'moderate' },
+            'brooklyn-heights': { tier: 'luxury', desirabilityScore: 8, pricePremium: '+25%', velocity: 'moderate' },
+            'dumbo': { tier: 'luxury', desirabilityScore: 8, pricePremium: '+25%', velocity: 'moderate' },
+            'williamsburg': { tier: 'mid-luxury', desirabilityScore: 8, pricePremium: '+20%', velocity: 'fast' }
+        };
+        
+        const data = neighborhoodData[neighborhood?.toLowerCase()] || {
+            tier: 'mid-market',
+            desirabilityScore: 6,
+            pricePremium: '+5%',
+            velocity: 'moderate'
+        };
+        
+        if (type === 'sales') {
+            return {
+                ...data,
+                investmentOutlook: data.desirabilityScore >= 8 ? 'strong' : 'moderate',
+                marketAppreciation: data.tier === 'luxury' || data.tier === 'ultra-luxury' ? 'strong' : 'moderate'
+            };
         } else {
-            return "standard market-rate protections apply";
+            return {
+                ...data,
+                tenantProfile: data.tier === 'luxury' ? 'high-income professionals' : 'young professionals',
+                rentalOutlook: data.desirabilityScore >= 8 ? 'strong demand' : 'steady demand',
+                rentPremium: data.pricePremium
+            };
         }
     }
 
     /**
-     * Helper method to get consumer-friendly neighborhood descriptions
+     * Validation functions
      */
-    getNeighborhoodDescription(neighborhood) {
-        const descriptions = {
-            'soho': 'highly desirable and trendy',
-            'tribeca': 'prestigious and family-friendly',
-            'west-village': 'charming and historic',
-            'greenwich-village': 'vibrant and cultural',
-            'dumbo': 'waterfront and modern',
-            'brooklyn-heights': 'historic and scenic',
-            'park-slope': 'family-friendly and well-established',
-            'williamsburg': 'hip and rapidly growing',
-            'long-island-city': 'up-and-coming with great city access',
-            'astoria': 'diverse and affordable'
-        };
-        
-        return descriptions[neighborhood.toLowerCase()] || 'well-located';
-    }
-
-    // Enhanced validation methods
     validateEnhancedSalesAnalysis(analysis) {
-       const required = [
-    'estimatedMarketPrice', 'discountPercent', 'confidence', 'score', 'dealQuality', 'reasoning',
-    'detailedAnalysis', 'keyMetrics', 'comparableInsights'
-];
-        
-        return required.every(field => analysis.hasOwnProperty(field)) &&
+        return analysis && 
                typeof analysis.estimatedMarketPrice === 'number' &&
                typeof analysis.discountPercent === 'number' &&
                typeof analysis.confidence === 'number' &&
-               analysis.estimatedMarketPrice > 0 &&
                analysis.confidence >= 0 && analysis.confidence <= 100;
     }
 
     validateEnhancedRentalsAnalysis(analysis) {
-     const required = [
-    'estimatedMarketRent', 'percentBelowMarket', 'confidence', 'score', 'dealQuality',
-    'rentStabilizedProbability', 'reasoning', 'detailedAnalysis'
-];
-        
-        return required.every(field => analysis.hasOwnProperty(field)) &&
-               typeof analysis.estimatedMarketRent === 'number' &&
+        return analysis && 
+               (typeof analysis.estimatedMarketRent === 'number' || typeof analysis.estimatedMarketPrice === 'number') &&
                typeof analysis.percentBelowMarket === 'number' &&
                typeof analysis.confidence === 'number' &&
-               typeof analysis.rentStabilizedProbability === 'number' &&
-               analysis.estimatedMarketRent > 0 &&
                analysis.confidence >= 0 && analysis.confidence <= 100 &&
-               analysis.rentStabilizedProbability >= 0 && analysis.rentStabilizedProbability <= 100;
+               typeof analysis.rentStabilizedProbability === 'number';
     }
 
-    // Enhanced helper methods for comprehensive analysis
-    calculateSimilarityScore(comparable, target) {
-        let score = 0;
-        
-        // Bed/bath match (40% weight)
-        if (comparable.bedrooms === target.bedrooms) score += 40;
-        if (Math.abs(comparable.bathrooms - target.bathrooms) <= 0.5) score += 20;
-        
-        // Size similarity (20% weight)
-        if (comparable.sqft && target.sqft) {
-            const sizeDiff = Math.abs(comparable.sqft - target.sqft) / target.sqft;
-            score += Math.max(0, 20 - (sizeDiff * 100));
-        }
-        
-        // Amenity similarity (25% weight)
-        const targetAmenities = new Set(target.amenities || []);
-        const compAmenities = new Set(comparable.amenities || []);
-        const intersection = new Set([...targetAmenities].filter(x => compAmenities.has(x)));
-        const union = new Set([...targetAmenities, ...compAmenities]);
-        if (union.size > 0) {
-            score += (intersection.size / union.size) * 25;
-        }
-        
-        // Building age similarity (15% weight)
-        if (comparable.builtIn && target.builtIn) {
-            const ageDiff = Math.abs(comparable.builtIn - target.builtIn);
-            score += Math.max(0, 15 - (ageDiff / 10));
-        }
-        
-        return Math.min(10, Math.max(0, score / 10));
-    }
-
-    analyzeComparablesByTiers(comparables, target, type) {
-        const prices = comparables.map(c => type === 'sales' ? c.salePrice : c.price).filter(p => p > 0);
-        const sortedPrices = [...prices].sort((a, b) => a - b);
-        
-        const tiers = [
-            {
-                description: 'Premium (Top 25%)',
-                threshold: this.calculatePercentile(sortedPrices, 75),
-                count: 0,
-                avgPrice: 0,
-                avgPsf: 0
-            },
-            {
-                description: 'Mid-High (50-75%)',
-                threshold: this.calculatePercentile(sortedPrices, 50),
-                count: 0,
-                avgPrice: 0,
-                avgPsf: 0
-            },
-            {
-                description: 'Mid-Market (25-50%)',
-                threshold: this.calculatePercentile(sortedPrices, 25),
-                count: 0,
-                avgPrice: 0,
-                avgPsf: 0
-            },
-            {
-                description: 'Value (Bottom 25%)',
-                threshold: 0,
-                count: 0,
-                avgPrice: 0,
-                avgPsf: 0
-            }
-        ];
-
-        // Categorize comparables into tiers
-        comparables.forEach(comp => {
-            const price = type === 'sales' ? comp.salePrice : comp.price;
-            const psf = comp.sqft > 0 ? price / comp.sqft : 0;
-            
-            for (let i = 0; i < tiers.length; i++) {
-                if (price >= tiers[i].threshold) {
-                    tiers[i].count++;
-                    tiers[i].avgPrice += price;
-                    if (psf > 0) tiers[i].avgPsf += psf;
-                    break;
-                }
-            }
-        });
-
-        // Calculate averages
-        tiers.forEach(tier => {
-            if (tier.count > 0) {
-                tier.avgPrice = tier.avgPrice / tier.count;
-                tier.avgPsf = tier.avgPsf / tier.count;
-            }
-        });
-
-        return { tiers };
-    }
-
-    getNeighborhoodContext(neighborhood) {
-        // Enhanced neighborhood mapping with investment insights
-        const neighborhoodData = {
-            'soho': { tier: 'Ultra-Premium', desirabilityScore: 10, pricePremium: '+40-50%', buyerProfile: 'Ultra-High Net Worth', velocity: 'Fast', investmentOutlook: 'Strong Appreciation' },
-            'tribeca': { tier: 'Ultra-Premium', desirabilityScore: 10, pricePremium: '+35-45%', buyerProfile: 'Ultra-High Net Worth', velocity: 'Fast', investmentOutlook: 'Strong Appreciation' },
-            'west-village': { tier: 'Ultra-Premium', desirabilityScore: 9, pricePremium: '+35-45%', buyerProfile: 'High Net Worth', velocity: 'Fast', investmentOutlook: 'Strong Appreciation' },
-            'greenwich-village': { tier: 'Ultra-Premium', desirabilityScore: 9, pricePremium: '+35-45%', buyerProfile: 'High Net Worth', velocity: 'Fast', investmentOutlook: 'Strong Appreciation' },
-            'dumbo': { tier: 'Premium', desirabilityScore: 8, pricePremium: '+25-35%', buyerProfile: 'High Net Worth', velocity: 'Fast', investmentOutlook: 'Strong Growth' },
-            'brooklyn-heights': { tier: 'Premium', desirabilityScore: 8, pricePremium: '+25-35%', buyerProfile: 'Affluent Professional', velocity: 'Fast', investmentOutlook: 'Steady Growth' },
-            'park-slope': { tier: 'High-End', desirabilityScore: 8, pricePremium: '+20-30%', buyerProfile: 'Affluent Family', velocity: 'Moderate-Fast', investmentOutlook: 'Steady Growth' },
-            'williamsburg': { tier: 'High-End', desirabilityScore: 7, pricePremium: '+15-25%', buyerProfile: 'Young Professional', velocity: 'Fast', investmentOutlook: 'Growth Potential' },
-            'long-island-city': { tier: 'Emerging', desirabilityScore: 6, pricePremium: '+10-20%', buyerProfile: 'Young Professional', velocity: 'Fast', investmentOutlook: 'High Growth' },
-            'astoria': { tier: 'Emerging', desirabilityScore: 6, pricePremium: '+5-15%', buyerProfile: 'Middle Class', velocity: 'Moderate', investmentOutlook: 'Growth Potential' }
-        };
-
-        return neighborhoodData[neighborhood.toLowerCase()] || {
-            tier: 'Mid-Market',
-            desirabilityScore: 5,
-            pricePremium: '+0-10%',
-            buyerProfile: 'Mixed',
-            velocity: 'Moderate',
-            investmentOutlook: 'Stable'
-        };
-    }
-
-    analyzeBedBathDistribution(comparables) {
-        const distribution = {};
-        comparables.forEach(comp => {
-            const key = `${comp.bedrooms || 0}BR/${comp.bathrooms || 0}BA`;
-            distribution[key] = (distribution[key] || 0) + 1;
-        });
-        return distribution;
-    }
-
-    analyzeAmenityFrequency(comparables) {
-        const frequency = {};
-        comparables.forEach(comp => {
-            (comp.amenities || []).forEach(amenity => {
-                frequency[amenity] = (frequency[amenity] || 0) + 1;
-            });
-        });
-        return frequency;
-    }
-
-    analyzePriceDistribution(prices) {
-        const sorted = [...prices].sort((a, b) => a - b);
-        return {
-            min: sorted[0],
-            max: sorted[sorted.length - 1],
-            q1: this.calculatePercentile(sorted, 25),
-            median: this.calculatePercentile(sorted, 50),
-            q3: this.calculatePercentile(sorted, 75),
-            count: prices.length
-        };
-    }
-
-    calculateDataCompleteness(comparables) {
-        const totalFields = comparables.length * 6; // address, price, bed, bath, sqft, amenities
-        let completedFields = 0;
-        
-        comparables.forEach(comp => {
-            if (comp.address) completedFields++;
-            if (comp.price > 0 || comp.salePrice > 0) completedFields++;
-            if (comp.bedrooms !== undefined) completedFields++;
-            if (comp.bathrooms !== undefined) completedFields++;
-            if (comp.sqft > 0) completedFields++;
-            if ((comp.amenities || []).length > 0) completedFields++;
-        });
-        
-        return (completedFields / totalFields) * 100;
-    }
-
-    calculateSpaceEfficiency(property) {
-        const sqft = property.sqft || 0;
-        const bedrooms = property.bedrooms || 0;
-        
-        if (sqft === 0 || bedrooms === 0) return 50; // Neutral score
-        
-        const sqftPerBedroom = sqft / bedrooms;
-        
-        // Efficiency scoring based on sqft per bedroom
-        if (sqftPerBedroom >= 500) return 85; // Very efficient
-        if (sqftPerBedroom >= 400) return 75; // Good efficiency
-        if (sqftPerBedroom >= 300) return 65; // Moderate efficiency
-        if (sqftPerBedroom >= 200) return 45; // Below average
-        return 25; // Poor efficiency
-    }
-
-    calculateAmenityScore(amenities) {
-        const premiumAmenities = [
-            'doorman', 'concierge', 'gym', 'pool', 'roof_deck', 'parking',
-            'elevator', 'washer_dryer', 'dishwasher', 'central_air', 'balcony'
-        ];
-        
-        let score = 0;
-        amenities.forEach(amenity => {
-            if (premiumAmenities.some(premium => amenity.toLowerCase().includes(premium))) {
-                score += 10;
-            } else {
-                score += 2; // Other amenities get small bonus
-            }
-        });
-        
-        return Math.min(100, score);
-    }
-
-    analyzeDescription(description) {
-        const text = description.toLowerCase();
-        const highlights = [];
-        const concerns = [];
-        
-        // Positive indicators
-        const positiveKeywords = [
-            'renovated', 'luxury', 'modern', 'updated', 'spacious', 'bright',
-            'charming', 'elegant', 'pristine', 'stunning', 'gorgeous'
-        ];
-        
-        // Negative indicators
-        const negativeKeywords = [
-            'needs work', 'tlc', 'fixer', 'as-is', 'original condition',
-            'updating needed', 'potential'
-        ];
-        
-        positiveKeywords.forEach(keyword => {
-            if (text.includes(keyword)) highlights.push(keyword);
-        });
-        
-        negativeKeywords.forEach(keyword => {
-            if (text.includes(keyword)) concerns.push(keyword);
-        });
-        
-        return { highlights, concerns };
-    }
-
-    assessBuildingQuality(property) {
-        const builtIn = property.builtIn;
-        const amenities = property.amenities || [];
-        
-        let score = 5; // Base score
-        
-        // Age factor
-        if (builtIn) {
-            if (builtIn >= 2010) score += 2; // New construction
-            else if (builtIn >= 1980) score += 1; // Modern
-            else if (builtIn >= 1945) score -= 1; // Post-war
-            else score += 1; // Pre-war character
-        }
-        
-        // Amenity factor
-        const premiumAmenities = ['doorman', 'elevator', 'gym', 'pool'];
-        const premiumCount = amenities.filter(a => 
-            premiumAmenities.some(p => a.toLowerCase().includes(p))
-        ).length;
-        
-        score += premiumCount;
-        
-        return Math.min(10, Math.max(1, score));
-    }
-
-    analyzeLocationFactors(property) {
-    // FIXED: Safely handle null/undefined address
-    const address = (property.address || '').toLowerCase();
-    const factors = [];
-    
-    // Street type indicators
-    if (address.includes('avenue') || address.includes('ave')) {
-        factors.push('major_avenue');
-    }
-    if (address.includes('street') || address.includes('st')) {
-        factors.push('residential_street');
-    }
-    
-    return factors;
-}
-
-    assessMarketPosition(property, type) {
-        const price = type === 'sales' ? property.salePrice : property.price;
-        const amenityCount = (property.amenities || []).length;
-        
-        if (price >= 2000000 || (type === 'rentals' && price >= 6000)) {
-            return amenityCount >= 5 ? 'ultra-luxury' : 'luxury';
-        } else if (price >= 1000000 || (type === 'rentals' && price >= 4000)) {
-            return amenityCount >= 3 ? 'luxury' : 'mid-luxury';
-        } else if (price >= 500000 || (type === 'rentals' && price >= 2500)) {
-            return 'mid-market';
-        } else {
-            return 'value';
-        }
-    }
-
-    assessConditionFromDescription(description) {
-        const text = description.toLowerCase();
-        
-        if (text.includes('gut renovated') || text.includes('mint condition')) return 95;
-        if (text.includes('renovated') || text.includes('updated')) return 85;
-        if (text.includes('move-in ready')) return 75;
-        if (text.includes('good condition')) return 65;
-        if (text.includes('needs updating') || text.includes('tlc')) return 35;
-        if (text.includes('fixer') || text.includes('as-is')) return 15;
-        
-        return 60; // Neutral if no indicators
-    }
-
-    extractUniqueFeatures(description, amenities) {
-        const features = [];
-        const text = description.toLowerCase();
-        
-        // Unique architectural features
-        const architecturalFeatures = [
-            'exposed brick', 'high ceilings', 'loft', 'duplex', 'penthouse',
-            'corner unit', 'south facing', 'river view', 'park view'
-        ];
-        
-        architecturalFeatures.forEach(feature => {
-            if (text.includes(feature)) features.push(feature);
-        });
-        
-        return features;
-    }
-
-    buildEnhancedRentStabilizationContext(targetProperty, rentStabilizedBuildings, neighborhood) {
-        const buildingMatches = this.findAllRentStabilizedMatches(targetProperty, rentStabilizedBuildings);
-        const neighborhoodAnalysis = this.analyzeNeighborhoodStabilization(neighborhood, rentStabilizedBuildings);
-        const legalAnalysis = this.performLegalStabilizationAnalysis(targetProperty);
-        
-        return {
-            buildingMatches: buildingMatches,
-            strongestMatch: buildingMatches[0] || null,
-            matchConfidence: buildingMatches.length > 0 ? this.calculateMatchConfidence(buildingMatches[0], targetProperty) : 0,
-            neighborhoodAnalysis: neighborhoodAnalysis,
-            legalIndicators: legalAnalysis,
-            registrationStatus: this.determineRegistrationStatus(buildingMatches),
-            stabilizationProbability: this.calculateStabilizationProbability(targetProperty, buildingMatches, legalAnalysis)
-        };
-    }
-
-    findAllRentStabilizedMatches(property, rentStabilizedBuildings) {
-        const normalizedAddress = this.normalizeAddress(property.address);
-        const matches = [];
-        
-        rentStabilizedBuildings.forEach(building => {
-            const buildingAddress = this.normalizeAddress(building.address || '');
-            if (buildingAddress && normalizedAddress.includes(buildingAddress)) {
-                matches.push({
-                    ...building,
-                    confidence: this.calculateAddressMatchConfidence(normalizedAddress, buildingAddress)
-                });
-            }
-        });
-        
-        return matches.sort((a, b) => b.confidence - a.confidence);
-    }
-
-    analyzeNeighborhoodStabilization(neighborhood, rentStabilizedBuildings) {
-        const neighborhoodBuildings = rentStabilizedBuildings.filter(building => {
-            const buildingAddress = this.normalizeAddress(building.address || '');
-            const normalizedNeighborhood = this.normalizeAddress(neighborhood);
-            return buildingAddress.includes(normalizedNeighborhood);
-        });
-        
-        const totalBuildings = neighborhoodBuildings.length;
-        const pre1974Buildings = neighborhoodBuildings.filter(b => 
-            b.builtIn && b.builtIn < 1974
-        ).length;
-        
-        const avgBuildingAge = neighborhoodBuildings.length > 0 ? 
-            neighborhoodBuildings.reduce((sum, b) => sum + (b.builtIn || 1950), 0) / neighborhoodBuildings.length : 1970;
-        
-        return {
-            stabilizedCount: totalBuildings,
-            pre1974Count: pre1974Buildings,
-            stabilizationRate: totalBuildings > 0 ? (totalBuildings / (totalBuildings + 100)) * 100 : 20, // Rough estimate
-            avgBuildingAge: Math.round(new Date().getFullYear() - avgBuildingAge)
-        };
-    }
-
-    performLegalStabilizationAnalysis(property) {
-        const indicators = [];
-        const description = (property.description || '').toLowerCase();
-        
-        // Explicit indicators
-        const explicitTerms = ['rent stabilized', 'rent-stabilized', 'preferential rent', 'dhcr'];
-        explicitTerms.forEach(term => {
-            if (description.includes(term)) {
-                indicators.push({
-                    type: 'explicit',
-                    description: `Explicit mention: "${term}"`,
-                    confidence: 95
-                });
-            }
-        });
-        
-        // Building characteristic indicators
-        if (property.builtIn && property.builtIn < 1974) {
-            indicators.push({
-                type: 'building_age',
-                description: 'Pre-1974 construction (automatic RSC coverage if 6+ units)',
-                confidence: 85
-            });
-        }
-        
-        // Market rate indicators
-        // This would be enhanced with actual market comparison
-        
-        return indicators;
-    }
-
-    calculateMatchConfidence(match, property) {
-        if (!match) return 0;
-        
-        const addressSimilarity = this.calculateAddressMatchConfidence(
-            this.normalizeAddress(property.address),
-            this.normalizeAddress(match.address || '')
-        );
-        
-        // Additional factors could include building characteristics
-        return addressSimilarity;
-    }
-
-    calculateAddressMatchConfidence(target, building) {
-        const targetWords = target.split(' ').filter(w => w.length > 2);
-        const buildingWords = building.split(' ').filter(w => w.length > 2);
-        
-        const matches = targetWords.filter(word => buildingWords.includes(word));
-        const confidence = (matches.length / Math.max(targetWords.length, buildingWords.length)) * 100;
-        
-        return Math.min(100, confidence);
-    }
-
-    determineRegistrationStatus(matches) {
-        if (matches.length === 0) return 'not_found';
-        if (matches[0].confidence >= 80) return 'confirmed';
-        if (matches[0].confidence >= 60) return 'likely';
-        return 'possible';
-    }
-
-    calculateStabilizationProbability(property, matches, legalAnalysis) {
-        let probability = 0;
-        
-        // Building database match
-        if (matches.length > 0) {
-            probability += matches[0].confidence * 0.6; // 60% weight
-        }
-        
-        // Legal indicators
-        const explicitIndicators = legalAnalysis.filter(i => i.type === 'explicit');
-        const buildingIndicators = legalAnalysis.filter(i => i.type === 'building_age');
-        
-        if (explicitIndicators.length > 0) {
-            probability = Math.max(probability, 90);
-        } else if (buildingIndicators.length > 0) {
-            probability += 40; // Building age factor
-        }
-        
-        // Market rate factor (simplified)
-        // In practice, this would compare to actual market rates
-        
-        return Math.min(100, Math.max(0, probability));
-    }
-
-    // Enhanced statistical calculations
-    calculateStandardDeviation(numbers) {
-        if (numbers.length === 0) return 0;
-        const mean = numbers.reduce((a, b) => a + b, 0) / numbers.length;
-        const squaredDiffs = numbers.map(num => Math.pow(num - mean, 2));
-        const variance = squaredDiffs.reduce((a, b) => a + b, 0) / numbers.length;
-        return Math.sqrt(variance);
-    }
-
-    calculatePercentile(sortedArray, percentile) {
-        if (sortedArray.length === 0) return 0;
-        const index = (percentile / 100) * (sortedArray.length - 1);
-        const lower = Math.floor(index);
-        const upper = Math.ceil(index);
-        const weight = index % 1;
-        
-        if (upper >= sortedArray.length) return sortedArray[sortedArray.length - 1];
-        return sortedArray[lower] * (1 - weight) + sortedArray[upper] * weight;
-    }
-
-    extractDataFromResponse(responseText) {
-        // Fallback data extraction if JSON parsing fails
-        const patterns = {
-            estimatedMarketPrice: /estimatedMarketPrice["\s:]+(\d+)/i,
-            discountPercent: /discountPercent["\s:]+(\d+\.?\d*)/i,
-            confidence: /confidence["\s:]+(\d+)/i,
-            rentStabilizedProbability: /rentStabilizedProbability["\s:]+(\d+)/i
-        };
-        
-        const extracted = {};
-        
-        for (const [key, pattern] of Object.entries(patterns)) {
-            const match = responseText.match(pattern);
-            if (match) {
-                extracted[key] = parseFloat(match[1]);
-            }
-        }
-        
-        // Only return if we have essential fields
-        if (extracted.estimatedMarketPrice || extracted.estimatedMarketRent) {
-            return {
-                ...extracted,
-                reasoning: "Extracted from response - limited data available",
-                detailedAnalysis: {},
-                keyMetrics: {}
-            };
-        }
-        
-        return null;
-    }
-
-    // Utility methods from original
-    calculateGradeFromDiscount(discountPercent) {
-        if (discountPercent >= 25) return 'A+';
-        if (discountPercent >= 20) return 'A';
-        if (discountPercent >= 17) return 'A-';
-        if (discountPercent >= 15) return 'B+';
-        if (discountPercent >= 12) return 'B';
-        if (discountPercent >= 10) return 'B-';
-        if (discountPercent >= 7) return 'C+';
-        if (discountPercent >= 5) return 'C';
-        return 'C-';
-    }
-
+    /**
+     * Helper functions
+     */
     normalizeAddress(address) {
         return address.toLowerCase()
             .replace(/[^\w\s]/g, ' ')
@@ -1849,40 +1317,86 @@ Return only the JSON object with no additional commentary.`;
             .trim();
     }
 
-    calculateAverage(numbers) {
-        if (numbers.length === 0) return 0;
-        return numbers.reduce((sum, num) => sum + num, 0) / numbers.length;
+    calculateAddressSimilarity(addr1, addr2) {
+        const words1 = addr1.split(' ');
+        const words2 = addr2.split(' ');
+        const intersection = words1.filter(word => words2.includes(word));
+        const union = [...new Set([...words1, ...words2])];
+        return union.length > 0 ? intersection.length / union.length : 0;
     }
 
-    calculateMedian(numbers) {
-        if (numbers.length === 0) return 0;
-        const sorted = [...numbers].sort((a, b) => a - b);
-        const mid = Math.floor(sorted.length / 2);
-        return sorted.length % 2 === 0 
-            ? (sorted[mid - 1] + sorted[mid]) / 2 
-            : sorted[mid];
+    calculateAmenityScore(amenities) {
+        const standardAmenities = [
+            'doorman', 'elevator', 'laundry', 'gym', 'rooftop', 'parking',
+            'dishwasher', 'air-conditioning', 'hardwood-floors', 'balcony'
+        ];
+        
+        let score = 0;
+        for (const amenity of amenities) {
+            const normalizedAmenity = amenity.toLowerCase();
+            if (standardAmenities.some(std => normalizedAmenity.includes(std))) {
+                score += 10;
+            }
+        }
+        
+        return Math.min(100, score);
     }
 
-    async delay(ms) {
+    assessConditionFromDescription(description) {
+        const desc = description.toLowerCase();
+        let score = 50; // Base score
+        
+        // Positive indicators
+        if (desc.includes('renovated') || desc.includes('updated')) score += 20;
+        if (desc.includes('new') || desc.includes('modern')) score += 15;
+        if (desc.includes('luxury') || desc.includes('high-end')) score += 15;
+        if (desc.includes('pristine') || desc.includes('immaculate')) score += 10;
+        
+        // Negative indicators
+        if (desc.includes('needs work') || desc.includes('fixer')) score -= 30;
+        if (desc.includes('original') && !desc.includes('restored')) score -= 10;
+        
+        return Math.min(100, Math.max(0, score));
+    }
+
+    assessBuildingAge(builtIn) {
+        if (!builtIn) return 'unknown';
+        if (builtIn < 1974) return 'high_stabilization_potential';
+        if (builtIn < 1985) return 'moderate_stabilization_potential';
+        return 'low_stabilization_potential';
+    }
+
+    assessUnitCount(property) {
+        // This would need building data - placeholder logic
+        return 'unknown_unit_count';
+    }
+
+    assessRentLevel(property) {
+        // Based on price per sqft relative to market
+        if (property.pricePerSqft && property.pricePerSqft < 40) return 'below_market_suggests_stabilization';
+        if (property.pricePerSqft && property.pricePerSqft < 60) return 'moderate_rent_level';
+        return 'market_rate_level';
+    }
+
+    identifyLegalIndicators(property) {
+        const indicators = [];
+        const desc = (property.description || '').toLowerCase();
+        
+        if (desc.includes('rent stabilized') || desc.includes('rent-stabilized')) {
+            indicators.push('explicit_stabilization_mention');
+        }
+        if (desc.includes('long term') || desc.includes('long-term')) {
+            indicators.push('long_term_tenancy_suggestion');
+        }
+        if (desc.includes('no broker fee') && property.noFee) {
+            indicators.push('no_fee_indicator');
+        }
+        
+        return indicators;
+    }
+
+    delay(ms) {
         return new Promise(resolve => setTimeout(resolve, ms));
-    }
-
-    getUsageStats() {
-        return {
-            apiCallsUsed: this.apiCallsUsed,
-            cacheSize: this.neighborhoodCache.size
-        };
-    }
-    
- /**
-     * Calculate deal quality from score
-     */
-    calculateDealQuality(score) {
-        if (score >= 90) return 'best';
-        if (score >= 80) return 'excellent'; 
-        if (score >= 70) return 'good';
-        if (score >= 60) return 'fair';
-        return 'marginal';
     }
 }
 
