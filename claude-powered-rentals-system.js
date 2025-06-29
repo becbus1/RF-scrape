@@ -982,11 +982,11 @@ cleanAnalysisData(analysis) {
      */
     safeDealQuality(score) {
     const intScore = this.safeInt(score, 50);
-    if (intScore >= 90) return 'exceptional';
-    if (intScore >= 80) return 'excellent'; 
-    if (intScore >= 70) return 'very_good';
-    if (intScore >= 60) return 'good';
-    if (intScore >= 50) return 'fair';
+    if (intScore >= 98) return 'exceptional';
+    if (intScore >= 90) return 'excellent'; 
+    if (intScore >= 80) return 'very_good';
+    if (intScore >= 70) return 'good';
+    if (intScore >= 60) return 'fair';
     return 'poor';
 }
 
@@ -1019,11 +1019,11 @@ cleanAnalysisData(analysis) {
      * Calculate property grade based on score
      */
     calculatePropertyGrade(score) {
-        if (score >= 90) return 'A+';
-        if (score >= 85) return 'A';
-        if (score >= 80) return 'B+';
-        if (score >= 75) return 'B';
-        if (score >= 70) return 'C+';
+        if (score >= 98) return 'A+';
+        if (score >= 93) return 'A';
+        if (score >= 88) return 'B+';
+        if (score >= 83) return 'B';
+        if (score >= 75) return 'C+';
         if (score >= 65) return 'C';
         if (score >= 60) return 'D';
         return 'F';
@@ -1051,11 +1051,11 @@ cleanAnalysisData(analysis) {
      * Calculate deal quality from score
      */
     calculateDealQuality(score) {
-        if (score >= 90) return 'exceptional';
-        if (score >= 80) return 'excellent';
-        if (score >= 70) return 'very_good';
-        if (score >= 60) return 'good';
-        if (score >= 50) return 'fair';
+        if (score >= 98) return 'exceptional';
+        if (score >= 90) return 'excellent';
+        if (score >= 80) return 'very_good';
+        if (score >= 70) return 'good';
+        if (score >= 60) return 'fair';
         return 'poor';
     }
 
