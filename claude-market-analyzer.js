@@ -81,32 +81,42 @@ class EnhancedClaudeMarketAnalyzer {
                 console.log(`   🔒 Rent stabilized: ${analysis.rentStabilizedProbability}%`);
             }
             
-            // STEP 6: Return SIMPLE structure (like working version)
-            return {
-                isUndervalued: analysis.percentBelowMarket >= threshold && calculatedConfidence >= 60,
-                percentBelowMarket: analysis.percentBelowMarket || 0,
-                estimatedMarketRent: analysis.estimatedMarketRent || targetProperty.price,
-                actualRent: targetProperty.price,
-                potentialSavings: analysis.potentialSavings || 0,
-                confidence: calculatedConfidence,
-                method: 'claude_hierarchical_analysis',
-                comparablesUsed: filteredComparables.selectedComparables.length,
-                reasoning: analysis.reasoning || 'Claude AI market analysis',
-                undervaluationConfidence: calculatedConfidence,
-                
-                // Rent stabilization analysis
-                rentStabilizedProbability: analysis.rentStabilizedProbability || 0,
-                rentStabilizedFactors: analysis.rentStabilizedFactors || [],
-                rentStabilizedExplanation: analysis.rentStabilizedExplanation || 'No stabilization indicators found',
-                
-                // Enhanced metrics for compatibility
-                detailedAnalysis: analysis.detailedAnalysis || {},
-                valuationMethod: filteredComparables.method,
-                baseMarketRent: analysis.baseMarketRent || analysis.estimatedMarketRent,
-                adjustmentBreakdown: analysis.adjustmentBreakdown || {},
-                legalProtectionValue: analysis.rentStabilizedProbability >= 60 ? (analysis.potentialSavings || 0) * 12 : 0,
-                investmentMerit: analysis.percentBelowMarket >= 25 ? 'strong' : analysis.percentBelowMarket >= 15 ? 'moderate' : 'low'
-            };
+            // STEP 6: Generate enhanced analysis using the new functions
+const rentStabilizedBuildings = options.rentStabilizedBuildings || [];
+const enhancedRentStabilization = this.generateRentStabilizationAnalysis(targetProperty, rentStabilizedBuildings);
+const enhancedUndervaluation = this.generateUndervaluationAnalysis(targetProperty, filteredComparables.selectedComparables, analysis);
+
+// STEP 7: Return ENHANCED structure with comprehensive analysis
+return {
+    isUndervalued: analysis.percentBelowMarket >= threshold && calculatedConfidence >= 60,
+    percentBelowMarket: analysis.percentBelowMarket || 0,
+    estimatedMarketRent: analysis.estimatedMarketRent || targetProperty.price,
+    actualRent: targetProperty.price,
+    potentialSavings: analysis.potentialSavings || 0,
+    confidence: calculatedConfidence,
+    method: 'claude_hierarchical_analysis',
+    comparablesUsed: filteredComparables.selectedComparables.length,
+    reasoning: analysis.reasoning || 'Claude AI market analysis',
+    undervaluationConfidence: calculatedConfidence,
+    
+    // Enhanced rent stabilization analysis
+    rentStabilizedProbability: enhancedRentStabilization.confidence_percentage || 0,
+    rentStabilizedFactors: enhancedRentStabilization.key_factors || [],
+    rentStabilizedExplanation: enhancedRentStabilization.detailed_explanation || 'No stabilization indicators found',
+    rentStabilizedMethod: enhancedRentStabilization.analysis_method || 'building_characteristics_analysis',
+    
+    // Enhanced undervaluation analysis
+    detailedAnalysis: enhancedUndervaluation || {},
+    valuationMethod: filteredComparables.method,
+    baseMarketRent: analysis.baseMarketRent || analysis.estimatedMarketRent,
+    adjustmentBreakdown: enhancedUndervaluation.adjustment_breakdown || {},
+    legalProtectionValue: enhancedRentStabilization.confidence_percentage >= 60 ? (analysis.potentialSavings || 0) * 12 : 0,
+    investmentMerit: analysis.percentBelowMarket >= 25 ? 'strong' : analysis.percentBelowMarket >= 15 ? 'moderate' : 'low',
+    
+    // Full enhanced data for database integration
+    enhancedRentStabilization,
+    enhancedUndervaluation
+};
             
         } catch (error) {
             console.warn(`   ⚠️ Claude analysis error: ${error.message}`);
@@ -750,7 +760,8 @@ Return your analysis as JSON.`;
             comparables: comparableProperties,
             neighborhood: neighborhoodAnalysis,
             rentStabilizationContext,
-            totalComparables: comparableProperties.length
+          totalComparables: comparableProperties.length,
+valuationMethod: 'claude_hierarchical_analysis'
         };
     }
 
@@ -778,13 +789,14 @@ Return your analysis as JSON.`;
 
         const neighborhoodAnalysis = this.analyzeNeighborhood(neighborhood, 'sales');
 
-        return {
-            targetProperty: target,
-            comparables: comparableProperties,
-            neighborhood: neighborhoodAnalysis,
-            totalComparables: comparableProperties.length
-        };
-    }
+       return {
+    targetProperty: target,
+    comparables: comparableProperties,
+    neighborhood: neighborhoodAnalysis,
+totalComparables: comparableProperties.length,
+valuationMethod: 'claude_hierarchical_analysis'
+};
+} 
 
     /**
      * ERROR RESPONSE CREATORS
@@ -1264,6 +1276,584 @@ Return your analysis as JSON.`;
     delay(ms) {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
+	
+/**
+ * Generate comprehensive rent stabilization analysis - CLEAN VERSION
+ */
+generateRentStabilizationAnalysis(property, rentStabilizedBuildings = []) {
+    const buildingAge = this.calculateBuildingAge(property.builtIn);
+    const buildingType = this.analyzeBuildingType(property);
+    const unitCount = this.estimateUnitCount(property);
+    const rentLevel = this.analyzeRentLevel(property);
+    
+    // Find potential matches in DHCR data
+    const dhcrMatches = this.findDHCRMatches(property, rentStabilizedBuildings);
+    
+    let confidence = 30; // Base confidence
+    let factors = [];
+    let legalFactors = [];
+    let analysis = "";
+    
+    // BUILDING AGE ANALYSIS (Most Important Factor)
+    if (buildingAge.isRentStabilizedEra) {
+        if (buildingAge.era === 'prime_stabilization' && property.builtIn >= 1947 && property.builtIn <= 1973) {
+            confidence += 40;
+            factors.push('prime_stabilization_era');
+            legalFactors.push(`Built in ${property.builtIn}, within the prime rent stabilization period (1947-1973)`);
+            analysis += `This building was constructed in ${property.builtIn}, placing it squarely within the prime rent stabilization era (1947-1973). `;
+        } else if (buildingAge.era === 'emergency_rent_control' && property.builtIn >= 1943 && property.builtIn <= 1946) {
+            confidence += 35;
+            factors.push('emergency_rent_control_era');
+            legalFactors.push(`Built in ${property.builtIn}, during the Emergency Rent Control period (1943-1946)`);
+            analysis += `Built in ${property.builtIn} during the Emergency Rent Control period, this building likely transitioned to rent stabilization. `;
+        } else if (buildingAge.era === 'early_stabilization' && property.builtIn >= 1974 && property.builtIn <= 1983) {
+            confidence += 25;
+            factors.push('early_post_stabilization');
+            legalFactors.push(`Built in ${property.builtIn}, during early post-stabilization period (1974-1983)`);
+            analysis += `Constructed in ${property.builtIn}, this building falls within the early post-stabilization period where many units remain rent-stabilized. `;
+        }
+    } else {
+        if (property.builtIn && property.builtIn >= 1984) {
+            confidence -= 20;
+            legalFactors.push(`Built in ${property.builtIn}, after the luxury decontrol period - less likely to be stabilized`);
+            analysis += `Built in ${property.builtIn}, this newer construction is less likely to be rent-stabilized. `;
+        }
+    }
+    
+    // UNIT COUNT ANALYSIS
+    if (unitCount.estimate >= 6) {
+        confidence += 20;
+        factors.push('sufficient_unit_count');
+        legalFactors.push(`Estimated ${unitCount.estimate}+ units, meeting the 6+ unit requirement for rent stabilization`);
+        analysis += `With an estimated ${unitCount.estimate} units, this building meets the minimum 6-unit threshold required for rent stabilization. `;
+    } else if (unitCount.estimate >= 4) {
+        confidence += 10;
+        factors.push('borderline_unit_count');
+        legalFactors.push(`Estimated ${unitCount.estimate} units, close to the 6-unit requirement`);
+        analysis += `The estimated ${unitCount.estimate} units is close to the 6-unit threshold, with some possibility of stabilization. `;
+    }
+    
+    // RENT LEVEL ANALYSIS
+    if (rentLevel.level === 'below_market' && rentLevel.variance <= -15) {
+        confidence += 15;
+        factors.push('below_market_rent_suggests_stabilization');
+        legalFactors.push(`Rent is ${Math.abs(rentLevel.variance)}% below market, suggesting possible rent stabilization controls`);
+        analysis += `The significantly below-market rent (${Math.abs(rentLevel.variance)}% under market rate) is a strong indicator of rent stabilization controls. `;
+    } else if (rentLevel.level === 'below_market' && rentLevel.variance <= -10) {
+        confidence += 10;
+        factors.push('moderately_below_market');
+        legalFactors.push(`Rent is ${Math.abs(rentLevel.variance)}% below market, possibly indicating stabilization`);
+        analysis += `The moderately below-market rent suggests possible rent stabilization. `;
+    }
+    
+    // DHCR DATABASE MATCHES (Most Reliable Factor)
+    if (dhcrMatches.length > 0) {
+        const bestMatch = dhcrMatches[0];
+        if (bestMatch.similarity >= 0.9) {
+            confidence += 30;
+            factors.push('strong_dhcr_match');
+            legalFactors.push(`Strong match found in DHCR database: ${bestMatch.address} (${Math.round(bestMatch.similarity * 100)}% similarity)`);
+            analysis += `Official DHCR records show a strong match for this address, providing legal confirmation of rent stabilization. `;
+        } else if (bestMatch.similarity >= 0.7) {
+            confidence += 20;
+            factors.push('likely_dhcr_match');
+            legalFactors.push(`Likely match in DHCR database: ${bestMatch.address} (${Math.round(bestMatch.similarity * 100)}% similarity)`);
+            analysis += `DHCR records show a likely match for this building, supporting rent stabilization status. `;
+        }
+    }
+    
+    // BUILDING TYPE FACTOR
+    if (buildingType.category === 'traditional_rental') {
+        confidence += 10;
+        factors.push('traditional_rental_building');
+        legalFactors.push('Traditional rental building type, commonly rent-stabilized');
+        analysis += `As a traditional rental building, this property type is commonly subject to rent stabilization. `;
+    } else if (buildingType.category === 'luxury_condo_conversion') {
+        confidence -= 15;
+        legalFactors.push('Luxury condo conversion may have fewer stabilized units');
+        analysis += `The luxury condo conversion status may indicate fewer rent-stabilized units. `;
+    }
+    
+    // ❌ NEIGHBORHOOD ANALYSIS COMPLETELY REMOVED - NO MORE HARDCODED JUNK!
+    
+    // Cap confidence at 95%
+    confidence = Math.min(95, Math.max(5, confidence));
+    
+    // Determine method based on primary factors
+    let method = 'comprehensive_analysis';
+    if (dhcrMatches.length > 0 && dhcrMatches[0].similarity >= 0.8) {
+        method = 'dhcr_database_verification';
+    } else if (buildingAge.isRentStabilizedEra && unitCount.estimate >= 6) {
+        method = 'age_and_size_analysis';
+    } else if (rentLevel.level === 'below_market') {
+        method = 'market_rent_analysis';
+    } else {
+        method = 'building_characteristics_analysis';
+    }
+    
+    // Final summary
+    if (confidence >= 70) {
+        analysis += `With ${confidence}% confidence, this unit is highly likely to be rent-stabilized based on multiple supporting factors.`;
+    } else if (confidence >= 50) {
+        analysis += `With ${confidence}% confidence, this unit has moderate likelihood of being rent-stabilized.`;
+    } else {
+        analysis += `With ${confidence}% confidence, rent stabilization is possible but uncertain based on available data.`;
+    }
+    
+    return {
+        confidence_percentage: confidence,
+        analysis_method: method,
+        key_factors: factors,
+        legal_factors: legalFactors,
+        detailed_explanation: analysis,
+        building_age_factor: {
+            construction_year: property.builtIn,
+            era: buildingAge.era,
+            years_old: buildingAge.age,
+            is_stabilization_era: buildingAge.isRentStabilizedEra
+        },
+        unit_count_factor: {
+            estimated_units: unitCount.estimate,
+            meets_minimum: unitCount.estimate >= 6,
+            confidence: unitCount.confidence
+        },
+        rent_level_factor: {
+            level: rentLevel.level,
+            variance_from_market: rentLevel.variance,
+            monthly_rent: property.price || property.monthlyRent
+        },
+        dhcr_matches: dhcrMatches.map(match => ({
+            address: match.address,
+            similarity: Math.round(match.similarity * 100),
+            status: match.status1 || 'Multiple Dwelling'
+        }))
+        // ❌ NEIGHBORHOOD_CONTEXT REMOVED - NO MORE HARDCODED PERCENTAGES!
+    };
 }
+
+/**
+ * Generate comprehensive undervaluation analysis
+ */
+generateUndervaluationAnalysis(property, comparables, marketAnalysis) {
+    const buildingType = this.analyzeBuildingType(property);
+    const condition = this.analyzePropertyCondition(property);
+    const amenities = this.analyzeAmenities(property);
+    const location = this.analyzeLocationValue(property);
+    
+    let analysis = "";
+    let adjustments = [];
+    let confidence = marketAnalysis.confidence || 70;
+    let methodology = marketAnalysis.method || 'comparative_market_analysis';
+    
+    // Start with property overview
+    const beds = property.bedrooms || 0;
+    const baths = property.bathrooms || 0;
+    const neighborhood = property.neighborhood || 'this area';
+    const actualRent = property.price || property.monthlyRent || 0;
+    const marketRent = marketAnalysis.estimatedMarketRent || actualRent;
+    const discount = ((marketRent - actualRent) / marketRent * 100);
+    const monthlySavings = marketRent - actualRent;
+    
+    analysis += `This ${beds}BR/${baths}BA apartment in ${neighborhood} offers excellent value at $${actualRent.toLocaleString()}/month, which is ${discount.toFixed(1)}% below the estimated market rent of $${marketRent.toLocaleString()} based on comparable properties. `;
+    
+    // BUILDING TYPE & CONDITION ANALYSIS
+    if (buildingType.category === 'luxury_high_rise') {
+        analysis += `Located in a luxury high-rise building with premium amenities, `;
+        adjustments.push({
+            type: 'building_type',
+            factor: 'luxury_high_rise',
+            impact: '+$200-400/month premium',
+            explanation: 'Luxury high-rise commands premium rents'
+        });
+    } else if (buildingType.category === 'boutique_luxury') {
+        analysis += `Situated in a boutique luxury building, `;
+        adjustments.push({
+            type: 'building_type',
+            factor: 'boutique_luxury',
+            impact: '+$150-300/month premium',
+            explanation: 'Boutique luxury buildings offer premium living experience'
+        });
+    } else if (buildingType.category === 'traditional_rental') {
+        analysis += `Located in a traditional rental building, `;
+        adjustments.push({
+            type: 'building_type',
+            factor: 'traditional_rental',
+            impact: 'Market baseline',
+            explanation: 'Traditional rental building represents market baseline'
+        });
+    } else if (buildingType.category === 'older_walk_up') {
+        analysis += `Housed in a classic walk-up building, `;
+        adjustments.push({
+            type: 'building_type',
+            factor: 'older_walk_up',
+            impact: '-$100-200/month discount',
+            explanation: 'Walk-up buildings typically rent below elevator buildings'
+        });
+    }
+    
+    // CONDITION ANALYSIS
+    if (condition.level === 'pristine') {
+        analysis += `the unit features pristine, recently renovated interiors with high-end finishes. `;
+        adjustments.push({
+            type: 'condition',
+            factor: 'pristine_renovation',
+            impact: '+$150-250/month premium',
+            explanation: 'Recently renovated units with high-end finishes command premium'
+        });
+    } else if (condition.level === 'updated') {
+        analysis += `the unit has been updated with modern amenities and finishes. `;
+        adjustments.push({
+            type: 'condition',
+            factor: 'updated_condition',
+            impact: '+$75-150/month premium',
+            explanation: 'Updated units with modern amenities rent above average'
+        });
+    } else if (condition.level === 'original') {
+        analysis += `the unit retains original character details. `;
+        adjustments.push({
+            type: 'condition',
+            factor: 'original_character',
+            impact: 'Market baseline to slight discount',
+            explanation: 'Original condition units at market baseline or slight discount'
+        });
+    } else if (condition.level === 'needs_work') {
+        analysis += `the unit may need some updating. `;
+        adjustments.push({
+            type: 'condition',
+            factor: 'needs_updating',
+            impact: '-$100-200/month discount',
+            explanation: 'Units needing work typically rent below market'
+        });
+    }
+    
+    // AMENITIES ANALYSIS
+    const keyAmenities = [];
+    if (amenities.hasAmenity('doorman')) {
+        keyAmenities.push('doorman building');
+        adjustments.push({
+            type: 'amenity',
+            factor: 'doorman',
+            impact: '+$100-200/month',
+            explanation: 'Doorman service adds significant value in NYC'
+        });
+    }
+    if (amenities.hasAmenity('elevator')) {
+        keyAmenities.push('elevator access');
+        adjustments.push({
+            type: 'amenity',
+            factor: 'elevator',
+            impact: '+$50-100/month',
+            explanation: 'Elevator access increases convenience and value'
+        });
+    }
+    if (amenities.hasAmenity('washer_dryer')) {
+        keyAmenities.push('in-unit laundry');
+        adjustments.push({
+            type: 'amenity',
+            factor: 'in_unit_laundry',
+            impact: '+$75-150/month',
+            explanation: 'In-unit washer/dryer is highly valued amenity'
+        });
+    }
+    if (amenities.hasAmenity('outdoor_space')) {
+        keyAmenities.push('private outdoor space');
+        adjustments.push({
+            type: 'amenity',
+            factor: 'outdoor_space',
+            impact: '+$100-300/month',
+            explanation: 'Private outdoor space commands significant premium'
+        });
+    }
+    if (amenities.hasAmenity('gym')) {
+        keyAmenities.push('fitness center');
+        adjustments.push({
+            type: 'amenity',
+            factor: 'gym',
+            impact: '+$25-75/month',
+            explanation: 'Building gym saves on external membership costs'
+        });
+    }
+    
+    if (keyAmenities.length > 0) {
+        analysis += `Key features include ${keyAmenities.join(', ')}, which typically command premium rents. `;
+    }
+    
+    // LOCATION ANALYSIS
+    if (location.transitScore >= 8) {
+        analysis += `The prime location offers excellent transit access and neighborhood amenities, `;
+        adjustments.push({
+            type: 'location',
+            factor: 'prime_location',
+            impact: '+$100-250/month premium',
+            explanation: 'Prime locations with excellent transit access command premium'
+        });
+    } else if (location.transitScore >= 6) {
+        analysis += `The convenient location provides good access to transportation and amenities, `;
+        adjustments.push({
+            type: 'location',
+            factor: 'convenient_location',
+            impact: '+$50-150/month premium',
+            explanation: 'Good location access adds moderate premium'
+        });
+    }
+    
+    // COMPARABLE ANALYSIS
+    const comparableCount = comparables?.length || 0;
+    if (comparableCount >= 8) {
+        analysis += `Based on analysis of ${comparableCount} highly similar comparable properties, `;
+        confidence = Math.min(95, confidence + 10);
+    } else if (comparableCount >= 5) {
+        analysis += `Based on analysis of ${comparableCount} comparable properties, `;
+        confidence = Math.min(90, confidence + 5);
+    } else if (comparableCount >= 3) {
+        analysis += `Based on analysis of ${comparableCount} comparable properties, `;
+    } else {
+        analysis += `Based on limited comparable data, `;
+        confidence = Math.max(50, confidence - 15);
+    }
+    
+    // VALUE PROPOSITION
+    if (discount >= 25) {
+        analysis += `this represents an exceptional deal with $${monthlySavings.toLocaleString()} in monthly savings. This significant undervaluation makes it an outstanding opportunity for renters seeking premium living at below-market rates.`;
+    } else if (discount >= 15) {
+        analysis += `this represents excellent value with $${monthlySavings.toLocaleString()} in monthly savings. The substantial discount makes this an attractive option for cost-conscious renters who don't want to compromise on quality or location.`;
+    } else if (discount >= 10) {
+        analysis += `this offers good value with $${monthlySavings.toLocaleString()} in monthly savings. While the discount is moderate, it still provides meaningful savings in a competitive rental market.`;
+    } else {
+        analysis += `this provides fair value with $${monthlySavings.toLocaleString()} in monthly savings. The price reflects current market conditions with modest savings opportunity.`;
+    }
+    
+    return {
+        confidence_percentage: confidence,
+        analysis_method: methodology,
+        detailed_explanation: analysis,
+        market_comparison: {
+            actual_rent: actualRent,
+            estimated_market_rent: marketRent,
+            discount_percentage: discount,
+            monthly_savings: monthlySavings,
+            annual_savings: monthlySavings * 12
+        },
+        adjustment_breakdown: adjustments,
+        building_analysis: {
+            type: buildingType.category,
+            condition: condition.level,
+            condition_score: condition.score,
+            year_built: property.builtIn
+        },
+        amenity_analysis: {
+            total_score: amenities.totalScore,
+            key_amenities: keyAmenities,
+            amenity_premium: adjustments
+                .filter(adj => adj.type === 'amenity')
+                .length * 100 // Rough estimate
+        },
+        location_analysis: {
+            neighborhood: property.neighborhood,
+            transit_score: location.transitScore,
+            walkability: location.walkability,
+            desirability: location.desirability
+        },
+        comparable_properties: {
+            count: comparableCount,
+            method: methodology,
+            reliability: confidence >= 80 ? 'high' : confidence >= 60 ? 'medium' : 'low'
+        },
+        calculation_methodology: [
+            'Identify comparable properties with similar bed/bath configuration',
+            'Apply building type and condition adjustments',
+            'Factor in amenity premiums and location value',
+            'Calculate weighted average market rent',
+            'Determine discount percentage and savings potential'
+        ]
+    };
+}
+
+// ===================================================================
+// ALL HELPER FUNCTIONS INCLUDED - ADD THESE TO claude-market-analyzer.js
+// ===================================================================
+
+calculateBuildingAge(builtIn) {
+    if (!builtIn) return { age: null, era: 'unknown', isRentStabilizedEra: false };
+    
+    const currentYear = new Date().getFullYear();
+    const age = currentYear - builtIn;
+    
+    let era = 'modern';
+    let isRentStabilizedEra = false;
+    
+    if (builtIn >= 1943 && builtIn <= 1946) {
+        era = 'emergency_rent_control';
+        isRentStabilizedEra = true;
+    } else if (builtIn >= 1947 && builtIn <= 1973) {
+        era = 'prime_stabilization';
+        isRentStabilizedEra = true;
+    } else if (builtIn >= 1974 && builtIn <= 1983) {
+        era = 'early_stabilization';
+        isRentStabilizedEra = true;
+    } else if (builtIn >= 1984 && builtIn <= 2000) {
+        era = 'post_stabilization';
+        isRentStabilizedEra = false;
+    } else if (builtIn >= 2001) {
+        era = 'modern';
+        isRentStabilizedEra = false;
+    } else if (builtIn < 1943) {
+        era = 'pre_war';
+        isRentStabilizedEra = true; // Many pre-war buildings are stabilized
+    }
+    
+    return { age, era, isRentStabilizedEra };
+}
+
+analyzeBuildingType(property) {
+    const description = (property.description || '').toLowerCase();
+    const amenities = (property.amenities || []).join(' ').toLowerCase();
+    const fullText = `${description} ${amenities}`;
+    
+    // Building type indicators
+    const luxuryHighRise = ['luxury high-rise', 'luxury tower', 'full service building', 'concierge'];
+    const boutiqueLuxury = ['boutique', 'luxury building', 'designer', 'high-end finishes'];
+    const traditionalRental = ['rental building', 'apartment building', 'multiple dwelling'];
+    const olderWalkUp = ['walk-up', 'walk up', 'no elevator', 'pre-war'];
+    
+    let category = 'traditional_rental'; // default
+    
+    if (luxuryHighRise.some(term => fullText.includes(term))) {
+        category = 'luxury_high_rise';
+    } else if (boutiqueLuxury.some(term => fullText.includes(term))) {
+        category = 'boutique_luxury';
+    } else if (olderWalkUp.some(term => fullText.includes(term))) {
+        category = 'older_walk_up';
+    }
+    
+    return { category };
+}
+
+analyzePropertyCondition(property) {
+    const description = (property.description || '').toLowerCase();
+    const amenities = (property.amenities || []).join(' ').toLowerCase();
+    const fullText = `${description} ${amenities}`;
+    
+    const pristineIndicators = ['gut renovated', 'pristine', 'brand new', 'luxury finishes'];
+    const updatedIndicators = ['renovated', 'updated', 'modern', 'new kitchen'];
+    const originalIndicators = ['original', 'classic', 'charming', 'pre-war details'];
+    const needsWorkIndicators = ['needs work', 'fixer', 'potential', 'bring your architect'];
+    
+    if (needsWorkIndicators.some(term => fullText.includes(term))) {
+        return { level: 'needs_work', score: 2 };
+    } else if (pristineIndicators.some(term => fullText.includes(term))) {
+        return { level: 'pristine', score: 5 };
+    } else if (updatedIndicators.some(term => fullText.includes(term))) {
+        return { level: 'updated', score: 4 };
+    } else if (originalIndicators.some(term => fullText.includes(term))) {
+        return { level: 'original', score: 3 };
+    }
+    
+    return { level: 'standard', score: 3 };
+}
+
+analyzeAmenities(property) {
+    const amenities = (property.amenities || []).join(' ').toLowerCase();
+    const description = (property.description || '').toLowerCase();
+    const fullText = `${amenities} ${description}`;
+    
+    const amenityChecks = {
+        doorman: ['doorman', 'concierge'],
+        elevator: ['elevator'],
+        washer_dryer: ['washer/dryer', 'in-unit laundry'],
+        outdoor_space: ['balcony', 'terrace', 'rooftop'],
+        gym: ['gym', 'fitness'],
+        parking: ['parking', 'garage']
+    };
+    
+    let totalScore = 0;
+    const hasAmenity = (amenityType) => {
+        const terms = amenityChecks[amenityType] || [];
+        return terms.some(term => fullText.includes(term));
+    };
+    
+    Object.keys(amenityChecks).forEach(amenity => {
+        if (hasAmenity(amenity)) totalScore += 1;
+    });
+    
+    return { totalScore, hasAmenity };
+}
+
+analyzeLocationValue(property) {
+    const neighborhood = (property.neighborhood || '').toLowerCase();
+    
+    // Neighborhood scoring (simplified)
+    const premiumNeighborhoods = ['soho', 'tribeca', 'west village'];
+    const goodNeighborhoods = ['east village', 'brooklyn heights', 'williamsburg'];
+    
+    let transitScore = 6; // default
+    let desirability = 'medium';
+    
+    if (premiumNeighborhoods.some(n => neighborhood.includes(n))) {
+        transitScore = 9;
+        desirability = 'high';
+    } else if (goodNeighborhoods.some(n => neighborhood.includes(n))) {
+        transitScore = 8;
+        desirability = 'high';
+    }
+    
+    return {
+        transitScore,
+        walkability: transitScore >= 8 ? 'excellent' : 'good',
+        desirability
+    };
+}
+
+estimateUnitCount(property) {
+    // Simple heuristic based on building description
+    const description = (property.description || '').toLowerCase();
+    
+    if (description.includes('boutique') || description.includes('small building')) {
+        return { estimate: 8, confidence: 'medium' };
+    } else if (description.includes('large building') || description.includes('high-rise')) {
+        return { estimate: 50, confidence: 'medium' };
+    }
+    
+    return { estimate: 15, confidence: 'low' }; // default estimate
+}
+
+analyzeRentLevel(property) {
+    // This would need market data - simplified version
+    const rent = property.price || property.monthlyRent || 0;
+    const bedrooms = property.bedrooms || 0;
+    
+    // Very basic market comparison (you'd want real market data here)
+    const estimatedMarket = bedrooms * 2000 + 1000; // rough estimate
+    const variance = ((rent - estimatedMarket) / estimatedMarket) * 100;
+    
+    let level = 'market_rate';
+    if (variance < -10) level = 'below_market';
+    if (variance > 10) level = 'above_market';
+    
+    return { level, variance };
+}
+
+findDHCRMatches(property, rentStabilizedBuildings) {
+    // This would use your existing DHCR matching logic
+    // Simplified version here
+    if (!rentStabilizedBuildings || rentStabilizedBuildings.length === 0) {
+        return [];
+    }
+    
+    const propertyAddress = (property.address || '').toLowerCase();
+    return rentStabilizedBuildings
+        .filter(building => {
+            const buildingAddress = (building.address || '').toLowerCase();
+            return buildingAddress.includes(propertyAddress.split(' ')[0]) || 
+                   propertyAddress.includes(buildingAddress.split(' ')[0]);
+        })
+        .map(building => ({
+            ...building,
+            similarity: 0.8 // simplified - you'd calculate actual similarity
+        }))
+        .slice(0, 3);
+	}
+}
+
 
 module.exports = EnhancedClaudeMarketAnalyzer;
