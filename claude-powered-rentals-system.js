@@ -1312,7 +1312,7 @@ cleanAnalysisData(analysis) {
         const manhattanNeighborhoods = [
             'soho', 'tribeca', 'west-village', 'east-village', 'lower-east-side',
             'financial-district', 'battery-park-city', 'chinatown', 'little-italy',
-            'nolita', 'bowery', 'two-bridges', 'chelsea', 'gramercy', 'kips-bay',
+            'nolita', 'bowery', 'two-bridges', 'chelsea', 'gramercy-park', 'kips-bay',
             'murray-hill', 'midtown-east', 'midtown-west', 'hells-kitchen',
             'upper-east-side', 'upper-west-side', 'morningside-heights',
             'hamilton-heights', 'washington-heights', 'inwood', 'greenwich-village',
@@ -1362,7 +1362,7 @@ cleanAnalysisData(analysis) {
             // Manhattan priority areas
             'east-village', 'west-village', 'lower-east-side', 'chinatown',
             'little-italy', 'nolita', 'soho', 'tribeca', 'financial-district',
-            'two-bridges', 'chelsea', 'gramercy', 'kips-bay', 'murray-hill',
+            'two-bridges', 'chelsea', 'gramercy-park', 'kips-bay', 'murray-hill',
             
             // Brooklyn priority areas  
             'williamsburg', 'greenpoint', 'bushwick', 'bedford-stuyvesant',
