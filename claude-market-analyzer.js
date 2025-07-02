@@ -353,7 +353,6 @@ return {
                 // ✅ FIXED: Exact database field names (snake_case)
                 comparables_used: filteredComparables.selectedComparables.length,
                 undervaluation_confidence: this.calculateConfidenceFromMethod(filteredComparables.method, filteredComparables.selectedComparables.length),
-                undervaluation_method: filteredComparables.method, // Required field
                 
                 // ✅ FIXED: Rent stabilization fields with exact database names
                 rent_stabilized_confidence: analysis.rentStabilizedProbability || 0,
