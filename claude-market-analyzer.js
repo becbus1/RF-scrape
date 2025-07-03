@@ -79,32 +79,59 @@ async analyzeRentalsUndervaluation(targetProperty, comparableProperties, neighbo
         console.log(`   💰 Claude estimate: ${analysis.estimatedMarketRent?.toLocaleString()}/month`);
         console.log(`   📊 Below market: ${analysis.percentBelowMarket?.toFixed(1)}%`);
         
-        // ✅ OPTIMIZATION: Check if property is undervalued BEFORE generating detailed analysis
-        const isUndervalued = analysis.percentBelowMarket >= threshold && calculatedConfidence >= 60;
+        // ✅ FIXED: Proper validation of discount percentage
+        const actualRent = targetProperty.price;
+        const marketRent = analysis.estimatedMarketRent;
+        const correctDiscount = ((marketRent - actualRent) / marketRent * 100);
         
-        if (!isUndervalued) {
-            // Property is overvalued or doesn't meet threshold - return basic response without detailed analysis
-            console.log(`   ⚠️ Not undervalued (${analysis.percentBelowMarket?.toFixed(1)}% < ${threshold}%) - skipping detailed analysis`);
+        // ✅ DETECT OVERPRICED PROPERTIES
+        if (correctDiscount < 0) {
+            const overvaluedPercent = Math.abs(correctDiscount);
+            console.log(`   ⚠️ OVERPRICED: ${overvaluedPercent.toFixed(1)}% above market ($${actualRent.toLocaleString()} vs $${marketRent.toLocaleString()}) - skipping detailed analysis`);
             
             return {
                 isUndervalued: false,
-                percentBelowMarket: analysis.percentBelowMarket || 0,
-                estimatedMarketRent: analysis.estimatedMarketRent || targetProperty.price,
-                actualRent: targetProperty.price,
-                potentialSavings: analysis.potentialSavings || 0,
+                percentBelowMarket: correctDiscount, // Negative value indicates overpriced
+                estimatedMarketRent: marketRent,
+                actualRent: actualRent,
+                potentialSavings: marketRent - actualRent, // Negative = overpaying
                 confidence: calculatedConfidence,
                 method: 'claude_hierarchical_analysis',
                 comparablesUsed: filteredComparables.selectedComparables.length,
-                reasoning: analysis.reasoning || 'Property not undervalued based on market analysis',
+                reasoning: `This property is overpriced at $${actualRent.toLocaleString()}/month compared to market rate of $${marketRent.toLocaleString()}/month (${overvaluedPercent.toFixed(1)}% above market).`,
                 undervaluationConfidence: calculatedConfidence,
                 rentStabilizedProbability: analysis.rentStabilizedProbability || 0,
                 rentStabilizedFactors: analysis.rentStabilizedFactors || [],
-                rentStabilizedExplanation: analysis.rentStabilizedExplanation || 'No detailed analysis for non-undervalued property'
+                rentStabilizedExplanation: 'No analysis needed for overpriced property'
             };
         }
         
-        // ✅ ONLY generate detailed analysis for UNDERVALUED properties
-        console.log(`   ✅ Undervalued property detected - generating detailed analysis`);
+        // ✅ OPTIMIZATION: Check if property meets undervaluation threshold BEFORE detailed analysis
+        const isUndervalued = correctDiscount >= threshold && calculatedConfidence >= 60;
+        
+        if (!isUndervalued) {
+            // Property doesn't meet threshold - return basic response without detailed analysis
+            console.log(`   ⚠️ Not undervalued (${correctDiscount.toFixed(1)}% < ${threshold}%) - skipping detailed analysis`);
+            
+            return {
+                isUndervalued: false,
+                percentBelowMarket: correctDiscount,
+                estimatedMarketRent: marketRent,
+                actualRent: actualRent,
+                potentialSavings: marketRent - actualRent,
+                confidence: calculatedConfidence,
+                method: 'claude_hierarchical_analysis',
+                comparablesUsed: filteredComparables.selectedComparables.length,
+                reasoning: `Property priced at market rate. Rent of $${actualRent.toLocaleString()}/month is only ${correctDiscount.toFixed(1)}% below estimated market rent of $${marketRent.toLocaleString()}/month.`,
+                undervaluationConfidence: calculatedConfidence,
+                rentStabilizedProbability: analysis.rentStabilizedProbability || 0,
+                rentStabilizedFactors: analysis.rentStabilizedFactors || [],
+                rentStabilizedExplanation: 'No detailed analysis for market-rate property'
+            };
+        }
+        
+        // ✅ ONLY generate detailed analysis for TRULY UNDERVALUED properties
+        console.log(`   ✅ Undervalued property detected (${correctDiscount.toFixed(1)}% below market) - generating detailed analysis`);
         if (analysis.rentStabilizedProbability >= 60) {
             console.log(`   🔒 Rent stabilized: ${analysis.rentStabilizedProbability}%`);
         }
@@ -117,10 +144,10 @@ async analyzeRentalsUndervaluation(targetProperty, comparableProperties, neighbo
         // STEP 7: Return ENHANCED structure with comprehensive analysis (ONLY for undervalued)
         return {
             isUndervalued: true,
-            percentBelowMarket: analysis.percentBelowMarket || 0,
-            estimatedMarketRent: analysis.estimatedMarketRent || targetProperty.price,
-            actualRent: targetProperty.price,
-            potentialSavings: analysis.potentialSavings || 0,
+            percentBelowMarket: correctDiscount, // Use corrected calculation
+            estimatedMarketRent: marketRent,
+            actualRent: actualRent,
+            potentialSavings: marketRent - actualRent, // Positive for undervalued
             confidence: calculatedConfidence,
             method: 'claude_hierarchical_analysis',
             comparablesUsed: filteredComparables.selectedComparables.length,
@@ -136,10 +163,10 @@ async analyzeRentalsUndervaluation(targetProperty, comparableProperties, neighbo
             // Enhanced undervaluation analysis
             detailedAnalysis: enhancedUndervaluation || {},
             valuationMethod: filteredComparables.method,
-            baseMarketRent: analysis.baseMarketRent || analysis.estimatedMarketRent,
+            baseMarketRent: analysis.baseMarketRent || marketRent,
             adjustmentBreakdown: enhancedUndervaluation.adjustment_breakdown || {},
-            legalProtectionValue: enhancedRentStabilization.confidence_percentage >= 60 ? (analysis.potentialSavings || 0) * 12 : 0,
-            investmentMerit: analysis.percentBelowMarket >= 25 ? 'strong' : analysis.percentBelowMarket >= 15 ? 'moderate' : 'low',
+            legalProtectionValue: enhancedRentStabilization.confidence_percentage >= 60 ? (marketRent - actualRent) * 12 : 0,
+            investmentMerit: correctDiscount >= 25 ? 'strong' : correctDiscount >= 15 ? 'moderate' : 'low',
             
             // Full enhanced data for database integration
             enhancedRentStabilization,
