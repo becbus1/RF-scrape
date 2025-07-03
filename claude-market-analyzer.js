@@ -1368,9 +1368,9 @@ generateRentStabilizationAnalysis(property, rentStabilizedBuildings = []) {
         return {
             confidence_percentage: 15, // Very low confidence without DHCR match
             analysis_method: 'no_dhcr_match',
-            key_factors: ['no_dhcr_database_match'],
-            legal_factors: ['No matching address found in DHCR database'],
-            detailed_explanation: `No matching address was found in the DHCR rent stabilization database for this property. Without official DHCR registration, there is minimal likelihood of rent stabilization despite other building characteristics.`,
+            key_factors: ['Building not found in rent-stabilized database'],
+            legal_factors: ['No matching address found in rent-stabilized building registry'],
+            detailed_explanation: `This building was not found in the official rent stabilization registry. Without official registration, there is minimal likelihood of rent stabilization despite other building characteristics.`,
             building_age_factor: {
                 construction_year: property.builtIn,
                 era: buildingAge.era,
@@ -1403,36 +1403,36 @@ generateRentStabilizationAnalysis(property, rentStabilizedBuildings = []) {
     // DHCR DATABASE MATCH ANALYSIS (Primary Factor)
     if (bestMatch.similarity >= 0.9) {
         confidence += 35; // Strong match
-        factors.push('strong_dhcr_match');
-        legalFactors.push(`Strong DHCR match: ${bestMatch.address} (${Math.round(bestMatch.similarity * 100)}% similarity)`);
-        analysis += `Official DHCR records show a strong address match (${Math.round(bestMatch.similarity * 100)}% similarity), providing legal confirmation of rent stabilization registration. `;
+        factors.push('Building matches rent-stabilized registry (strong match)');
+legalFactors.push(`Strong registry match: ${bestMatch.address} (${Math.round(bestMatch.similarity * 100)}% similarity)`);
+analysis += `This building is listed in the official rent stabilization registry with a strong address match (${Math.round(bestMatch.similarity * 100)}% similarity), providing legal confirmation of rent-stabilized units. `;
     } else if (bestMatch.similarity >= 0.7) {
         confidence += 25; // Good match
-        factors.push('good_dhcr_match');
-        legalFactors.push(`Good DHCR match: ${bestMatch.address} (${Math.round(bestMatch.similarity * 100)}% similarity)`);
-        analysis += `DHCR records show a good address match (${Math.round(bestMatch.similarity * 100)}% similarity), supporting rent stabilization status. `;
+        factors.push('Building matches rent-stabilized registry (good match)');
+legalFactors.push(`Good registry match: ${bestMatch.address} (${Math.round(bestMatch.similarity * 100)}% similarity)`);
+analysis += `This building appears in the official rent stabilization registry with a good address match (${Math.round(bestMatch.similarity * 100)}% similarity), supporting rent-stabilized status. `;
     } else {
         confidence += 15; // Weak but acceptable match
-        factors.push('weak_dhcr_match');
-        legalFactors.push(`Weak DHCR match: ${bestMatch.address} (${Math.round(bestMatch.similarity * 100)}% similarity)`);
-        analysis += `DHCR records show a possible address match (${Math.round(bestMatch.similarity * 100)}% similarity), suggesting potential rent stabilization. `;
+        factors.push('Building may match rent-stabilized registry (possible match)');
+legalFactors.push(`Possible registry match: ${bestMatch.address} (${Math.round(bestMatch.similarity * 100)}% similarity)`);
+analysis += `This building may appear in the rent stabilization registry with a possible address match (${Math.round(bestMatch.similarity * 100)}% similarity), suggesting potential rent stabilization. `;
     }
     
     // BUILDING AGE ANALYSIS (Supporting Factor)
     if (buildingAge.isRentStabilizedEra) {
         if (buildingAge.era === 'prime_stabilization' && property.builtIn >= 1947 && property.builtIn <= 1973) {
             confidence += 20; // Reduced from 40 since DHCR is primary
-            factors.push('prime_stabilization_era');
+            factors.push(`Built ${property.builtIn} (prime rent-stabilization era 1947-1973)`);
             legalFactors.push(`Built in ${property.builtIn}, within prime rent stabilization period (1947-1973)`);
             analysis += `The building's ${property.builtIn} construction date falls within the prime rent stabilization era, supporting the DHCR registration. `;
         } else if (buildingAge.era === 'emergency_rent_control' && property.builtIn >= 1943 && property.builtIn <= 1946) {
             confidence += 15;
-            factors.push('emergency_rent_control_era');
+factors.push(`Built ${property.builtIn} (emergency rent control era 1943-1946)`);
             legalFactors.push(`Built in ${property.builtIn}, during Emergency Rent Control period (1943-1946)`);
             analysis += `Built during the Emergency Rent Control period (${property.builtIn}), consistent with DHCR registration. `;
         } else if (buildingAge.era === 'early_stabilization' && property.builtIn >= 1974 && property.builtIn <= 1983) {
             confidence += 10;
-            factors.push('early_post_stabilization');
+factors.push(`Built ${property.builtIn} (early post-stabilization era)`);
             legalFactors.push(`Built in ${property.builtIn}, during early post-stabilization period`);
             analysis += `The ${property.builtIn} construction date is consistent with buildings that retained rent stabilization. `;
         }
@@ -1441,7 +1441,7 @@ generateRentStabilizationAnalysis(property, rentStabilizedBuildings = []) {
     // UNIT COUNT ANALYSIS (Supporting Factor)
     if (unitCount.estimate >= 6) {
         confidence += 10; // Reduced from 20 since DHCR is primary
-        factors.push('sufficient_unit_count');
+        factors.push(`6+ units (legal minimum for rent stabilization)`);
         legalFactors.push(`Estimated ${unitCount.estimate}+ units, meeting 6+ unit requirement`);
         analysis += `The estimated ${unitCount.estimate} units meets the minimum threshold required for rent stabilization. `;
     }
@@ -1449,7 +1449,7 @@ generateRentStabilizationAnalysis(property, rentStabilizedBuildings = []) {
     // RENT LEVEL ANALYSIS (Supporting Factor)
     if (rentLevel.level === 'below_market' && rentLevel.variance <= -15) {
         confidence += 10; // Reduced from 15 since DHCR is primary
-        factors.push('below_market_rent_suggests_stabilization');
+factors.push(`Below-market rent (${Math.abs(rentLevel.variance)}% under market suggests rent controls)`);
         legalFactors.push(`Rent is ${Math.abs(rentLevel.variance)}% below market, supporting stabilization controls`);
         analysis += `The below-market rent level (${Math.abs(rentLevel.variance)}% under market) is consistent with rent stabilization controls. `;
     }
@@ -1457,7 +1457,7 @@ generateRentStabilizationAnalysis(property, rentStabilizedBuildings = []) {
     // BUILDING TYPE FACTOR (Minor Factor)
     if (buildingType.category === 'traditional_rental') {
         confidence += 5; // Reduced from 10
-        factors.push('traditional_rental_building');
+factors.push('Traditional rental building (commonly rent-stabilized)');
         legalFactors.push('Traditional rental building type, commonly rent-stabilized');
         analysis += `The traditional rental building type is commonly subject to rent stabilization. `;
     } else if (buildingType.category === 'luxury_condo_conversion') {
