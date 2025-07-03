@@ -689,55 +689,34 @@ cleanAnalysisData(analysis) {
                 },
                 
                 // UNDERVALUATION - REQUIRED fields with RAILWAY FIX
-                undervaluation_method: validUndervaluationMethod,
-                undervaluation_confidence: this.safeInt(property.undervaluationConfidence, 0),
-                comparables_used: Math.max(1, this.safeInt(property.comparablesUsed, 1)),
-                undervaluation_analysis: {
-                    adjustments: property.adjustmentBreakdown ? Object.entries(property.adjustmentBreakdown).map(([key, value]) => ({
-                        type: key,
-                        amount: value,
-                        explanation: `${key} adjustment`
-                    })) : [],
-                    methodology: finalUndervaluationMethod,
-                    base_market_rent: this.safeInt(property.estimatedMarketRent || property.price),
-                    calculation_steps: [
-                        'Identify comparable properties',
-                        'Apply similarity weighting',
-                        'Calculate market estimate',
-                        'Determine undervaluation percentage'
-                    ],
-                    total_adjustments: 0,
-                    confidence_factors: {
-                        comparable_quality: property.comparablesUsed > 5 ? 'high' : 'medium',
-                        analysis_method: 'ai_powered',
-                        data_completeness: 'comprehensive'
-                    },
-                    comparable_properties: [],
-                    final_market_estimate: this.safeInt(property.estimatedMarketRent || property.price)
-                },
-                
-                // Scoring and ranking with BULLETPROOF conversion
-                deal_quality_score: this.safeInt(this.calculateDealQualityScore(property)),
-                ranking_in_neighborhood: null,
-                neighborhood_median_rent: null,
-                comparable_properties_in_area: this.safeInt(property.comparablesUsed, null),
-                risk_factors: this.identifyRiskFactors(property),
-                opportunity_score: this.safeInt(this.calculateOpportunityScore(property)),
-                
-                // Status and metadata
-                display_status: 'active',
-                admin_notes: null,
-                tags: this.generatePropertyTags(property),
-                
-                // Classification with BULLETPROOF conversion
-                market_classification: this.classifyRentStabilizedProperty(property),
-                deal_quality: this.safeDealQuality(this.calculateDealQualityScore(property)),
-                
-                // Timestamps
-                discovered_at: new Date().toISOString(),
-                analyzed_at: new Date().toISOString(),
-                last_verified: new Date().toISOString(),
-                analysis_date: new Date().toISOString()
+undervaluation_method: validUndervaluationMethod,
+undervaluation_confidence: this.safeInt(property.undervaluationConfidence, 0),
+comparables_used: Math.max(1, this.safeInt(property.comparablesUsed, 1)),
+undervaluation_analysis: property.reasoning || property.detailedAnalysis?.detailed_explanation || 
+    `This rent-stabilized property at ${property.address} offers ${property.percentBelowMarket?.toFixed(1)}% savings below estimated market rent of $${property.estimatedMarketRent?.toLocaleString()}/month. The analysis found ${property.comparablesUsed || 0} comparable properties to determine market value.`,
+
+// Scoring and ranking with BULLETPROOF conversion
+deal_quality_score: this.safeInt(this.calculateDealQualityScore(property)),
+ranking_in_neighborhood: null,
+neighborhood_median_rent: null,
+comparable_properties_in_area: this.safeInt(property.comparablesUsed, null),
+risk_factors: this.identifyRiskFactors(property),
+opportunity_score: this.safeInt(this.calculateOpportunityScore(property)),
+
+// Status and metadata
+display_status: 'active',
+admin_notes: null,
+tags: this.generatePropertyTags(property),
+
+// Classification with BULLETPROOF conversion
+market_classification: this.classifyRentStabilizedProperty(property),
+deal_quality: this.safeDealQuality(this.calculateDealQualityScore(property)),
+
+// Timestamps
+discovered_at: new Date().toISOString(),
+analyzed_at: new Date().toISOString(),
+last_verified: new Date().toISOString(),
+analysis_date: new Date().toISOString()
             };
             
             const { error } = await this.supabase
