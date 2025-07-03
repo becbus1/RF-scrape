@@ -1128,7 +1128,7 @@ cleanAnalysisData(analysis) {
         const manhattanNeighborhoods = [
             'soho', 'tribeca', 'west-village', 'east-village', 'lower-east-side',
             'financial-district', 'battery-park-city', 'chinatown', 'little-italy',
-            'nolita', 'midtown', 'two-bridges', 'civic-center', 'battery-park-city', 'hudson-square'
+            'nolita', 'midtown', 'two-bridges', 'civic-center', 'hudson-square'
         ];
         
         const brooklynNeighborhoods = [
