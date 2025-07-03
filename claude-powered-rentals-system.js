@@ -1128,13 +1128,13 @@ cleanAnalysisData(analysis) {
         const manhattanNeighborhoods = [
             'soho', 'tribeca', 'west-village', 'east-village', 'lower-east-side',
             'financial-district', 'battery-park-city', 'chinatown', 'little-italy',
-            'nolita', 'bowery', 'two-bridges'
+            'nolita', 'midtown', 'two-bridges', 'civic-center', 'battery-park-city', 'hudson-square'
         ];
         
         const brooklynNeighborhoods = [
             'brooklyn-heights', 'dumbo', 'williamsburg', 'greenpoint', 'park-slope',
             'carroll-gardens', 'cobble-hill', 'boerum-hill', 'fort-greene',
-            'prospect-heights', 'crown-heights', 'bed-stuy'
+            'prospect-heights', 'crown-heights', 'bedford-stuyvesant', 'downtown-brooklyn', 'columbia-st-waterfront-district', 'vinegar-hill'
         ];
         
         const queensNeighborhoods = [
@@ -1312,19 +1312,18 @@ cleanAnalysisData(analysis) {
         const manhattanNeighborhoods = [
             'soho', 'tribeca', 'west-village', 'east-village', 'lower-east-side',
             'financial-district', 'battery-park-city', 'chinatown', 'little-italy',
-            'nolita', 'bowery', 'two-bridges', 'chelsea', 'gramercy-park', 'kips-bay',
+            'nolita', 'midtown', 'two-bridges', 'chelsea', 'gramercy-park', 'kips-bay',
             'murray-hill', 'midtown-east', 'midtown-west', 'hells-kitchen',
             'upper-east-side', 'upper-west-side', 'morningside-heights',
             'hamilton-heights', 'washington-heights', 'inwood', 'greenwich-village',
-            'flatiron', 'noho'
+            'flatiron', 'noho', 'civic-center', 'battery-park-city', 'hudson-square'
         ];
         
         const brooklynNeighborhoods = [
             'brooklyn-heights', 'dumbo', 'williamsburg', 'greenpoint', 'park-slope',
             'carroll-gardens', 'cobble-hill', 'boerum-hill', 'fort-greene',
-            'prospect-heights', 'crown-heights', 'bed-stuy', 'bushwick',
-            'bedford-stuyvesant', 'gowanus', 'clinton-hill', 'red-hook',
-            'prospect-lefferts-gardens', 'sunset-park', 'bay-ridge', 'bensonhurst'
+            'prospect-heights', 'crown-heights', 'bedford-stuyvesant', 'bushwick', 'gowanus', 'clinton-hill', 'red-hook',
+            'prospect-lefferts-gardens', 'sunset-park', 'bay-ridge', 'bensonhurst', 'downtown-brooklyn', 'columbia-st-waterfront-district', 'vinegar-hill'
         ];
         
         const queensNeighborhoods = [
