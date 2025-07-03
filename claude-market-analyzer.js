@@ -1294,14 +1294,6 @@ valuationMethod: 'claude_hierarchical_analysis'
             .trim();
     }
 
-    calculateAddressSimilarity(addr1, addr2) {
-        const words1 = addr1.split(' ');
-        const words2 = addr2.split(' ');
-        const intersection = words1.filter(word => words2.includes(word));
-        const union = [...new Set([...words1, ...words2])];
-        return union.length > 0 ? intersection.length / union.length : 0;
-    }
-
     delay(ms) {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
@@ -1513,6 +1505,7 @@ generateUndervaluationAnalysis(property, comparables, marketAnalysis) {
     let adjustments = [];
     let confidence = marketAnalysis.confidence || 70;
     let methodology = marketAnalysis.method || 'comparative_market_analysis';
+const keyAmenities = []; // ← ADD THIS LINE
     
    // Start with property overview
 const beds = property.bedrooms || 0;
@@ -1520,6 +1513,132 @@ const baths = property.bathrooms || 0;
 const neighborhood = property.neighborhood || 'this area';
 const actualRent = property.price || property.monthlyRent || 0;
 const marketRent = marketAnalysis.estimatedMarketRent || actualRent;
+
+// BUILDING TYPE ANALYSIS
+if (buildingType.category === 'luxury_high_rise') {
+    adjustments.push({
+        type: 'building_type',
+        factor: 'luxury_high_rise',
+        impact: '+$200-400/month premium',
+        explanation: 'Luxury high-rise commands premium rents'
+    });
+} else if (buildingType.category === 'boutique_luxury') {
+    adjustments.push({
+        type: 'building_type',
+        factor: 'boutique_luxury',
+        impact: '+$150-300/month premium',
+        explanation: 'Boutique luxury buildings offer premium living experience'
+    });
+} else if (buildingType.category === 'traditional_rental') {
+    adjustments.push({
+        type: 'building_type',
+        factor: 'traditional_rental',
+        impact: 'Market baseline',
+        explanation: 'Traditional rental building represents market baseline'
+    });
+} else if (buildingType.category === 'older_walk_up') {
+    adjustments.push({
+        type: 'building_type',
+        factor: 'older_walk_up',
+        impact: '-$100-200/month discount',
+        explanation: 'Walk-up buildings typically rent below elevator buildings'
+    });
+}
+
+// CONDITION ANALYSIS
+if (condition.level === 'pristine') {
+    adjustments.push({
+        type: 'condition',
+        factor: 'pristine_renovation',
+        impact: '+$150-250/month premium',
+        explanation: 'Recently renovated units with high-end finishes command premium'
+    });
+} else if (condition.level === 'updated') {
+    adjustments.push({
+        type: 'condition',
+        factor: 'updated_condition',
+        impact: '+$75-150/month premium',
+        explanation: 'Updated units with modern amenities rent above average'
+    });
+} else if (condition.level === 'original') {
+    adjustments.push({
+        type: 'condition',
+        factor: 'original_character',
+        impact: 'Market baseline to slight discount',
+        explanation: 'Original condition units at market baseline or slight discount'
+    });
+} else if (condition.level === 'needs_work') {
+    adjustments.push({
+        type: 'condition',
+        factor: 'needs_updating',
+        impact: '-$100-200/month discount',
+        explanation: 'Units needing work typically rent below market'
+    });
+}
+
+// AMENITIES ANALYSIS
+if (amenities.hasAmenity('doorman')) {
+    keyAmenities.push('doorman building');
+    adjustments.push({
+        type: 'amenity',
+        factor: 'doorman',
+        impact: '+$100-200/month',
+        explanation: 'Doorman service adds significant value in NYC'
+    });
+}
+if (amenities.hasAmenity('elevator')) {
+    keyAmenities.push('elevator access');
+    adjustments.push({
+        type: 'amenity',
+        factor: 'elevator',
+        impact: '+$50-100/month',
+        explanation: 'Elevator access increases convenience and value'
+    });
+}
+if (amenities.hasAmenity('washer_dryer')) {
+    keyAmenities.push('in-unit laundry');
+    adjustments.push({
+        type: 'amenity',
+        factor: 'in_unit_laundry',
+        impact: '+$75-150/month',
+        explanation: 'In-unit washer/dryer is highly valued amenity'
+    });
+}
+if (amenities.hasAmenity('outdoor_space')) {
+    keyAmenities.push('private outdoor space');
+    adjustments.push({
+        type: 'amenity',
+        factor: 'outdoor_space',
+        impact: '+$100-300/month',
+        explanation: 'Private outdoor space commands significant premium'
+    });
+}
+if (amenities.hasAmenity('gym')) {
+    keyAmenities.push('fitness center');
+    adjustments.push({
+        type: 'amenity',
+        factor: 'gym',
+        impact: '+$25-75/month',
+        explanation: 'Building gym saves on external membership costs'
+    });
+}
+
+// LOCATION ANALYSIS
+if (location.transitScore >= 8) {
+    adjustments.push({
+        type: 'location',
+        factor: 'prime_location',
+        impact: '+$100-250/month premium',
+        explanation: 'Prime locations with excellent transit access command premium'
+    });
+} else if (location.transitScore >= 6) {
+    adjustments.push({
+        type: 'location',
+        factor: 'convenient_location',
+        impact: '+$50-150/month premium',
+        explanation: 'Good location access adds moderate premium'
+    });
+}
 
 // ✅ FIXED: Proper discount calculation that handles overpriced properties
 const discount = ((marketRent - actualRent) / marketRent * 100);
@@ -1783,27 +1902,105 @@ analyzeRentLevel(property) {
     return { level, variance };
 }
 
+/**
+ * FIXED: Proper DHCR address matching with real similarity calculation
+ * Replace the existing findDHCRMatches function in claude-market-analyzer.js
+ */
 findDHCRMatches(property, rentStabilizedBuildings) {
-    // This would use your existing DHCR matching logic
-    // Simplified version here
     if (!rentStabilizedBuildings || rentStabilizedBuildings.length === 0) {
         return [];
     }
     
-    const propertyAddress = (property.address || '').toLowerCase();
-    return rentStabilizedBuildings
-        .filter(building => {
-            const buildingAddress = (building.address || '').toLowerCase();
-            return buildingAddress.includes(propertyAddress.split(' ')[0]) || 
-                   propertyAddress.includes(buildingAddress.split(' ')[0]);
-        })
-        .map(building => ({
-            ...building,
-            similarity: 0.8 // simplified - you'd calculate actual similarity
-        }))
+    const propertyAddress = this.normalizeAddress(property.address || '');
+    if (!propertyAddress) return [];
+    
+    const matches = [];
+    
+    for (const building of rentStabilizedBuildings) {
+        const buildingAddress = this.normalizeAddress(building.address || '');
+        if (!buildingAddress) continue;
+        
+        // Calculate REAL similarity using the existing function
+        const similarity = this.calculateAddressSimilarity(propertyAddress, buildingAddress);
+        
+        // Only include matches with meaningful similarity (60%+)
+        if (similarity >= 0.6) {
+            matches.push({
+                ...building,
+                similarity: similarity // Use ACTUAL calculated similarity
+            });
+        }
+    }
+    
+    // Sort by similarity (highest first) and return top 3
+    return matches
+        .sort((a, b) => b.similarity - a.similarity)
         .slice(0, 3);
-	}
+}
 
+/**
+ * ENHANCED: More robust address similarity calculation
+ * This improves the existing calculateAddressSimilarity function
+ */
+calculateAddressSimilarity(addr1, addr2) {
+    if (!addr1 || !addr2) return 0;
+    
+    const words1 = addr1.split(' ').filter(word => word.length > 0);
+    const words2 = addr2.split(' ').filter(word => word.length > 0);
+    
+    if (words1.length === 0 || words2.length === 0) return 0;
+    
+    // Extract street numbers
+    const num1 = words1.find(word => /^\d+$/.test(word));
+    const num2 = words2.find(word => /^\d+$/.test(word));
+    
+    // If street numbers don't match, similarity is very low
+    if (num1 && num2 && num1 !== num2) {
+        return 0.1; // Very low similarity for different street numbers
+    }
+    
+    // Calculate word overlap
+    const intersection = words1.filter(word => words2.includes(word));
+    const union = [...new Set([...words1, ...words2])];
+    
+    if (union.length === 0) return 0;
+    
+    const basicSimilarity = intersection.length / union.length;
+    
+    // Boost similarity if street numbers match
+    if (num1 && num2 && num1 === num2) {
+        return Math.min(1.0, basicSimilarity + 0.3);
+    }
+    
+    return basicSimilarity;
+}
+
+/**
+ * DEBUG: Add this helper function to see what's actually being compared
+ */
+debugAddressMatching(property, rentStabilizedBuildings) {
+    console.log(`\n🔍 DEBUG: Matching "${property.address}"`);
+    
+    const propertyAddress = this.normalizeAddress(property.address || '');
+    console.log(`   Normalized target: "${propertyAddress}"`);
+    
+    const matches = rentStabilizedBuildings.slice(0, 5).map(building => {
+        const buildingAddress = this.normalizeAddress(building.address || '');
+        const similarity = this.calculateAddressSimilarity(propertyAddress, buildingAddress);
+        return {
+            original: building.address,
+            normalized: buildingAddress,
+            similarity: Math.round(similarity * 100)
+        };
+    });
+    
+    console.log('   Sample comparisons:');
+    matches.forEach(match => {
+        console.log(`     "${match.original}" → ${match.similarity}% similarity`);
+    });
+    
+    return matches;
+}
 	    /**
      * ✅ NEW: Analyze description for rent stabilization using pattern recognition
      */
