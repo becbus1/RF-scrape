@@ -958,7 +958,7 @@ valuationMethod: 'claude_hierarchical_analysis'
                             'x-api-key': this.claudeApiKey,
                             'anthropic-version': '2023-06-01'
                         },
-                        timeout: 45000
+                        timeout: 65000
                     }
                 );
                 
