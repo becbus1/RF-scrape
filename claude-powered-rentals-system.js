@@ -239,47 +239,70 @@ for (const listing of detailedListings) {
         }
     }
 
-    /**
+/**
  * FIXED: Fetch active listings from StreetEasy API using correct parameters
  */
 async fetchActiveListings(neighborhood) {
     try {
         console.log(`   🔍 Fetching active listings for ${neighborhood}...`);
         
-        const response = await axios.get('https://streeteasy-api.p.rapidapi.com/rentals/search', {
-            params: {
-                areas: neighborhood,  // FIXED: Use "areas" not "neighborhood"
-                limit: Math.min(500, this.maxListingsPerNeighborhood), // API limit is 500
-                minPrice: 1000,
-                maxPrice: 20000,
-                offset: 0
-            },
-            headers: {
-                'X-RapidAPI-Key': this.rapidApiKey,
-                'X-RapidAPI-Host': 'streeteasy-api.p.rapidapi.com'
-            },
-            timeout: 30000
-        });
+        let allRentals = [];
+        let offset = 0;
+        const limit = Math.min(500, this.maxListingsPerNeighborhood); // API limit is 500
+        const maxListings = this.maxListingsPerNeighborhood || 2000;
+        let hasMoreData = true;
         
-        this.apiCallsUsed++;
-        
-        // Handle response structure (from working biweekly code)
-        let rentalData = [];
-        if (response.data) {
-            if (response.data.results && Array.isArray(response.data.results)) {
-                rentalData = response.data.results;
-            } else if (response.data.listings && Array.isArray(response.data.listings)) {
-                rentalData = response.data.listings;
-            } else if (response.data.rentals && Array.isArray(response.data.rentals)) {
-                rentalData = response.data.rentals;
-            } else if (Array.isArray(response.data)) {
-                rentalData = response.data;
+        while (hasMoreData && allRentals.length < maxListings) {
+            const response = await axios.get('https://streeteasy-api.p.rapidapi.com/rentals/search', {
+                params: {
+                    areas: neighborhood,  // FIXED: Use "areas" not "neighborhood"
+                    limit: limit,
+                    minPrice: 1000,
+                    maxPrice: 20000,
+                    offset: offset  // ✅ ONLY CHANGE: Now properly increments!
+                },
+                headers: {
+                    'X-RapidAPI-Key': this.rapidApiKey,
+                    'X-RapidAPI-Host': 'streeteasy-api.p.rapidapi.com'
+                },
+                timeout: 30000
+            });
+            
+            this.apiCallsUsed++;
+            
+            // Handle response structure (from working biweekly code)
+            let rentalData = [];
+            if (response.data) {
+                if (response.data.results && Array.isArray(response.data.results)) {
+                    rentalData = response.data.results;
+                } else if (response.data.listings && Array.isArray(response.data.listings)) {
+                    rentalData = response.data.listings;
+                } else if (response.data.rentals && Array.isArray(response.data.rentals)) {
+                    rentalData = response.data.rentals;
+                } else if (Array.isArray(response.data)) {
+                    rentalData = response.data;
+                }
+            }
+            
+            // Add to total
+            allRentals = allRentals.concat(rentalData);
+            
+            // Check if we should continue
+            if (rentalData.length < limit) {
+                // Got fewer than limit, means we've reached the end
+                hasMoreData = false;
+            } else if (allRentals.length >= maxListings) {
+                // Hit our per-neighborhood limit
+                hasMoreData = false;
+            } else {
+                // Increment offset for next batch
+                offset += limit;
             }
         }
         
-        console.log(`   ✅ Found ${rentalData.length} active listings`);
+        console.log(`   ✅ Found ${allRentals.length} active listings`);
         
-        return rentalData.map(listing => ({
+        return allRentals.map(listing => ({
             id: listing.id?.toString(),
             address: listing.address || 'Address not available',
             price: listing.price || listing.monthlyRent || 0,
