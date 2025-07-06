@@ -141,31 +141,31 @@ class ClaudeIntegratedRailwayRunner {
     /**
      * Run Claude-powered rentals analysis - VERIFIED METHOD CALLS
      */
-    async runRentalsAnalysis() {
-        try {
-            const rentalsSystem = new ClaudePoweredRentalsSystem();
-            
-            // Setup database if needed
-            await this.setupDatabaseIfNeeded(rentalsSystem);
-            
-            // Determine target neighborhoods with fallbacks
-            const neighborhoods = await this.determineTargetNeighborhoods();
-            
-            // Configure analysis
-            const analysisConfig = {
-                neighborhoods: neighborhoods,
-                maxListingsPerNeighborhood: parseInt(process.env.MAX_LISTINGS_PER_NEIGHBORHOOD) || 500,
-                testMode: process.env.TEST_NEIGHBORHOOD ? true : false
-            };
-            
-            // Run main analysis - VERIFIED METHOD EXISTS
-            return await rentalsSystem.runCompleteRentStabilizedAnalysis(analysisConfig);  // ✅ Correct method
-            
-        } catch (error) {
-            console.error('❌ Rentals analysis failed:', error.message);
-            return { error: error.message };
-        }
+async runRentalsAnalysis() {
+    try {
+        const rentalsSystem = new ClaudePoweredRentalsSystem();
+        
+        // Setup database if needed
+        await this.setupDatabaseIfNeeded(rentalsSystem);
+        
+        // Determine target neighborhoods with fallbacks
+        const neighborhoods = await this.determineTargetNeighborhoods();
+        
+        // Configure analysis
+        const analysisConfig = {
+            neighborhoods: neighborhoods,
+            maxListingsPerNeighborhood: parseInt(process.env.MAX_LISTINGS_PER_NEIGHBORHOOD) || 500,
+            testMode: process.env.TEST_NEIGHBORHOOD ? true : false
+        };
+        
+        // FIX #2: Change method name to match actual rentals system
+        return await rentalsSystem.runComprehensiveRentalAnalysis(analysisConfig);  // ✅ FIXED
+        
+    } catch (error) {
+        console.error('❌ Rentals analysis failed:', error.message);
+        return { error: error.message };
     }
+}
 
     /**
      * Create required directories
@@ -258,36 +258,44 @@ Auto-download failed, but rentals system will use fallback neighborhoods.
      * Check required environment variables
      */
     async checkEnvironmentVariables() {
-        console.log('🔧 Checking environment variables...');
+    console.log('🔧 Checking environment variables...');
+    
+    const required = [
+        'RAPIDAPI_KEY',
+        'SUPABASE_URL', 
+        'SUPABASE_ANON_KEY'
+    ];
+    
+    const missing = required.filter(key => !process.env[key]);
+    
+    if (missing.length > 0) {
+        console.error('❌ Missing required environment variables:');
+        missing.forEach(key => console.error(`   ${key}`));
+        throw new Error('Missing required environment variables');
+    }
+    
+    // Check Claude API key
+    if (!process.env.ANTHROPIC_API_KEY) {
+        console.warn('⚠️ ANTHROPIC_API_KEY not set - Claude analysis will fail');
+        console.warn('   Add ANTHROPIC_API_KEY to Railway environment variables');
+    }
+    
+    // FIX #3: Check for required files
+    try {
+        require.resolve('./claude-market-analyzer.js');
+        console.log('✅ Claude market analyzer found');
+    } catch (error) {
+        console.warn('⚠️ claude-market-analyzer.js not found - rentals may use fallback analysis');
+    }
         
-        const required = [
-            'RAPIDAPI_KEY',
-            'SUPABASE_URL', 
-            'SUPABASE_ANON_KEY'
-        ];
-        
-        const missing = required.filter(key => !process.env[key]);
-        
-        if (missing.length > 0) {
-            console.error('❌ Missing required environment variables:');
-            missing.forEach(key => console.error(`   ${key}`));
-            throw new Error('Missing required environment variables');
-        }
-        
-        // Check Claude API key
-        if (!process.env.ANTHROPIC_API_KEY) {
-            console.warn('⚠️ ANTHROPIC_API_KEY not set - Claude analysis will fail');
-            console.warn('   Add ANTHROPIC_API_KEY to Railway environment variables');
-        }
-        
-        // Log optional configuration
-        const optional = [
-            'TEST_NEIGHBORHOOD',
-            'RUN_SALES_ONLY',
-            'RUN_RENTALS_ONLY',
-            'INITIAL_BULK_LOAD',
-            'MAX_LISTINGS_PER_NEIGHBORHOOD'
-        ];
+          // Log optional configuration
+    const optional = [
+        'TEST_NEIGHBORHOOD',
+        'RUN_SALES_ONLY',
+        'RUN_RENTALS_ONLY',
+        'INITIAL_BULK_LOAD',
+        'MAX_LISTINGS_PER_NEIGHBORHOOD'
+    ];
         
         console.log('📋 Configuration:');
         optional.forEach(key => {
