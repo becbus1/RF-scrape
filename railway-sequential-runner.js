@@ -16,7 +16,7 @@ const path = require('path');
 const axios = require('axios');
 
 // VERIFIED IMPORTS - These match the actual file names in your project
-const EnhancedBiWeeklySalesAnalyzer = require('./enhanced-biweekly-streeteasy-sales');  // ✅ Updated filename
+const EnhancedBiWeeklySalesAnalyzer = require('./biweekly-streeteasy-sales');
 const ClaudePoweredRentalsSystem = require('./claude-powered-rentals-system');         // ✅ Correct filename
 
 class ClaudeIntegratedRailwayRunner {
