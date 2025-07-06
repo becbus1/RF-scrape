@@ -1,12 +1,15 @@
-// enhanced-biweekly-streeteasy-sales.js
-// FINAL VERSION: Smart deduplication + ADVANCED MULTI-FACTOR VALUATION + automatic sold listing cleanup
-// NEW: Sophisticated bed/bath/amenity-based valuation instead of simple price per sqft
-// THRESHOLD: Only properties 25%+ below true market value are flagged as undervalued
+}
+            if (criteria.borough) {
+                query = query.eq('borough', criteria.borough);
+            }
+
+            const { data// enhanced-biweekly-streeteasy-sales.js
+// ENHANCED VERSION: Claude AI Analysis + Smart Deduplication + Advanced Market Intelligence
+// NEW: Replaces hardcoded valuation engine with Claude AI natural language reasoning
+// FEATURES: Hierarchical comparable filtering + Human-readable explanations + Method-aware confidence
 require('dotenv').config();
 const axios = require('axios');
 const { createClient } = require('@supabase/supabase-js');
-const ClaudeMarketAnalyzer = require('./claude-market-analyzer');
-
 
 const HIGH_PRIORITY_NEIGHBORHOODS = [
     'west-village', 'east-village', 'soho', 'tribeca', 'chelsea',
@@ -16,911 +19,479 @@ const HIGH_PRIORITY_NEIGHBORHOODS = [
     'long-island-city', 'astoria', 'sunnyside'
 ];
 
-// Advanced Multi-Factor Sales Valuation Algorithm
-// SOPHISTICATED APPROACH: Uses specific bed/bath combinations + amenities + adjustments
-// Moves beyond simple price per sqft to true market value assessment
-class AdvancedSalesValuationEngine {
+/**
+ * CLAUDE AI SALES MARKET ANALYZER
+ * Port of rental system's Claude analysis engine adapted for sales
+ */
+class ClaudeSalesMarketAnalyzer {
     constructor() {
-        // Valuation hierarchy - most specific to least specific
-        this.VALUATION_METHODS = {
-            EXACT_MATCH: 'exact_bed_bath_amenity_match',      // Same beds/baths + similar amenities
-            BED_BATH_SPECIFIC: 'bed_bath_specific_pricing',    // Same beds/baths + amenity adjustments  
-            BED_SPECIFIC: 'bed_specific_with_adjustments',     // Same bedrooms + bath/amenity adjustments
-            PRICE_PER_SQFT_FALLBACK: 'price_per_sqft_fallback' // Last resort
-        };
-
-        // Minimum sample sizes for each method
-        this.MIN_SAMPLES = {
-            EXACT_MATCH: 3,
-            BED_BATH_SPECIFIC: 8,
-            BED_SPECIFIC: 12,
-            PRICE_PER_SQFT_FALLBACK: 20
-        };
-
-        // NYC amenity value adjustments for SALES (based on 2025 market data)
-        // Structure: { manhattan: {type: 'percentage'/'fixed', value: number}, outer: {type: 'percentage'/'fixed', value: number} }
-        this.AMENITY_VALUES = {
-            // Building amenities (sales have higher premiums than rentals)
-            'doorman_full_time': {
-                manhattan: { type: 'percentage', value: 15 }, // 12-18% average for sales
-                outer: { type: 'percentage', value: 12 }       // 10-15% average for sales
-            },
-            'doorman_part_time': {
-                manhattan: { type: 'percentage', value: 8 },
-                outer: { type: 'percentage', value: 7 }
-            },
-            'doorman': { // Default to full-time if type not specified
-                manhattan: { type: 'percentage', value: 15 },
-                outer: { type: 'percentage', value: 12 }
-            },
-            'concierge': { // Additional premium for ultra-luxury
-                manhattan: { type: 'percentage', value: 3 },
-                outer: { type: 'percentage', value: 2 }
-            },
-            'elevator': {
-                manhattan: { type: 'fixed', value: 25000 },
-                outer: { type: 'fixed', value: 15000 }
-            },
-            'no_elevator': { // Walk-up penalty for sales
-                manhattan: { type: 'fixed', value: -30000 },
-                outer: { type: 'fixed', value: -20000 }
-            },
-            
-            // In-unit amenities (significant sales premiums)
-            'washer_dryer': {
-                manhattan: { type: 'fixed', value: 20000 },
-                outer: { type: 'fixed', value: 15000 }
-            },
-            'dishwasher': {
-                manhattan: { type: 'fixed', value: 8000 },
-                outer: { type: 'fixed', value: 6000 }
-            },
-            'central_air': {
-                manhattan: { type: 'fixed', value: 15000 },
-                outer: { type: 'fixed', value: 12000 }
-            },
-            'balcony': {
-                manhattan: { type: 'fixed', value: 50000 },
-                outer: { type: 'fixed', value: 30000 }
-            },
-            'terrace': {
-                manhattan: { type: 'fixed', value: 100000 },
-                outer: { type: 'fixed', value: 60000 }
-            },
-            'private_outdoor_space': {
-                manhattan: { type: 'fixed', value: 100000 },
-                outer: { type: 'fixed', value: 60000 }
-            },
-            
-            // Building facilities
-            'gym': {
-                manhattan: { type: 'fixed', value: 15000 },
-                outer: { type: 'fixed', value: 10000 }
-            },
-            'fitness_center': {
-                manhattan: { type: 'fixed', value: 15000 },
-                outer: { type: 'fixed', value: 10000 }
-            },
-            'pool': {
-                manhattan: { type: 'fixed', value: 30000 },
-                outer: { type: 'fixed', value: 20000 }
-            },
-            'roof_deck': {
-                manhattan: { type: 'fixed', value: 10000 },
-                outer: { type: 'fixed', value: 7500 }
-            },
-            'laundry_room': {
-                manhattan: { type: 'fixed', value: 5000 },
-                outer: { type: 'fixed', value: 5000 }
-            },
-            'parking': {
-                manhattan: { type: 'fixed', value: 75000 },
-                outer: { type: 'fixed', value: 40000 }
-            },
-            'bike_storage': {
-                manhattan: { type: 'fixed', value: 2500 },
-                outer: { type: 'fixed', value: 2000 }
-            },
-            
-            // Pet and lifestyle
-            'pet_friendly': {
-                manhattan: { type: 'fixed', value: 10000 },
-                outer: { type: 'fixed', value: 8000 }
-            },
-            
-            // Condition and quality (percentage-based for sales)
-            'newly_renovated': {
-                manhattan: { type: 'percentage', value: 12 }, // 10-15% average for sales
-                outer: { type: 'percentage', value: 12 }
-            },
-            'luxury_finishes': {
-                manhattan: { type: 'percentage', value: 8 },
-                outer: { type: 'percentage', value: 7 }
-            },
-            'hardwood_floors': {
-                manhattan: { type: 'fixed', value: 12000 },
-                outer: { type: 'fixed', value: 10000 }
-            },
-            'high_ceilings': {
-                manhattan: { type: 'percentage', value: 6 },
-                outer: { type: 'percentage', value: 5 }
-            },
-            'exposed_brick': {
-                manhattan: { type: 'fixed', value: 15000 },
-                outer: { type: 'fixed', value: 10000 }
-            },
-            
-            // Negative factors
-            'studio_layout': {
-                manhattan: { type: 'percentage', value: -20 }, // -15 to -25% average
-                outer: { type: 'percentage', value: -20 }
-            },
-            'no_natural_light': {
-                manhattan: { type: 'percentage', value: -18 }, // -15 to -20% average
-                outer: { type: 'percentage', value: -18 }
-            },
-            'noisy_location': {
-                manhattan: { type: 'percentage', value: -12 }, // -8 to -15% average
-                outer: { type: 'percentage', value: -12 }
-            },
-            'ground_floor': {
-                manhattan: { type: 'percentage', value: -8 }, // -5 to -12% average
-                outer: { type: 'percentage', value: -8 }
-            }
-        };
-
-        // Bathroom adjustment factors (fixed dollar amounts for sales)
-        this.BATHROOM_ADJUSTMENTS = {
-            0.5: -50000,  // Half bath deficit
-            1.0: 0,       // Baseline
-            1.5: 30000,   // Extra half bath
-            2.0: 60000,   // Full second bathroom
-            2.5: 80000,   // Two and a half baths
-            3.0: 100000   // Three full bathrooms
-        };
-
-        // Square footage adjustments per bedroom category (sales)
-        this.SQFT_ADJUSTMENTS = {
-            'studio': { baseline: 450, per_sqft_over: 400, per_sqft_under: -500 },
-            '1bed': { baseline: 650, per_sqft_over: 350, per_sqft_under: -450 },
-            '2bed': { baseline: 900, per_sqft_over: 300, per_sqft_under: -400 },
-            '3bed': { baseline: 1200, per_sqft_over: 250, per_sqft_under: -350 }
-        };
-    }
-
-    /**
-     * Determine if a property is in Manhattan based on neighborhood or borough
-     */
-    isManhattan(targetProperty) {
-        const borough = (targetProperty.borough || '').toLowerCase();
-        const neighborhood = (targetProperty.neighborhood || '').toLowerCase();
+        this.claudeApiKey = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
+        this.apiCallsUsed = 0;
         
-        // Check borough first
-        if (borough.includes('manhattan') || borough.includes('new york')) {
-            return true;
+        if (!this.claudeApiKey) {
+            throw new Error('ANTHROPIC_API_KEY or CLAUDE_API_KEY environment variable is required');
         }
         
-        // Check for Manhattan neighborhood indicators
-        const manhattanIndicators = [
-            'village', 'soho', 'tribeca', 'chelsea', 'midtown', 'upper', 'lower',
-            'financial', 'chinatown', 'little italy', 'gramercy', 'murray hill',
-            'hell', 'harlem', 'washington heights', 'inwood'
-        ];
-        
-        return manhattanIndicators.some(indicator => neighborhood.includes(indicator));
+        console.log('🤖 Claude Sales Market Analyzer initialized');
     }
 
     /**
-     * Calculate amenity value using location-specific and type-aware adjustments
+     * MAIN SALES ANALYSIS FUNCTION - Claude AI powered with hierarchical filtering
      */
-    calculateLocationAwareAmenityValue(amenities, targetProperty, basePrice = 0) {
-        const isManhattan = this.isManhattan(targetProperty);
-        let totalAdjustment = 0;
-        const appliedAdjustments = [];
-
-        amenities.forEach(amenity => {
-            const amenityConfig = this.AMENITY_VALUES[amenity];
-            if (!amenityConfig) return;
-
-            const locationConfig = isManhattan ? amenityConfig.manhattan : amenityConfig.outer;
-            let adjustment = 0;
-
-            if (locationConfig.type === 'percentage') {
-                // Percentage adjustment requires base price
-                if (basePrice > 0) {
-                    adjustment = (basePrice * locationConfig.value) / 100;
-                    appliedAdjustments.push(`${amenity}: +${locationConfig.value}% (${isManhattan ? 'Manhattan' : 'Outer'}) = ${Math.round(adjustment).toLocaleString()}`);
-                }
-            } else if (locationConfig.type === 'fixed') {
-                adjustment = locationConfig.value;
-                appliedAdjustments.push(`${amenity}: ${adjustment.toLocaleString()} (${isManhattan ? 'Manhattan' : 'Outer'})`);
-            }
-
-            totalAdjustment += adjustment;
-        });
-
-        return {
-            totalAdjustment: Math.round(totalAdjustment),
-            breakdown: appliedAdjustments,
-            isManhattan: isManhattan
-        };
-    }
-
-    /**
-     * MAIN VALUATION ENGINE: Calculate true market value using multiple factors
-     */
-    calculateTrueMarketValue(targetProperty, comparableProperties, neighborhood) {
-        console.log(`   🎯 ADVANCED VALUATION: ${targetProperty.address || 'Property'}`);
-        console.log(`   📊 Analyzing against ${comparableProperties.length} comparables in ${neighborhood}`);
-
-        // Step 1: Try most specific valuation method first
-        const valuationResult = this.selectBestValuationMethod(targetProperty, comparableProperties);
+    async analyzeSalesUndervaluation(targetProperty, comparableProperties, neighborhood, options = {}) {
+        const threshold = options.undervaluationThreshold || 10;
         
-        if (!valuationResult.success) {
+        console.log(`🤖 Claude analyzing sale: ${targetProperty.address}`);
+        
+        try {
+            // STEP 1: Pre-filter comparables using hierarchy (adapted for sales)
+            const filteredComparables = this.filterSalesComparablesUsingHierarchy(targetProperty, comparableProperties);
+            console.log(`   🎯 Filtered to ${filteredComparables.selectedComparables.length} specific matches using ${filteredComparables.method}`);
+            
+            // STEP 2: Build context with filtered comparables for Claude
+            const enhancedContext = this.buildEnhancedSalesContext(targetProperty, filteredComparables.selectedComparables, neighborhood, options);
+            
+            // STEP 3: Let Claude analyze the specific comparables naturally
+            const claudeResponse = await this.callClaudeForEnhancedSalesAnalysis(enhancedContext, threshold);
+            
+            // STEP 4: Parse Claude's response and add metadata
+            const analysis = this.extractDataFromClaudeResponse(claudeResponse);
+            
+            // STEP 5: Calculate final confidence based on method quality
+            const methodConfidence = this.calculateConfidenceFromMethod(filteredComparables.method, filteredComparables.selectedComparables.length);
+            const finalConfidence = Math.min(95, Math.max(analysis.confidence || methodConfidence, methodConfidence));
+            
+            // STEP 6: Map to standardized response format
+            return this.mapSalesResponseToDatabase(analysis, targetProperty, filteredComparables, threshold, finalConfidence);
+            
+        } catch (error) {
+            console.warn(`   ⚠️ Claude sales analysis error: ${error.message}`);
             return {
-                success: false,
-                estimatedMarketPrice: 0,
-                method: 'insufficient_data',
+                isUndervalued: false,
+                discountPercent: 0,
+                estimatedMarketPrice: targetProperty.salePrice || targetProperty.price,
+                actualPrice: targetProperty.salePrice || targetProperty.price,
                 confidence: 0,
-                reasoning: valuationResult.reason
+                method: 'claude_analysis_failed',
+                reasoning: `Analysis failed: ${error.message}`,
+                comparablesUsed: 0
             };
         }
-
-        // Step 2: Calculate base market value using selected method
-        const baseMarketValue = this.calculateBaseMarketValue(
-            targetProperty, 
-            valuationResult.comparables, 
-            valuationResult.method
-        );
-
-        // Step 3: Apply detailed adjustments for property-specific factors
-        const adjustedMarketValue = this.applyDetailedAdjustments(
-            targetProperty,
-            baseMarketValue,
-            valuationResult.comparables,
-            valuationResult.method
-        );
-
-        // Step 4: Calculate confidence score based on data quality
-        const confidence = this.calculateConfidenceScore(
-            valuationResult.comparables.length,
-            valuationResult.method,
-            targetProperty,
-            comparableProperties
-        );
-
-        console.log(`   💰 Base value: $${baseMarketValue.baseValue.toLocaleString()}`);
-        console.log(`   🔧 Adjustments: $${(adjustedMarketValue.totalAdjustments > 0 ? '+' : '')}${adjustedMarketValue.totalAdjustments.toLocaleString()}`);
-        console.log(`   🎯 Est. market price: $${adjustedMarketValue.finalValue.toLocaleString()}`);
-        console.log(`   📊 Method: ${valuationResult.method} (${confidence}% confidence)`);
-
-        return {
-            success: true,
-            estimatedMarketPrice: adjustedMarketValue.finalValue,
-            baseMarketPrice: baseMarketValue.baseValue,
-            totalAdjustments: adjustedMarketValue.totalAdjustments,
-            adjustmentBreakdown: adjustedMarketValue.adjustments,
-            method: valuationResult.method,
-            confidence: confidence,
-            comparablesUsed: valuationResult.comparables.length,
-            reasoning: this.generateValuationReasoning(targetProperty, baseMarketValue, adjustedMarketValue, valuationResult)
-        };
     }
 
     /**
-     * Select the best valuation method based on available comparable data
+     * HIERARCHICAL COMPARABLE FILTERING FOR SALES
+     * Adapted from rental system - finds best matching sales properties
      */
-    selectBestValuationMethod(targetProperty, comparables) {
-        const beds = targetProperty.bedrooms || 0;
-        const baths = targetProperty.bathrooms || 0;
-        
-        // Method 1: Exact bed/bath match with similar amenities
-        const exactMatches = comparables.filter(comp => 
-            comp.bedrooms === beds && 
-            Math.abs(comp.bathrooms - baths) <= 0.5 &&
-            this.hasReasonableDataQuality(comp)
-        );
-        
-        if (exactMatches.length >= this.MIN_SAMPLES.EXACT_MATCH) {
-            console.log(`   ✅ Using EXACT_MATCH: ${exactMatches.length} properties with ${beds}BR/${baths}BA`);
-            return {
-                success: true,
-                method: this.VALUATION_METHODS.EXACT_MATCH,
-                comparables: exactMatches
-            };
-        }
-
-        // Method 2: Same bed/bath count (broader amenity tolerance)
-        const bedBathMatches = comparables.filter(comp => 
-            comp.bedrooms === beds && 
-            comp.bathrooms >= (baths - 0.5) && comp.bathrooms <= (baths + 0.5) &&
-            this.hasReasonableDataQuality(comp)
-        );
-        
-        if (bedBathMatches.length >= this.MIN_SAMPLES.BED_BATH_SPECIFIC) {
-            console.log(`   ✅ Using BED_BATH_SPECIFIC: ${bedBathMatches.length} properties with ${beds}BR/${baths}±0.5BA`);
-            return {
-                success: true,
-                method: this.VALUATION_METHODS.BED_BATH_SPECIFIC,
-                comparables: bedBathMatches
-            };
-        }
-
-        // Method 3: Same bedroom count (will adjust for bathroom differences)
-        const bedMatches = comparables.filter(comp => 
-            comp.bedrooms === beds &&
-            this.hasReasonableDataQuality(comp)
-        );
-        
-        if (bedMatches.length >= this.MIN_SAMPLES.BED_SPECIFIC) {
-            console.log(`   ⚠️ Using BED_SPECIFIC: ${bedMatches.length} properties with ${beds}BR (will adjust for bath differences)`);
-            return {
-                success: true,
-                method: this.VALUATION_METHODS.BED_SPECIFIC,
-                comparables: bedMatches
-            };
-        }
-
-        // Method 4: Price per sqft fallback (least preferred)
-        const sqftComparables = comparables.filter(comp => 
-            comp.sqft > 0 && comp.salePrice > 0 &&
-            this.hasReasonableDataQuality(comp)
-        );
-        
-        if (sqftComparables.length >= this.MIN_SAMPLES.PRICE_PER_SQFT_FALLBACK) {
-            console.log(`   ⚠️ Using PRICE_PER_SQFT_FALLBACK: ${sqftComparables.length} properties (least accurate method)`);
-            return {
-                success: true,
-                method: this.VALUATION_METHODS.PRICE_PER_SQFT_FALLBACK,
-                comparables: sqftComparables
-            };
-        }
-
-        // Insufficient data
-        return {
-            success: false,
-            reason: `Insufficient comparable data: ${comparables.length} total, need min ${this.MIN_SAMPLES.BED_BATH_SPECIFIC} for ${beds}BR/${baths}BA`
-        };
-    }
-
-    /**
-     * Calculate base market value using the selected method
-     */
-    calculateBaseMarketValue(targetProperty, comparables, method) {
-        switch (method) {
-            case this.VALUATION_METHODS.EXACT_MATCH:
-            case this.VALUATION_METHODS.BED_BATH_SPECIFIC:
-                return this.calculateBedBathBasedValue(targetProperty, comparables);
-                
-            case this.VALUATION_METHODS.BED_SPECIFIC:
-                return this.calculateBedroomBasedValue(targetProperty, comparables);
-                
-            case this.VALUATION_METHODS.PRICE_PER_SQFT_FALLBACK:
-                return this.calculateSqftBasedValue(targetProperty, comparables);
-                
-            default:
-                throw new Error(`Unknown valuation method: ${method}`);
-        }
-    }
-
-    /**
-     * Method 1 & 2: Bed/Bath specific pricing (most accurate)
-     */
-    calculateBedBathBasedValue(targetProperty, comparables) {
-        const prices = comparables.map(comp => comp.salePrice).sort((a, b) => a - b);
-        const median = this.calculateMedian(prices);
-        
-        // Use median as most stable central tendency
-        return {
-            baseValue: median,
-            method: 'bed_bath_median',
-            dataPoints: prices.length,
-            priceRange: { min: Math.min(...prices), max: Math.max(...prices) }
-        };
-    }
-
-    /**
-     * Method 3: Bedroom-based with bathroom adjustments
-     */
-    calculateBedroomBasedValue(targetProperty, comparables) {
-        const targetBaths = targetProperty.bathrooms || 1;
-        
-        // Calculate base price for this bedroom count
-        const prices = comparables.map(comp => comp.salePrice);
-        const medianPrice = this.calculateMedian(prices);
-        
-        // Find typical bathroom count for this bedroom category
-        const bathCounts = comparables.map(comp => comp.bathrooms || 1);
-        const typicalBathCount = this.calculateMedian(bathCounts);
-        
-        // Adjust base price for bathroom difference
-        const bathDifference = targetBaths - typicalBathCount;
-        const bathAdjustment = this.calculateBathroomAdjustment(bathDifference);
-        
-        return {
-            baseValue: medianPrice + bathAdjustment,
-            method: 'bedroom_based_with_bath_adjustment',
-            dataPoints: prices.length,
-            bathAdjustment: bathAdjustment,
-            typicalBathCount: typicalBathCount
-        };
-    }
-
-    /**
-     * Method 4: Price per sqft fallback (least preferred)
-     */
-    calculateSqftBasedValue(targetProperty, comparables) {
-        const targetSqft = targetProperty.sqft || 0;
-        
-        if (targetSqft === 0) {
-            // Estimate sqft based on bedroom count
-            const bedrooms = targetProperty.bedrooms || 0;
-            const estimatedSqft = this.estimateSquareFootage(bedrooms);
-            console.log(`   ⚠️ No sqft data, estimating ${estimatedSqft} sqft for ${bedrooms}BR`);
-            targetProperty.sqft = estimatedSqft; // Temporary for calculation
-        }
-        
-        // Calculate median price per sqft
-        const pricesPerSqft = comparables
-            .filter(comp => comp.sqft > 0)
-            .map(comp => comp.salePrice / comp.sqft);
-            
-        const medianPricePerSqft = this.calculateMedian(pricesPerSqft);
-        
-        return {
-            baseValue: medianPricePerSqft * targetProperty.sqft,
-            method: 'price_per_sqft',
-            dataPoints: pricesPerSqft.length,
-            medianPricePerSqft: medianPricePerSqft
-        };
-    }
-
-    /**
-     * Apply detailed adjustments for property-specific factors
-     */
-    applyDetailedAdjustments(targetProperty, baseValue, comparables, method) {
-        const adjustments = [];
-        let totalAdjustment = 0;
-
-        // 1. Amenity adjustments (most important)
-        const amenityAdjustment = this.calculateAmenityAdjustments(targetProperty, comparables);
-        if (amenityAdjustment.totalAdjustment !== 0) {
-            adjustments.push({
-                category: 'amenities',
-                amount: amenityAdjustment.totalAdjustment,
-                details: amenityAdjustment.breakdown
-            });
-            totalAdjustment += amenityAdjustment.totalAdjustment;
-        }
-
-        // 2. Square footage adjustments (for bed/bath methods)
-        if (method !== this.VALUATION_METHODS.PRICE_PER_SQFT_FALLBACK) {
-            const sqftAdjustment = this.calculateSquareFootageAdjustment(targetProperty, comparables);
-            if (sqftAdjustment !== 0) {
-                adjustments.push({
-                    category: 'square_footage',
-                    amount: sqftAdjustment,
-                    details: `${targetProperty.sqft} sqft vs comparable average`
-                });
-                totalAdjustment += sqftAdjustment;
-            }
-        }
-
-        // 3. Condition and quality adjustments
-        const qualityAdjustment = this.calculateQualityAdjustments(targetProperty);
-        if (qualityAdjustment !== 0) {
-            adjustments.push({
-                category: 'quality_condition',
-                amount: qualityAdjustment,
-                details: 'Based on listing description and photos'
-            });
-            totalAdjustment += qualityAdjustment;
-        }
-
-        // 4. Location micro-adjustments within neighborhood
-        const locationAdjustment = this.calculateLocationAdjustments(targetProperty);
-        if (locationAdjustment !== 0) {
-            adjustments.push({
-                category: 'micro_location',
-                amount: locationAdjustment,
-                details: 'Street-level location factors'
-            });
-            totalAdjustment += locationAdjustment;
-        }
-
-        return {
-            finalValue: Math.round(baseValue.baseValue + totalAdjustment),
-            totalAdjustments: totalAdjustment,
-            adjustments: adjustments
-        };
-    }
-
-    /**
-     * Calculate amenity-based adjustments compared to comparable properties using location-aware pricing
-     */
-    calculateAmenityAdjustments(targetProperty, comparables) {
+    filterSalesComparablesUsingHierarchy(targetProperty, allComparables) {
+        const targetBeds = targetProperty.bedrooms || 0;
+        const targetBaths = targetProperty.bathrooms || 0;
         const targetAmenities = this.normalizeAmenities(targetProperty.amenities || []);
         
-        // Add description-based amenities
-        const descriptionAmenities = this.extractAmenitiesFromDescription(targetProperty.description || '');
-        const allTargetAmenities = [...new Set([...targetAmenities, ...descriptionAmenities])];
-        
-        // Calculate average amenity value of comparables (using their base prices)
-        const comparableAmenityValues = comparables.map(comp => {
-            const compAmenities = this.normalizeAmenities(comp.amenities || []);
-            const compDescAmenities = this.extractAmenitiesFromDescription(comp.description || '');
-            const allCompAmenities = [...new Set([...compAmenities, ...compDescAmenities])];
-            
-            const amenityAnalysis = this.calculateLocationAwareAmenityValue(
-                allCompAmenities, 
-                comp, 
-                comp.salePrice || 0
-            );
-            return amenityAnalysis.totalAdjustment;
-        });
-        
-        const avgComparableAmenityValue = comparableAmenityValues.reduce((a, b) => a + b, 0) / comparableAmenityValues.length;
-        
-        // Calculate target property amenity value (using estimated market price for percentage calculations)
-        const estimatedBasePrice = this.estimateBasePriceForAmenityCalculation(targetProperty, comparables);
-        const targetAmenityAnalysis = this.calculateLocationAwareAmenityValue(
-            allTargetAmenities, 
-            targetProperty, 
-            estimatedBasePrice
+        // Method 1: Try exact bed/bath/amenity match (minimum 3)
+        let exactMatches = allComparables.filter(comp => 
+            comp.bedrooms === targetBeds && 
+            Math.abs(comp.bathrooms - targetBaths) <= 0.5 &&
+            this.hasSignificantAmenityOverlap(comp.amenities || [], targetAmenities)
         );
         
-        const adjustment = targetAmenityAnalysis.totalAdjustment - avgComparableAmenityValue;
-
+        if (exactMatches.length >= 3) {
+            return {
+                selectedComparables: exactMatches,
+                method: 'exact_bed_bath_amenity_match',
+                count: exactMatches.length
+            };
+        }
+        
+        // Method 2: Same bed/bath with amenity adjustments (minimum 8)
+        let bedBathMatches = allComparables.filter(comp => 
+            comp.bedrooms === targetBeds && 
+            Math.abs(comp.bathrooms - targetBaths) <= 0.5
+        );
+        
+        if (bedBathMatches.length >= 8) {
+            return {
+                selectedComparables: bedBathMatches,
+                method: 'bed_bath_specific_pricing',
+                count: bedBathMatches.length
+            };
+        }
+        
+        // Method 3: Same bedrooms with bath/amenity adjustments (minimum 12)
+        let bedroomMatches = allComparables.filter(comp => comp.bedrooms === targetBeds);
+        
+        if (bedroomMatches.length >= 12) {
+            return {
+                selectedComparables: bedroomMatches,
+                method: 'bed_specific_with_adjustments',
+                count: bedroomMatches.length
+            };
+        }
+        
+        // Method 4: Price per sqft fallback (use all comparables)
         return {
-            totalAdjustment: Math.round(adjustment),
-            targetAmenityValue: targetAmenityAnalysis.totalAdjustment,
-            avgComparableAmenityValue: avgComparableAmenityValue,
-            breakdown: targetAmenityAnalysis.breakdown,
-            isManhattan: targetAmenityAnalysis.isManhattan
+            selectedComparables: allComparables,
+            method: 'price_per_sqft_fallback',
+            count: allComparables.length
         };
     }
 
     /**
-     * Estimate base price for amenity percentage calculations
+     * BUILD ENHANCED CONTEXT FOR CLAUDE SALES ANALYSIS
      */
-    estimateBasePriceForAmenityCalculation(targetProperty, comparables) {
-        // Use median price of comparables as estimate for percentage-based amenity calculations
-        const comparablePrices = comparables.map(comp => comp.salePrice).filter(price => price > 0);
-        if (comparablePrices.length === 0) return 750000; // Fallback for NYC
-        
-        const sortedPrices = comparablePrices.sort((a, b) => a - b);
-        return sortedPrices[Math.floor(sortedPrices.length / 2)];
+    buildEnhancedSalesContext(targetProperty, comparables, neighborhood, options) {
+        return {
+            targetProperty: targetProperty,
+            comparables: comparables,
+            neighborhood: neighborhood,
+            valuationMethod: this.getMethodDescription(comparables.length),
+            analysisDate: new Date().toISOString(),
+            options: options
+        };
     }
 
     /**
-     * Extract amenities from property description text
+     * CALL CLAUDE API FOR ENHANCED SALES ANALYSIS
      */
-    extractAmenitiesFromDescription(description) {
-        const text = description.toLowerCase();
-        const foundAmenities = [];
+    async callClaudeForEnhancedSalesAnalysis(enhancedContext, threshold) {
+        const systemPrompt = this.buildEnhancedSalesSystemPrompt();
+        const userPrompt = this.buildEnhancedSalesUserPrompt(enhancedContext, threshold);
         
-        // Check for amenities mentioned in description
-        const amenityDetectionRules = {
-            'doorman_full_time': ['full time doorman', 'full-time doorman', '24 hour doorman', '24/7 doorman'],
-            'doorman_part_time': ['part time doorman', 'part-time doorman', 'virtual doorman'],
-            'doorman': ['doorman'], // Fallback if no specific type found
-            'concierge': ['concierge'],
+        return await this.callClaude(systemPrompt, userPrompt, 'sales');
+    }
+
+    /**
+     * ENHANCED SYSTEM PROMPT FOR SALES ANALYSIS
+     */
+    buildEnhancedSalesSystemPrompt() {
+        return `You are an expert NYC real estate investment analyst with deep knowledge of micro-market pricing and building characteristics. You provide natural, human-like analysis that helps buyers understand market value and investment potential.
+
+ANALYSIS APPROACH:
+You will analyze a property for sale using a curated set of comparable sales that have been pre-filtered to match the target property's bed/bath configuration and amenities. Focus on these specific comparables rather than general neighborhood averages.
+
+KEY REQUIREMENTS:
+- Provide natural, conversational reasoning that explains the value proposition clearly
+- Calculate market value based on the provided filtered comparable sales
+- Explain any price differences due to specific factors (amenities, condition, location, building type)
+- Calculate potential savings compared to the comparable sales
+- Assess investment merit and market positioning
+
+REASONING STYLE:
+Write naturally and conversationally, like explaining to a friend. Example:
+"This property offers excellent value at 18% below similar sales in the area. The $850,000 price compares favorably to nearby 2BR condos which typically sell for $1,000,000-$1,100,000. The below-market pricing reflects the need for kitchen updates and the building's lack of amenities, but you're still getting prime location access at significant savings."
+
+RESPONSE FORMAT (JSON):
+{
+  "estimatedMarketPrice": number,
+  "discountPercent": number,
+  "baseMarketPrice": number,
+  "potentialSavings": number,
+  "reasoning": "Natural, conversational explanation of the value and market positioning",
+  "detailedAnalysis": {
+    "valueExplanation": "Why this property offers good/poor value",
+    "comparableAnalysis": "How it compares to the specific filtered properties",
+    "amenityComparison": "Amenity differences vs comparable properties",
+    "investmentFactors": "Investment-specific factors affecting value",
+    "marketTiming": "Market timing and velocity considerations"
+  },
+  "adjustmentBreakdown": {
+    "amenities": number,
+    "condition": number,
+    "size": number,
+    "location": number,
+    "buildingType": number
+  }
+}
+
+Provide insightful, natural analysis that helps buyers understand exactly what they're getting for their money and the investment potential.`;
+    }
+
+    /**
+     * BUILD ENHANCED USER PROMPT FOR SALES ANALYSIS
+     */
+    buildEnhancedSalesUserPrompt(enhancedContext, threshold) {
+        const target = enhancedContext.targetProperty;
+        const comparables = enhancedContext.comparables;
+        
+        return `Analyze this NYC property for sale using the provided filtered comparable sales:
+
+TARGET PROPERTY:
+Address: ${target.address}
+Sale Price: $${target.salePrice?.toLocaleString() || target.price?.toLocaleString()}
+Layout: ${target.bedrooms}BR/${target.bathrooms}BA
+Square Feet: ${target.sqft || 'Not listed'}
+Built: ${target.builtIn || 'Unknown'}
+Property Type: ${target.propertyType || 'Unknown'}
+Neighborhood: ${target.neighborhood}
+Monthly HOA: $${target.monthlyHoa?.toLocaleString() || '0'}
+Monthly Tax: $${target.monthlyTax?.toLocaleString() || '0'}
+Amenities: ${target.amenities?.join(', ') || 'None listed'}
+Description: ${target.description}
+
+FILTERED COMPARABLE SALES (${enhancedContext.valuationMethod}):
+${comparables.slice(0, 12).map((comp, i) => 
+  `${i+1}. ${comp.address} - $${comp.salePrice?.toLocaleString() || comp.price?.toLocaleString()} | ${comp.bedrooms}BR/${comp.bathrooms}BA | ${comp.sqft || 'N/A'} sqft | Built: ${comp.builtIn || 'N/A'} | Amenities: ${comp.amenities?.slice(0, 4).join(', ') || 'None'}`
+).join('\n')}
+
+ANALYSIS INSTRUCTIONS:
+- Compare this property to the ${comparables.length} filtered comparable sales above
+- Explain value relative to these specific comparables, not general neighborhood averages
+- Calculate if sale price is ${threshold}%+ below market based on these comparables
+- Provide natural, conversational reasoning about the investment value proposition
+- Focus on potential profit and specific factors affecting price
+- Consider building amenities, condition, and location factors
+
+Return your analysis as JSON.`;
+    }
+
+    /**
+     * CALL CLAUDE API WITH RETRY LOGIC
+     */
+    async callClaude(systemPrompt, userPrompt, analysisType) {
+        const maxRetries = 3;
+        let lastError;
+
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                const response = await axios.post(
+                    'https://api.anthropic.com/v1/messages',
+                    {
+                        model: 'claude-3-5-sonnet-20241022',
+                        max_tokens: 2000,
+                        temperature: 0.1,
+                        system: systemPrompt,
+                        messages: [
+                            {
+                                role: 'user',
+                                content: userPrompt
+                            }
+                        ]
+                    },
+                    {
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'x-api-key': this.claudeApiKey,
+                            'anthropic-version': '2023-06-01'
+                        },
+                        timeout: 30000
+                    }
+                );
+
+                this.apiCallsUsed++;
+                
+                if (response.data?.content?.[0]?.text) {
+                    return response.data.content[0].text;
+                } else {
+                    throw new Error('Invalid response format from Claude API');
+                }
+
+            } catch (error) {
+                lastError = error;
+                console.warn(`   ⚠️ Claude API attempt ${attempt}/${maxRetries} failed:`, error.message);
+                
+                if (attempt < maxRetries) {
+                    const delay = Math.pow(2, attempt) * 1000; // Exponential backoff
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                }
+            }
+        }
+
+        throw new Error(`Claude API failed after ${maxRetries} attempts: ${lastError.message}`);
+    }
+
+    /**
+     * EXTRACT DATA FROM CLAUDE RESPONSE
+     */
+    extractDataFromClaudeResponse(claudeResponse) {
+        try {
+            // Try to find JSON in the response
+            const jsonMatch = claudeResponse.match(/\{[\s\S]*\}/);
+            if (!jsonMatch) {
+                throw new Error('No JSON found in response');
+            }
+
+            const extracted = JSON.parse(jsonMatch[0]);
+            
+            // Validate required fields
+            if (typeof extracted.estimatedMarketPrice !== 'number' || 
+                typeof extracted.discountPercent !== 'number' ||
+                !extracted.reasoning) {
+                throw new Error('Missing required fields in Claude response');
+            }
+
+            return extracted;
+            
+        } catch (error) {
+            console.warn(`   ⚠️ Data extraction failed: ${error.message}`);
+            return null;
+        }
+    }
+
+    /**
+     * MAP SALES RESPONSE TO DATABASE STRUCTURE
+     */
+    mapSalesResponseToDatabase(analysis, targetProperty, filteredComparables, threshold, finalConfidence) {
+        const isUndervalued = analysis && analysis.discountPercent >= threshold && finalConfidence >= 50;
+        
+        return {
+            isUndervalued: isUndervalued,
+            discountPercent: analysis?.discountPercent || 0,
+            estimatedMarketPrice: analysis?.estimatedMarketPrice || targetProperty.salePrice || targetProperty.price,
+            actualPrice: targetProperty.salePrice || targetProperty.price,
+            potentialProfit: analysis?.potentialSavings || 0,
+            confidence: finalConfidence,
+            method: 'claude_hierarchical_analysis',
+            comparablesUsed: filteredComparables.selectedComparables.length,
+            reasoning: analysis?.reasoning || 'Claude AI market analysis',
+            
+            // Enhanced metrics for database integration
+            detailedAnalysis: analysis?.detailedAnalysis || {},
+            adjustmentBreakdown: analysis?.adjustmentBreakdown || {},
+            valuationMethod: filteredComparables.method,
+            
+            // Database-specific fields
+            score: this.calculateScoreFromSalesAnalysis(analysis, filteredComparables, finalConfidence),
+            grade: this.calculateGradeFromScore(this.calculateScoreFromSalesAnalysis(analysis, filteredComparables, finalConfidence))
+        };
+    }
+
+    /**
+     * CALCULATE CONFIDENCE FROM METHOD QUALITY
+     */
+    calculateConfidenceFromMethod(method, comparableCount) {
+        let baseConfidence = 0;
+        
+        // Base confidence from method used
+        switch (method) {
+            case 'exact_bed_bath_amenity_match':
+                baseConfidence = 90;
+                break;
+            case 'bed_bath_specific_pricing':
+                baseConfidence = 80;
+                break;
+            case 'bed_specific_with_adjustments':
+                baseConfidence = 70;
+                break;
+            case 'price_per_sqft_fallback':
+                baseConfidence = 60;
+                break;
+            default:
+                baseConfidence = 50;
+        }
+        
+        // Adjust based on sample size
+        if (comparableCount >= 20) baseConfidence += 5;
+        else if (comparableCount >= 15) baseConfidence += 3;
+        else if (comparableCount >= 10) baseConfidence += 1;
+        else if (comparableCount < 5) baseConfidence -= 10;
+        
+        return Math.min(95, Math.max(30, baseConfidence));
+    }
+
+    /**
+     * CALCULATE SCORE FROM SALES ANALYSIS (0-100)
+     */
+    calculateScoreFromSalesAnalysis(analysis, filteredComparables, confidence) {
+        let score = 50; // Base score
+        
+        // Undervaluation bonus (0-40 points)
+        const discountPercent = analysis?.discountPercent || 0;
+        if (discountPercent >= 25) score += 40;
+        else if (discountPercent >= 20) score += 30;
+        else if (discountPercent >= 15) score += 20;
+        else if (discountPercent >= 10) score += 10;
+        
+        // Method quality bonus (0-20 points)
+        switch (filteredComparables.method) {
+            case 'exact_bed_bath_amenity_match': score += 20; break;
+            case 'bed_bath_specific_pricing': score += 15; break;
+            case 'bed_specific_with_adjustments': score += 10; break;
+            case 'price_per_sqft_fallback': score += 5; break;
+        }
+        
+        // Sample size bonus (0-10 points)
+        const sampleSize = filteredComparables.selectedComparables.length;
+        if (sampleSize >= 20) score += 10;
+        else if (sampleSize >= 15) score += 7;
+        else if (sampleSize >= 10) score += 5;
+        else if (sampleSize >= 5) score += 3;
+        
+        // Confidence bonus (0-10 points)
+        if (confidence >= 90) score += 10;
+        else if (confidence >= 80) score += 7;
+        else if (confidence >= 70) score += 5;
+        
+        return Math.min(100, Math.max(0, Math.round(score)));
+    }
+
+    /**
+     * CALCULATE GRADE FROM SCORE
+     */
+    calculateGradeFromScore(score) {
+        if (score >= 90) return 'A+';
+        if (score >= 85) return 'A';
+        if (score >= 80) return 'A-';
+        if (score >= 75) return 'B+';
+        if (score >= 70) return 'B';
+        if (score >= 65) return 'B-';
+        if (score >= 60) return 'C+';
+        if (score >= 55) return 'C';
+        return 'C-';
+    }
+
+    /**
+     * UTILITY FUNCTIONS
+     */
+    
+    normalizeAmenities(amenities) {
+        const amenityText = amenities.join(' ').toLowerCase();
+        const normalized = [];
+        
+        const amenityMappings = {
+            'doorman': ['doorman', 'full time doorman', 'full-time doorman'],
             'elevator': ['elevator', 'lift'],
-            'no_elevator': ['walk up', 'walk-up', 'no elevator', 'walkup'],
-            'washer_dryer': ['washer/dryer', 'washer dryer', 'w/d', 'laundry in unit', 'in-unit laundry'],
+            'washer_dryer': ['washer/dryer', 'washer dryer', 'w/d', 'laundry in unit'],
             'dishwasher': ['dishwasher'],
             'central_air': ['central air', 'central a/c', 'central ac'],
             'balcony': ['balcony', 'private balcony'],
             'terrace': ['terrace', 'private terrace'],
             'gym': ['gym', 'fitness center', 'fitness room'],
             'pool': ['pool', 'swimming pool'],
-            'roof_deck': ['roof deck', 'rooftop', 'roof top'],
-            'parking': ['parking', 'garage parking', 'parking space'],
-            'pet_friendly': ['pets allowed', 'pet friendly', 'pet ok', 'dogs allowed', 'cats allowed'],
-            'newly_renovated': ['newly renovated', 'gut renovated', 'completely renovated'],
-            'luxury_finishes': ['luxury finishes', 'high-end finishes', 'luxury fixtures'],
-            'hardwood_floors': ['hardwood floors', 'hardwood', 'wood floors'],
-            'high_ceilings': ['high ceilings', 'vaulted ceilings', '10 foot ceilings', '11 foot ceilings'],
-            'exposed_brick': ['exposed brick', 'brick walls'],
-            'no_natural_light': ['no windows', 'no natural light', 'basement', 'airshaft'],
-            'noisy_location': ['busy street', 'noisy', 'traffic'],
-            'ground_floor': ['ground floor', 'first floor', 'garden level']
+            'roof_deck': ['roof deck', 'rooftop'],
+            'parking': ['parking', 'garage parking'],
+            'pet_friendly': ['pets allowed', 'pet friendly', 'pet ok']
         };
         
-        // Check each amenity against description
-        for (const [amenity, keywords] of Object.entries(amenityDetectionRules)) {
-            if (keywords.some(keyword => text.includes(keyword))) {
-                foundAmenities.push(amenity);
-            }
-        }
-        
-        return foundAmenities;
-    }
-
-    /**
-     * Calculate square footage adjustments for bed/bath-based valuations
-     */
-    calculateSquareFootageAdjustment(targetProperty, comparables) {
-        const targetSqft = targetProperty.sqft || 0;
-        const bedrooms = targetProperty.bedrooms || 0;
-        
-        if (targetSqft === 0) return 0;
-        
-        // Calculate average sqft for comparables
-        const comparableSqfts = comparables
-            .filter(comp => comp.sqft > 0)
-            .map(comp => comp.sqft);
-            
-        if (comparableSqfts.length === 0) return 0;
-        
-        const avgComparableSqft = comparableSqfts.reduce((a, b) => a + b, 0) / comparableSqfts.length;
-        const sqftDifference = targetSqft - avgComparableSqft;
-        
-        // Get baseline sqft expectations for this bedroom count
-        const bedroomKey = bedrooms === 0 ? 'studio' : `${bedrooms}bed`;
-        const sqftStandards = this.SQFT_ADJUSTMENTS[bedroomKey] || this.SQFT_ADJUSTMENTS['1bed'];
-        
-        // Calculate adjustment based on how much over/under average
-        let adjustment = 0;
-        if (sqftDifference > 0) {
-            // Above average sqft
-            adjustment = sqftDifference * sqftStandards.per_sqft_over;
-        } else {
-            // Below average sqft  
-            adjustment = sqftDifference * Math.abs(sqftStandards.per_sqft_under);
-        }
-        
-        return Math.round(adjustment);
-    }
-
-    /**
-     * Calculate quality and condition adjustments
-     */
-    calculateQualityAdjustments(targetProperty) {
-        let adjustment = 0;
-        const description = (targetProperty.description || '').toLowerCase();
-        
-        // Positive quality indicators
-        if (description.includes('newly renovated') || description.includes('gut renovated')) {
-            adjustment += 50000; // Fixed amount for sales
-        }
-        if (description.includes('luxury') || description.includes('high-end')) {
-            adjustment += 40000;
-        }
-        if (description.includes('hardwood') || description.includes('wood floors')) {
-            adjustment += 15000;
-        }
-        
-        // Negative quality indicators
-        if (description.includes('needs work') || description.includes('tlc')) {
-            adjustment -= 75000;
-        }
-        if (description.includes('as-is') || description.includes('fixer')) {
-            adjustment -= 100000;
-        }
-        
-        return adjustment;
-    }
-
-    /**
-     * Calculate micro-location adjustments within neighborhood
-     */
-    calculateLocationAdjustments(targetProperty) {
-        let adjustment = 0;
-        const address = (targetProperty.address || '').toLowerCase();
-        const description = (targetProperty.description || '').toLowerCase();
-        
-        // Street-level factors
-        if (description.includes('quiet street') || description.includes('tree-lined')) {
-            adjustment += 25000;
-        }
-        if (description.includes('busy street') || description.includes('noisy')) {
-            adjustment -= 50000;
-        }
-        if (description.includes('ground floor') && !description.includes('garden')) {
-            adjustment -= 30000;
-        }
-        
-        return adjustment;
-    }
-
-    /**
-     * Normalize and standardize amenity names
-     */
-    normalizeAmenities(amenities) {
-        const normalized = [];
-        const amenityText = amenities.join(' ').toLowerCase();
-        
-        // Map common variations to standard names
-        const amenityMappings = {
-            'doorman': ['doorman', 'full time doorman', 'full-time doorman'],
-            'elevator': ['elevator', 'lift'],
-            'washer_dryer': ['washer/dryer', 'washer dryer', 'w/d', 'laundry in unit'],
-            'dishwasher': ['dishwasher', 'dish washer'],
-            'central_air': ['central air', 'central a/c', 'central ac'],
-            'balcony': ['balcony', 'private balcony'],
-            'terrace': ['terrace', 'private terrace', 'roof terrace'],
-            'gym': ['gym', 'fitness center', 'fitness room'],
-            'pool': ['pool', 'swimming pool'],
-            'roof_deck': ['roof deck', 'rooftop', 'roof top'],
-            'parking': ['parking', 'garage parking', 'parking space'],
-            'pet_friendly': ['pets allowed', 'pet friendly', 'pet ok', 'dogs allowed', 'cats allowed']
-        };
-        
-        // Check for each standard amenity
         for (const [standardName, variations] of Object.entries(amenityMappings)) {
             if (variations.some(variation => amenityText.includes(variation))) {
                 normalized.push(standardName);
             }
         }
         
-        return [...new Set(normalized)]; // Remove duplicates
+        return [...new Set(normalized)];
     }
 
-    /**
-     * Calculate bathroom adjustment amount
-     */
-    calculateBathroomAdjustment(bathDifference) {
-        // Convert bathroom difference to adjustment amount (sales values)
-        return bathDifference * 50000; // $50,000 per 0.5 bathroom difference
+    hasSignificantAmenityOverlap(comp1Amenities, comp2Amenities) {
+        const normalized1 = this.normalizeAmenities(comp1Amenities);
+        const normalized2 = this.normalizeAmenities(comp2Amenities);
+        
+        if (normalized1.length === 0 && normalized2.length === 0) return true;
+        if (normalized1.length === 0 || normalized2.length === 0) return false;
+        
+        const overlap = normalized1.filter(amenity => normalized2.includes(amenity));
+        const overlapPercentage = overlap.length / Math.max(normalized1.length, normalized2.length);
+        
+        return overlapPercentage >= 0.5; // 50% overlap required
     }
 
-    /**
-     * Estimate square footage based on bedroom count
-     */
-    estimateSquareFootage(bedrooms) {
-        const estimates = {
-            0: 450,  // Studio
-            1: 650,  // 1BR
-            2: 900,  // 2BR
-            3: 1200, // 3BR
-            4: 1500  // 4BR+
-        };
-        return estimates[bedrooms] || estimates[1];
-    }
-
-    /**
-     * Calculate confidence score based on data quality and method used
-     */
-    calculateConfidenceScore(comparablesCount, method, targetProperty, allComparables) {
-        let confidence = 0;
-        
-        // Base confidence from method used
-        switch (method) {
-            case this.VALUATION_METHODS.EXACT_MATCH:
-                confidence = 95;
-                break;
-            case this.VALUATION_METHODS.BED_BATH_SPECIFIC:
-                confidence = 85;
-                break;
-            case this.VALUATION_METHODS.BED_SPECIFIC:
-                confidence = 75;
-                break;
-            case this.VALUATION_METHODS.PRICE_PER_SQFT_FALLBACK:
-                confidence = 60;
-                break;
-        }
-        
-        // Adjust based on sample size
-        if (comparablesCount >= 20) confidence += 5;
-        else if (comparablesCount >= 15) confidence += 3;
-        else if (comparablesCount >= 10) confidence += 1;
-        else if (comparablesCount < 5) confidence -= 10;
-        
-        // Adjust based on data completeness
-        const hasGoodSqftData = (targetProperty.sqft || 0) > 0;
-        const hasAmenityData = (targetProperty.amenities || []).length > 0;
-        
-        if (hasGoodSqftData) confidence += 5;
-        if (hasAmenityData) confidence += 5;
-        
-        return Math.min(100, Math.max(0, confidence));
-    }
-
-    /**
-     * Generate detailed reasoning for the valuation
-     */
-    generateValuationReasoning(targetProperty, baseValue, adjustedValue, valuationResult) {
-        const reasons = [];
-        
-        reasons.push(`Base value: ${baseValue.baseValue.toLocaleString()} (${valuationResult.method})`);
-        reasons.push(`${valuationResult.comparables.length} comparable properties used`);
-        
-        if (adjustedValue.adjustments.length > 0) {
-            adjustedValue.adjustments.forEach(adj => {
-                const sign = adj.amount > 0 ? '+' : '';
-                reasons.push(`${adj.category}: ${sign}${adj.amount.toLocaleString()}`);
-            });
-        }
-        
-        return reasons.join('; ');
-    }
-
-    /**
-     * Check if a comparable has reasonable data quality
-     */
-    hasReasonableDataQuality(comparable) {
-        return comparable.salePrice > 0 &&
-               comparable.salePrice <= 50000000 &&
-               comparable.bedrooms !== undefined &&
-               comparable.bathrooms !== undefined &&
-               (comparable.daysOnMarket || 0) <= 365; // Not stale
-    }
-
-    /**
-     * Calculate median value from array
-     */
-    calculateMedian(values) {
-        const sorted = [...values].sort((a, b) => a - b);
-        const mid = Math.floor(sorted.length / 2);
-        return sorted.length % 2 === 0 
-            ? (sorted[mid - 1] + sorted[mid]) / 2 
-            : sorted[mid];
-    }
-
-    /**
-     * MAIN INTERFACE: Analyze sale for undervaluation using advanced multi-factor approach
-     */
-    analyzeSalesUndervaluation(targetProperty, comparableProperties, neighborhood, options = {}) {
-        const threshold = options.undervaluationThreshold || 10; // NEW: Lowered to 10% for more realistic results
-        
-        console.log(`\n🎯 ADVANCED VALUATION: ${targetProperty.address || 'Property'}`);
-        console.log(`   📊 Price: ${targetProperty.salePrice.toLocaleString()} | ${targetProperty.bedrooms}BR/${targetProperty.bathrooms}BA | ${targetProperty.sqft || 'N/A'} sqft`);
-        
-        // Get true market value using advanced multi-factor analysis
-        const valuation = this.calculateTrueMarketValue(targetProperty, comparableProperties, neighborhood);
-        
-        if (!valuation.success) {
-            return {
-                isUndervalued: false,
-                discountPercent: 0,
-                estimatedMarketPrice: 0,
-                actualPrice: targetProperty.salePrice,
-                confidence: 0,
-                method: 'insufficient_data',
-                reasoning: valuation.reasoning
-            };
-        }
-        
-        // Calculate actual discount percentage
-        const actualPrice = targetProperty.salePrice;
-        const estimatedMarketPrice = valuation.estimatedMarketPrice;
-        const discountPercent = ((estimatedMarketPrice - actualPrice) / estimatedMarketPrice) * 100;
-        
-        // Determine if truly undervalued - NEW: Only 10%+ below market with method-appropriate confidence
-        // Confidence thresholds adjusted per valuation method:
-        // - Exact/Bed-Bath methods: 70% minimum (high accuracy methods)
-        // - Bed-specific method: 60% minimum (good accuracy with adjustments)  
-        // - Price per sqft fallback: 50% minimum (lower accuracy but still useful)
-        let minConfidenceThreshold = 50; // Default for price per sqft
-        if (valuation.method === 'exact_bed_bath_amenity_match' || valuation.method === 'bed_bath_specific_pricing') {
-            minConfidenceThreshold = 70; // Higher standard for best methods
-        } else if (valuation.method === 'bed_specific_with_adjustments') {
-            minConfidenceThreshold = 60; // Medium standard for adjusted method
-        }
-        
-        const isUndervalued = discountPercent >= threshold && valuation.confidence >= minConfidenceThreshold;
-        
-        console.log(`   💰 Actual price: ${actualPrice.toLocaleString()}`);
-        console.log(`   🎯 Market value: ${estimatedMarketPrice.toLocaleString()}`);
-        console.log(`   📊 Discount: ${discountPercent.toFixed(1)}%`);
-        console.log(`   ✅ Undervalued: ${isUndervalued ? 'YES' : 'NO'} (${threshold}% threshold, ${valuation.confidence}% confidence)`);
-        
-        return {
-            isUndervalued,
-            discountPercent: Math.round(discountPercent * 10) / 10,
-            estimatedMarketPrice: estimatedMarketPrice,
-            actualPrice: actualPrice,
-            potentialProfit: Math.round(estimatedMarketPrice - actualPrice),
-            confidence: valuation.confidence,
-            method: valuation.method,
-            comparablesUsed: valuation.comparablesUsed,
-            adjustmentBreakdown: valuation.adjustmentBreakdown,
-            reasoning: valuation.reasoning
-        };
+    getMethodDescription(comparableCount) {
+        return `${comparableCount} filtered comparable sales`;
     }
 }
 
+/**
+ * ENHANCED BIWEEKLY SALES ANALYZER WITH CLAUDE AI
+ */
 class EnhancedBiWeeklySalesAnalyzer {
     constructor() {
         this.supabase = createClient(
@@ -931,11 +502,8 @@ class EnhancedBiWeeklySalesAnalyzer {
         this.rapidApiKey = process.env.RAPIDAPI_KEY;
         this.apiCallsUsed = 0;
         
-        // Initialize the advanced valuation engine
-        this.valuationEngine = new AdvancedSalesValuationEngine();
-        
-        // ADD THIS LINE RIGHT HERE:
-        this.claudeAnalyzer = new ClaudeMarketAnalyzer();
+        // Initialize Claude AI analyzer (replacing hardcoded valuation engine)
+        this.claudeAnalyzer = new ClaudeSalesMarketAnalyzer();
         
         // Check for initial bulk load mode
         this.initialBulkLoad = process.env.INITIAL_BULK_LOAD === 'true';
@@ -944,14 +512,14 @@ class EnhancedBiWeeklySalesAnalyzer {
         this.deployTime = new Date().getTime();
         
         // ADAPTIVE RATE LIMITING SYSTEM
-        this.baseDelay = this.initialBulkLoad ? 8000 : 6000; // Slightly slower for bulk load
+        this.baseDelay = this.initialBulkLoad ? 8000 : 6000;
         this.maxRetries = 3;
         this.retryBackoffMultiplier = 2;
         
         // Adaptive rate limiting tracking
         this.rateLimitHits = 0;
         this.callTimestamps = [];
-        this.maxCallsPerHour = this.initialBulkLoad ? 250 : 300; // More conservative for bulk
+        this.maxCallsPerHour = this.initialBulkLoad ? 250 : 300;
         this.lastRateLimitTime = null;
         
         // Smart scheduling system
@@ -1016,7 +584,7 @@ class EnhancedBiWeeklySalesAnalyzer {
         if (this.initialBulkLoad) {
             console.log('🚀 INITIAL BULK LOAD MODE: Processing ALL sales neighborhoods');
             console.log(`📋 Will process ${HIGH_PRIORITY_NEIGHBORHOODS.length} neighborhoods over multiple hours`);
-            return [dumbo];
+            return HIGH_PRIORITY_NEIGHBORHOODS;
         }
         
         // Normal bi-weekly schedule (for production)
@@ -1075,7 +643,7 @@ class EnhancedBiWeeklySalesAnalyzer {
     }
 
     /**
-     * NEW: EFFICIENT: Update only price in cache (no refetch needed)
+     * EFFICIENT: Update only price in cache (no refetch needed)
      */
     async updatePriceInCache(listingId, newPrice) {
         try {
@@ -1099,12 +667,12 @@ class EnhancedBiWeeklySalesAnalyzer {
     }
 
     /**
-     * NEW: EFFICIENT: Update price in undervalued_sales table if listing exists
+     * EFFICIENT: Update price in undervalued_sales table if listing exists
      */
     async updatePriceInUndervaluedSales(listingId, newPrice, sqft) {
         try {
             const updateData = {
-                sale_price: parseInt(newPrice),
+                price: parseInt(newPrice),  // FIXED: Use 'price' to match cache table
                 analysis_date: new Date().toISOString()
             };
 
@@ -1130,7 +698,7 @@ class EnhancedBiWeeklySalesAnalyzer {
     }
 
     /**
-     * NEW: EFFICIENT: Mark listing for reanalysis due to price change
+     * EFFICIENT: Mark listing for reanalysis due to price change
      */
     async triggerReanalysisForPriceChange(listingId, neighborhood) {
         try {
@@ -1152,7 +720,7 @@ class EnhancedBiWeeklySalesAnalyzer {
     }
 
     /**
-     * NEW: OPTIMIZED: Handle price updates efficiently without refetching
+     * OPTIMIZED: Handle price updates efficiently without refetching
      * Updates price in cache and triggers reanalysis for undervaluation
      */
     async handlePriceUpdatesInCache(listingIds, salesData, neighborhood) {
@@ -1234,7 +802,7 @@ class EnhancedBiWeeklySalesAnalyzer {
     }
 
     /**
-     * NEW: Run sold detection for specific neighborhood
+     * Run sold detection for specific neighborhood
      */
     async runSoldDetectionForNeighborhood(searchResults, neighborhood) {
         const currentTime = new Date().toISOString();
@@ -1289,7 +857,7 @@ class EnhancedBiWeeklySalesAnalyzer {
     }
 
     /**
-     * NEW: SIMPLIFIED: Update only search timestamps for sold detection
+     * SIMPLIFIED: Update only search timestamps for sold detection
      * Price updates are handled separately
      */
     async updateSalesTimestampsOnly(searchResults, neighborhood) {
@@ -1337,7 +905,7 @@ class EnhancedBiWeeklySalesAnalyzer {
     }
 
     /**
-     * NEW: Cache complete sale details for new listings
+     * Cache complete sale details for new listings
      */
     async cacheCompleteSaleDetails(listingId, details, neighborhood) {
         try {
@@ -1375,7 +943,7 @@ class EnhancedBiWeeklySalesAnalyzer {
     }
 
     /**
-     * NEW: Cache failed fetch attempt
+     * Cache failed fetch attempt
      */
     async cacheFailedSaleFetch(listingId, neighborhood) {
         try {
@@ -1404,7 +972,7 @@ class EnhancedBiWeeklySalesAnalyzer {
     }
 
     /**
-     * NEW: Update cache with analysis results (mark as undervalued or market_rate)
+     * Update cache with analysis results (mark as undervalued or market_rate)
      */
     async updateCacheWithAnalysisResults(detailedSales, undervaluedSales) {
         try {
@@ -1525,7 +1093,7 @@ class EnhancedBiWeeklySalesAnalyzer {
     logSmartDeduplicationSummary(summary) {
         const mode = this.initialBulkLoad ? 'INITIAL BULK LOAD' : 'SMART DEDUPLICATION';
         
-        console.log(`\n📊 ${mode} SALES ANALYSIS COMPLETE`);
+        console.log(`\n📊 ${mode} CLAUDE AI SALES ANALYSIS COMPLETE`);
         console.log('='.repeat(70));
         
         if (this.initialBulkLoad) {
@@ -1546,6 +1114,7 @@ class EnhancedBiWeeklySalesAnalyzer {
         console.log(`🎯 Undervalued sales found: ${summary.undervaluedFound}`);
         console.log(`💾 Saved to database: ${summary.savedToDatabase}`);
         console.log(`📞 API calls used: ${summary.apiCallsUsed}`);
+        console.log(`🤖 Claude AI calls: ${this.claudeAnalyzer.apiCallsUsed}`);
         
         // DEDUPLICATION PERFORMANCE HIGHLIGHT (only if not bulk load)
         if (!this.initialBulkLoad) {
@@ -1602,11 +1171,12 @@ class EnhancedBiWeeklySalesAnalyzer {
 
         // Next steps
         if (this.initialBulkLoad) {
-            console.log('\n🎯 SALES BULK LOAD COMPLETE!');
+            console.log('\n🎯 CLAUDE AI SALES BULK LOAD COMPLETE!');
             console.log('📝 Next steps:');
             console.log('   1. Set INITIAL_BULK_LOAD=false in Railway');
             console.log('   2. Switch to bi-weekly maintenance mode');
             console.log('   3. Enjoy 75-90% API savings from smart caching!');
+            console.log('   4. Claude AI provides natural language explanations for all deals');
         } else {
             // Normal bi-weekly next day preview
             const nextDay = this.currentDay + 1;
@@ -1622,8 +1192,9 @@ class EnhancedBiWeeklySalesAnalyzer {
 
         // Results summary
         if (summary.savedToDatabase > 0) {
-            console.log('\n🎉 SUCCESS: Found undervalued sales efficiently!');
+            console.log('\n🎉 SUCCESS: Found undervalued sales with Claude AI analysis!');
             console.log(`🔍 Check your Supabase 'undervalued_sales' table for ${summary.savedToDatabase} new deals`);
+            console.log(`🤖 All properties include Claude AI natural language explanations`);
             
             if (!this.initialBulkLoad && summary.apiCallsSaved > 0) {
                 const efficiency = ((summary.apiCallsSaved / (summary.apiCallsUsed + summary.apiCallsSaved)) * 100).toFixed(1);
@@ -1715,7 +1286,6 @@ class EnhancedBiWeeklySalesAnalyzer {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
 
-
     /**
      * Calculate deal quality from score
      */
@@ -1728,15 +1298,15 @@ class EnhancedBiWeeklySalesAnalyzer {
     }
 
     /**
-     * Main bi-weekly sales refresh with SMART DEDUPLICATION + ADVANCED VALUATION
+     * Main bi-weekly sales refresh with CLAUDE AI + SMART DEDUPLICATION
      */
     async runBiWeeklySalesRefresh() {
-        console.log('\n🏠 ADVANCED MULTI-FACTOR SALES ANALYSIS');
-        console.log('🎯 NEW: 10% threshold using bed/bath/amenity valuation engine');
+        console.log('\n🏠 CLAUDE AI SALES ANALYSIS WITH SMART DEDUPLICATION');
+        console.log('🤖 NEW: Claude AI natural language market analysis');
+        console.log('🎯 Hierarchical comparable filtering + human-readable explanations');
         console.log('💾 Cache-optimized to save 75-90% of API calls');
         console.log('🏠 Auto-detects and removes sold listings');
         console.log('⚡ Adaptive rate limiting with daily neighborhood scheduling');
-        console.log('🔧 FIXED: Database function dependencies resolved');
         console.log('='.repeat(70));
 
         // Get today's neighborhood assignment WITH BULK LOAD SUPPORT
@@ -1818,8 +1388,8 @@ class EnhancedBiWeeklySalesAnalyzer {
                     summary.totalDetailsAttempted += newSales.length;
                     summary.totalDetailsFetched += detailedSales.length;
                     
-                    // Step 3: ADVANCED MULTI-FACTOR ANALYSIS for undervaluation
-                    const undervaluedSales = this.analyzeForAdvancedSalesUndervaluation(detailedSales, neighborhood);
+                    // Step 3: CLAUDE AI ANALYSIS for undervaluation - FIXED: Function name
+                    const undervaluedSales = await this.analyzeForAdvancedSalesUndervaluation(detailedSales, neighborhood);
                     summary.undervaluedFound += undervaluedSales.length;
                     
                     // Step 4: Save to database
@@ -1843,7 +1413,7 @@ class EnhancedBiWeeklySalesAnalyzer {
                     };
                     
                     summary.neighborhoodsProcessed++;
-                    console.log(`   ✅ ${neighborhood}: ${undervaluedSales.length} undervalued sales found (10% threshold)`);
+                    console.log(`   ✅ ${neighborhood}: ${undervaluedSales.length} undervalued sales found (Claude AI analysis)`);
 
                     // For bulk load, log progress every 5 neighborhoods
                     if (this.initialBulkLoad && (i + 1) % 5 === 0) {
@@ -1895,7 +1465,7 @@ class EnhancedBiWeeklySalesAnalyzer {
             await this.saveBiWeeklySalesSummary(summary);
             this.logSmartDeduplicationSummary(summary);
         } catch (error) {
-            console.error('💥 Smart deduplication sales refresh failed:', error.message);
+            console.error('💥 Claude AI sales refresh failed:', error.message);
             summary.errors.push({ error: error.message });
         }
 
@@ -2141,6 +1711,10 @@ class EnhancedBiWeeklySalesAnalyzer {
                 floorplans: data.floorplans || [],
                 agents: data.agents || [],
                 
+                // HOA and taxes
+                monthlyHoa: data.monthlyHoa || 0,
+                monthlyTax: data.monthlyTax || 0,
+                
                 // Derived building features
                 doormanBuilding: this.checkForAmenity(data.amenities, ['doorman', 'full_time_doorman']),
                 elevatorBuilding: this.checkForAmenity(data.amenities, ['elevator']),
@@ -2182,119 +1756,68 @@ class EnhancedBiWeeklySalesAnalyzer {
                sale.bathrooms !== undefined;
     }
 
-   // REPLACE the analyzeForAdvancedSalesUndervaluation method with:
-async analyzeForAdvancedSalesUndervaluation(detailedSales, neighborhood) {
-    if (detailedSales.length < 5) {
-        console.log(`   ⚠️ Not enough sales (${detailedSales.length}) for analysis in ${neighborhood}`);
-        return [];
-    }
-
-    console.log(`   🤖 CLAUDE ANALYSIS: ${detailedSales.length} sales using AI engine...`);
-
-    const undervaluedSales = [];
-
-    // Analyze each sale using Claude
-    for (const sale of detailedSales) {
-        try {
-            // Use Claude instead of hardcoded valuation engine
-            const analysis = await this.claudeAnalyzer.analyzeSalesUndervaluation(
-                sale, 
-                detailedSales, 
-                neighborhood,
-                { undervaluationThreshold: 10 }
-            );
-            
-            if (analysis.isUndervalued) {
-                undervaluedSales.push({
-                    ...sale,
-                    // Claude analysis results
-                    discountPercent: analysis.discountPercent,
-                    estimatedMarketPrice: analysis.estimatedMarketPrice,
-                    actualPrice: analysis.actualPrice,
-                    potentialProfit: analysis.potentialProfit,
-                    confidence: analysis.confidence,
-                    valuationMethod: analysis.method,
-                    comparablesUsed: analysis.comparablesUsed,
-                    adjustmentBreakdown: analysis.adjustmentBreakdown,
-                    reasoning: analysis.reasoning,
-                    
-                    // Keep existing scoring
-                    score: this.calculateAdvancedSalesScore(analysis),
-                    grade: analysis.grade,
-                    comparisonGroup: `${sale.bedrooms}BR/${sale.bathrooms}BA in ${neighborhood}`,
-                    comparisonMethod: analysis.method
-                });
-            }
-        } catch (error) {
-            console.warn(`   ⚠️ Error analyzing ${sale.address}: ${error.message}`);
+    /**
+     * CLAUDE AI SALES ANALYSIS - Main analysis function - FIXED: Function name
+     */
+    async analyzeForAdvancedSalesUndervaluation(detailedSales, neighborhood) {
+        if (detailedSales.length < 5) {
+            console.log(`   ⚠️ Not enough sales (${detailedSales.length}) for analysis in ${neighborhood}`);
+            return [];
         }
-    }
 
-    // Sort by discount percentage (best deals first)
-    undervaluedSales.sort((a, b) => b.discountPercent - a.discountPercent);
+        console.log(`   🤖 CLAUDE AI ANALYSIS: ${detailedSales.length} sales using natural language reasoning...`);
 
-    console.log(`   🎯 Found ${undervaluedSales.length} undervalued sales (10% threshold with Claude AI)`);
-    return undervaluedSales;
-}
+        const undervaluedSales = [];
 
-    /**
-     * Calculate advanced sales score based on multi-factor analysis
-     * NOTE: This is now the composite score for internal ranking within grades
-     */
-    calculateAdvancedSalesScore(analysis) {
-        return this.calculateCompositeScore(analysis);
-    }
+        // Analyze each sale using Claude AI
+        for (const sale of detailedSales) {
+            try {
+                // Use Claude AI for natural language market analysis
+                const analysis = await this.claudeAnalyzer.analyzeSalesUndervaluation(
+                    sale, 
+                    detailedSales, 
+                    neighborhood,
+                    { undervaluationThreshold: 10 }
+                );
+                
+                if (analysis.isUndervalued) {
+                    undervaluedSales.push({
+                        ...sale,
+                        // Claude analysis results
+                        discountPercent: analysis.discountPercent,
+                        estimatedMarketPrice: analysis.estimatedMarketPrice,
+                        actualPrice: analysis.actualPrice,
+                        potentialProfit: analysis.potentialProfit,
+                        confidence: analysis.confidence,
+                        valuationMethod: analysis.method,
+                        comparablesUsed: analysis.comparablesUsed,
+                        adjustmentBreakdown: analysis.adjustmentBreakdown,
+                        reasoning: analysis.reasoning,
+                        
+                        // Enhanced Claude fields
+                        detailedAnalysis: analysis.detailedAnalysis,
+                        
+                        // Keep existing scoring for database
+                        score: analysis.score,
+                        grade: analysis.grade,
+                        comparisonGroup: `${sale.bedrooms}BR/${sale.bathrooms}BA in ${neighborhood}`,
+                        comparisonMethod: analysis.method
+                    });
+                }
+            } catch (error) {
+                console.warn(`   ⚠️ Error analyzing ${sale.address}: ${error.message}`);
+            }
+        }
 
-    /**
-     * Calculate letter grade from discount percentage (NEW: More realistic grading starting from 10%)
-     * Based on actual discount % rather than composite score to prevent grade inflation
-     */
-    calculateGradeFromDiscount(discountPercent) {
-        if (discountPercent >= 25) return 'A+';        // 25%+ off = True unicorns  
-        if (discountPercent >= 20) return 'A';         // 20-24% off = Excellent deals
-        if (discountPercent >= 17) return 'A-';        // 17-19% off = Very good deals  
-        if (discountPercent >= 15) return 'B+';        // 15-16% off = Good deals
-        if (discountPercent >= 12) return 'B';         // 12-14% off = Solid deals
-        if (discountPercent >= 10) return 'B-';        // 10-11% off = Decent deals
-        return 'C';                                     // <10% = Doesn't qualify
-    }
+        // Sort by discount percentage (best deals first)
+        undervaluedSales.sort((a, b) => b.discountPercent - a.discountPercent);
 
-    /**
-     * Calculate composite score from multiple factors (kept for internal ranking)
-     * This score helps rank properties within the same grade level
-     */
-    calculateCompositeScore(analysis) {
-        let score = 0;
-
-        // Base score from discount percentage (0-50 points) - weighted higher for 25%+ deals
-        score += Math.min(analysis.discountPercent * 1.8, 50);
-
-        // Confidence bonus (0-20 points) - critical for advanced analysis
-        if (analysis.confidence >= 90) score += 20;
-        else if (analysis.confidence >= 80) score += 15;
-        else if (analysis.confidence >= 70) score += 10;
-        else score += 5;
-
-        // Valuation method quality bonus (0-15 points)
-        if (analysis.method === 'exact_bed_bath_amenity_match') score += 15;
-        else if (analysis.method === 'bed_bath_specific_pricing') score += 12;
-        else if (analysis.method === 'bed_specific_with_adjustments') score += 8;
-        else if (analysis.method === 'price_per_sqft_fallback') score += 5;
-
-        // Comparable count bonus (0-10 points)
-        if (analysis.comparablesUsed >= 15) score += 10;
-        else if (analysis.comparablesUsed >= 10) score += 7;
-        else if (analysis.comparablesUsed >= 5) score += 5;
-
-        // Profit magnitude bonus (0-5 points)
-        if (analysis.potentialProfit >= 200000) score += 5;
-        else if (analysis.potentialProfit >= 100000) score += 3;
-
-        return Math.min(100, Math.max(0, Math.round(score)));
+        console.log(`   🎯 Found ${undervaluedSales.length} undervalued sales (Claude AI 10% threshold)`);
+        return undervaluedSales;
     }
 
     /**
-     * Save undervalued sales to database with enhanced deduplication check and advanced valuation data
+     * Save undervalued sales to database with Claude AI analysis data
      */
     async saveUndervaluedSalesToDatabase(undervaluedSales, neighborhood) {
         console.log(`   💾 Saving ${undervaluedSales.length} undervalued sales to database...`);
@@ -2320,7 +1843,8 @@ async analyzeForAdvancedSalesUndervaluation(detailedSales, neighborhood) {
                                 discount_percent: sale.discountPercent,
                                 last_seen_in_search: new Date().toISOString(),
                                 times_seen_in_search: 1, // Reset counter
-                                analysis_date: new Date().toISOString()
+                                analysis_date: new Date().toISOString(),
+                                reasoning: sale.reasoning // Update Claude reasoning
                             })
                             .eq('id', existing.id);
 
@@ -2333,7 +1857,7 @@ async analyzeForAdvancedSalesUndervaluation(detailedSales, neighborhood) {
                     continue;
                 }
 
-                // Enhanced database record with advanced valuation data
+                // Enhanced database record with Claude AI analysis data
                 const dbRecord = {
                     listing_id: sale.id?.toString(),
                     address: sale.address,
@@ -2341,12 +1865,12 @@ async analyzeForAdvancedSalesUndervaluation(detailedSales, neighborhood) {
                     borough: sale.borough || 'unknown',
                     zipcode: sale.zipcode,
                     
-                    // Advanced sales pricing analysis
-                    sale_price: parseInt(sale.salePrice) || 0,
+                    // Advanced sales pricing analysis - FIXED: Use correct SQL field names
+                    price: parseInt(sale.salePrice) || 0,  // FIXED: Use 'price' not 'sale_price'
                     price_per_sqft: sale.actualPrice && sale.sqft > 0 ? parseFloat((sale.actualPrice / sale.sqft).toFixed(2)) : null,
                     market_price_per_sqft: sale.estimatedMarketPrice && sale.sqft > 0 ? parseFloat((sale.estimatedMarketPrice / sale.sqft).toFixed(2)) : null,
                     discount_percent: parseFloat(sale.discountPercent.toFixed(2)),
-                    potential_profit: parseInt(sale.potentialProfit) || 0,
+                    potential_savings: parseInt(sale.potentialProfit) || 0,  // FIXED: Use 'potential_savings' not 'potential_profit'
                     
                     // Property details
                     bedrooms: parseInt(sale.bedrooms) || 0,
@@ -2354,10 +1878,12 @@ async analyzeForAdvancedSalesUndervaluation(detailedSales, neighborhood) {
                     sqft: sale.sqft ? parseInt(sale.sqft) : null,
                     property_type: sale.propertyType || 'apartment',
                     
-                    // Sale terms
-                    listing_status: sale.status || 'unknown',
+                    // Sale terms - FIXED: Add missing required fields
+                    listing_status: sale.status || 'unknown',  // FIXED: Added missing field
                     listed_at: sale.listedAt ? new Date(sale.listedAt).toISOString() : null,
                     closed_at: sale.closedAt ? new Date(sale.closedAt).toISOString() : null,
+                    sold_at: sale.soldAt ? new Date(sale.soldAt).toISOString() : null,  // FIXED: Added missing field
+                    days_on_market: parseInt(sale.daysOnMarket) || 0,
                     sold_at: sale.soldAt ? new Date(sale.soldAt).toISOString() : null,
                     days_on_market: parseInt(sale.daysOnMarket) || 0,
                     
@@ -2374,6 +1900,10 @@ async analyzeForAdvancedSalesUndervaluation(detailedSales, neighborhood) {
                     latitude: sale.latitude ? parseFloat(sale.latitude) : null,
                     longitude: sale.longitude ? parseFloat(sale.longitude) : null,
                     
+                    // HOA and taxes
+                    monthly_hoa: parseInt(sale.monthlyHoa) || 0,
+                    monthly_tax: parseInt(sale.monthlyTax) || 0,
+                    
                     // Media and description
                     images: Array.isArray(sale.images) ? sale.images : [],
                     image_count: Array.isArray(sale.images) ? sale.images.length : 0,
@@ -2386,21 +1916,24 @@ async analyzeForAdvancedSalesUndervaluation(detailedSales, neighborhood) {
                     amenities: Array.isArray(sale.amenities) ? sale.amenities : [],
                     amenity_count: Array.isArray(sale.amenities) ? sale.amenities.length : 0,
                     
-                    // Advanced analysis results
+                    // CLAUDE AI ANALYSIS RESULTS
                     score: parseInt(sale.score) || 0,
-                    grade: sale.grade || 'F',
+                    grade: sale.grade || 'C',
                     deal_quality: this.calculateDealQuality(parseInt(sale.score) || 0),
-                    reasoning: sale.reasoning || '',
+                    reasoning: sale.reasoning || 'Claude AI market analysis',
                     comparison_group: sale.comparisonGroup || '',
                     comparison_method: sale.valuationMethod || sale.comparisonMethod || '',
                     reliability_score: parseInt(sale.confidence) || 0,
+                    
+                    // Enhanced Claude AI fields
+                    detailed_analysis: typeof sale.detailedAnalysis === 'object' ? sale.detailedAnalysis : {},
                     
                     // Additional data
                     building_info: typeof sale.building === 'object' ? sale.building : {},
                     agents: Array.isArray(sale.agents) ? sale.agents : [],
                     sale_type: sale.type || 'sale',
                     
-                    // ENHANCED: Deduplication and sold tracking fields
+                    // Deduplication and sold tracking fields
                     last_seen_in_search: new Date().toISOString(),
                     times_seen_in_search: 1,
                     likely_sold: false,
@@ -2416,7 +1949,7 @@ async analyzeForAdvancedSalesUndervaluation(detailedSales, neighborhood) {
                 if (error) {
                     console.error(`   ❌ Error saving sale ${sale.address}:`, error.message);
                 } else {
-                    console.log(`   ✅ Saved: ${sale.address} (${sale.discountPercent}% below market, Score: ${sale.score}, Method: ${sale.valuationMethod})`);
+                    console.log(`   ✅ Saved: ${sale.address} (${sale.discountPercent}% below market, Claude AI: "${sale.reasoning?.substring(0, 80)}...")`);
                     savedCount++;
                 }
             } catch (error) {
@@ -2424,7 +1957,7 @@ async analyzeForAdvancedSalesUndervaluation(detailedSales, neighborhood) {
             }
         }
 
-        console.log(`   💾 Saved ${savedCount} new undervalued sales using advanced multi-factor analysis`);
+        console.log(`   💾 Saved ${savedCount} new undervalued sales using Claude AI analysis`);
         return savedCount;
     }
 
@@ -2502,7 +2035,7 @@ async analyzeForAdvancedSalesUndervaluation(detailedSales, neighborhood) {
                 .eq('status', 'active'); // Only active listings
 
             if (criteria.maxPrice) {
-                query = query.lte('sale_price', criteria.maxPrice);
+                query = query.lte('price', criteria.maxPrice);  // FIXED: Use 'price' not 'sale_price'
             }
             if (criteria.minBedrooms) {
                 query = query.gte('bedrooms', criteria.minBedrooms);
@@ -2544,19 +2077,46 @@ async analyzeForAdvancedSalesUndervaluation(detailedSales, neighborhood) {
             console.log('   - mark_likely_sold_listings()');
             console.log('   - cleanup_old_cache_entries()');
             
+            console.log('\n🚨 CRITICAL: You need to create the sales_market_cache table:');
+            console.log(`
+CREATE TABLE public.sales_market_cache (
+    id uuid PRIMARY KEY DEFAULT extensions.uuid_generate_v4(),
+    listing_id text NOT NULL UNIQUE,
+    address text,
+    neighborhood text,
+    borough text,
+    price bigint,
+    bedrooms integer,
+    bathrooms numeric(3,1),
+    sqft integer,
+    property_type text,
+    market_status text DEFAULT 'pending',
+    last_checked timestamp with time zone DEFAULT now(),
+    last_seen_in_search timestamp with time zone DEFAULT now(),
+    last_analyzed timestamp with time zone,
+    times_seen integer DEFAULT 1,
+    created_at timestamp with time zone DEFAULT now()
+);
+
+CREATE INDEX idx_sales_cache_listing_id ON public.sales_market_cache (listing_id);
+CREATE INDEX idx_sales_cache_neighborhood ON public.sales_market_cache (neighborhood);
+CREATE INDEX idx_sales_cache_last_seen ON public.sales_market_cache (last_seen_in_search DESC);
+CREATE INDEX idx_sales_cache_market_status ON public.sales_market_cache (market_status);
+            `);
+            
         } catch (error) {
             console.error('❌ Sales database setup error:', error.message);
         }
     }
 }
 
-// CLI interface for sales with enhanced deduplication features and advanced valuation
+// CLI interface for sales with enhanced deduplication features and Claude AI valuation
 async function main() {
     const args = process.argv.slice(2);
     
-    if (!process.env.RAPIDAPI_KEY || !process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) {
+    if (!process.env.RAPIDAPI_KEY || !process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY || !process.env.ANTHROPIC_API_KEY) {
         console.error('❌ Missing required environment variables!');
-        console.error('   RAPIDAPI_KEY, SUPABASE_URL, SUPABASE_ANON_KEY required');
+        console.error('   RAPIDAPI_KEY, SUPABASE_URL, SUPABASE_ANON_KEY, ANTHROPIC_API_KEY required');
         process.exit(1);
     }
 
@@ -2570,9 +2130,10 @@ async function main() {
     if (args.includes('--latest')) {
         const limit = parseInt(args[args.indexOf('--latest') + 1]) || 20;
         const sales = await analyzer.getLatestUndervaluedSales(limit);
-        console.log(`🏠 Latest ${sales.length} active undervalued sales (10% threshold):`);
+        console.log(`🏠 Latest ${sales.length} active undervalued sales (Claude AI analysis):`);
         sales.forEach((sale, i) => {
             console.log(`${i + 1}. ${sale.address} - ${sale.sale_price.toLocaleString()} (${sale.discount_percent}% below market, Score: ${sale.score})`);
+            console.log(`   📝 Claude: "${sale.reasoning?.substring(0, 100)}..."`);
         });
         return;
     }
@@ -2580,9 +2141,10 @@ async function main() {
     if (args.includes('--top-deals')) {
         const limit = parseInt(args[args.indexOf('--top-deals') + 1]) || 10;
         const deals = await analyzer.getTopSaleDeals(limit);
-        console.log(`🏆 Top ${deals.length} active sale deals (10% threshold):`);
+        console.log(`🏆 Top ${deals.length} active sale deals (Claude AI analysis):`);
         deals.forEach((deal, i) => {
             console.log(`${i + 1}. ${deal.address} - ${deal.sale_price.toLocaleString()} (${deal.discount_percent}% below market, Score: ${deal.score})`);
+            console.log(`   📝 Claude: "${deal.reasoning?.substring(0, 100)}..."`);
         });
         return;
     }
@@ -2594,7 +2156,7 @@ async function main() {
             return;
         }
         const sales = await analyzer.getSalesByNeighborhood(neighborhood);
-        console.log(`🏠 Active sales in ${neighborhood} (25% threshold):`);
+        console.log(`🏠 Active sales in ${neighborhood} (Claude AI analysis):`);
         sales.forEach((sale, i) => {
             console.log(`${i + 1}. ${sale.address} - ${sale.sale_price.toLocaleString()} (Score: ${sale.score})`);
         });
@@ -2603,18 +2165,18 @@ async function main() {
 
     if (args.includes('--doorman')) {
         const sales = await analyzer.getSalesByCriteria({ doorman: true, limit: 15 });
-        console.log(`🚪 Active doorman building sales (10% threshold):`);
+        console.log(`🚪 Active doorman building sales (Claude AI analysis):`);
         sales.forEach((sale, i) => {
             console.log(`${i + 1}. ${sale.address} - ${sale.sale_price.toLocaleString()} (${sale.discount_percent}% below market)`);
         });
         return;
     }
 
-    // Default: run bi-weekly sales analysis with advanced multi-factor valuation
-    console.log('🏠 Starting ADVANCED bi-weekly sales analysis with 10% threshold and multi-factor valuation...');
+    // Default: run bi-weekly sales analysis with Claude AI
+    console.log('🏠 Starting CLAUDE AI bi-weekly sales analysis with natural language reasoning...');
     const results = await analyzer.runBiWeeklySalesRefresh();
     
-    console.log('\n🎉 Advanced bi-weekly sales analysis with smart deduplication completed!');
+    console.log('\n🎉 Claude AI sales analysis with smart deduplication completed!');
     
     if (results.summary && results.summary.apiCallsSaved > 0) {
         const efficiency = ((results.summary.apiCallsSaved / (results.summary.apiCallsUsed + results.summary.apiCallsSaved)) * 100).toFixed(1);
@@ -2623,7 +2185,7 @@ async function main() {
     
     if (results.summary && results.summary.savedToDatabase) {
         console.log(`📊 Check your Supabase 'undervalued_sales' table for ${results.summary.savedToDatabase} new deals!`);
-        console.log(`🎯 All properties are 10%+ below market using advanced bed/bath/amenity valuation`);
+        console.log(`🤖 All properties include Claude AI natural language explanations`);
     }
     
     return results;
@@ -2635,7 +2197,7 @@ module.exports = EnhancedBiWeeklySalesAnalyzer;
 // Run if executed directly
 if (require.main === module) {
     main().catch(error => {
-        console.error('💥 Enhanced sales analyzer with advanced valuation crashed:', error);
+        console.error('💥 Enhanced Claude AI sales analyzer crashed:', error);
         process.exit(1);
     });
 }
