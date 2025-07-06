@@ -1,6 +1,6 @@
 // claude-powered-rentals-system.js
 // FIXED VERSION - Comprehensive rent stabilization detection with Claude AI analysis
-// FIXES: 
+// FIXES:
 // 1. Removed non-existent net.http_post calls (causing save failures)
 // 2. Fixed rent_stabilized_method constraint violations 
 // 3. Enhanced JSON parsing error handling
