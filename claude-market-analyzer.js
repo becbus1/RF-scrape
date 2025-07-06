@@ -107,7 +107,7 @@ async analyzeRentalsUndervaluation(targetProperty, comparableProperties, neighbo
         }
         
         // ✅ OPTIMIZATION: Check if property meets undervaluation threshold BEFORE detailed analysis
-        const isUndervalued = correctDiscount >= threshold && calculatedConfidence >= 60;
+        const isUndervalued = correctDiscount >= (threshold - 0.1) && calculatedConfidence >= 60;
         
         if (!isUndervalued) {
             // Property doesn't meet threshold - return basic response without detailed analysis
