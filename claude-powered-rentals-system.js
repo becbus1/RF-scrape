@@ -100,6 +100,10 @@ console.log(`   ✅ Got detailed data for ${detailedListings.length} properties`
 // STEP 6: Now analyze with Claude using COMPLETE data (with real addresses)
 const analyzedProperties = [];
 
+// ADD THIS: Calculate dynamic threshold for this neighborhood
+const totalListings = results.totalListings || detailedListings.length;
+const dynamicThreshold = this.calculateDynamicThreshold(totalListings, neighborhood);
+
 for (const listing of detailedListings) {
     try {
         console.log(`🤖 Enhanced Claude analyzing rental: ${listing.address}`);
@@ -119,7 +123,7 @@ for (const listing of detailedListings) {
             detailedListings, // Use detailed listings as comparables (not activeListings)
             neighborhood,
             { 
-                undervaluationThreshold: this.undervaluationThreshold,
+                undervaluationThreshold: dynamicThreshold, // ← This will pass 10 or 15
                 rentStabilizedBuildings
             }
         );
