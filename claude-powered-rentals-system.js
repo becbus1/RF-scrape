@@ -587,56 +587,78 @@ async markMissingListingsAsRented(currentListingIds, neighborhood) {
     }
 
     /**
-     * FIXED: Save analyzed properties using SEPARATE THRESHOLDS for each table
-     * Removes net.http_post calls and fixes constraint violations
-     */
-    async saveAnalyzedProperties(properties, neighborhood, results) {
-        console.log(`   💾 Saving ${properties.length} analyzed properties using separate thresholds...`);
-        
-        let savedToStabilized = 0;
-        let savedToUndervalued = 0;
-        let skipped = 0;
-        
-        for (const property of properties) {
-            try {
-                // SEPARATE THRESHOLD LOGIC
-                const isStabilized = property.rentStabilizedProbability >= this.stabilizationThreshold;
-                const isUndervalued = property.percentBelowMarket >= this.undervaluationThreshold;
-                const stabilizedMeetsThreshold = property.percentBelowMarket >= this.stabilizedUndervaluationThreshold;
-                
-                if (isStabilized && stabilizedMeetsThreshold) {
-                    // Save to rent-stabilized table with FIXED constraint handling
-                    await this.saveToRentStabilizedTable(property, neighborhood);
-                    savedToStabilized++;
-                    console.log(`     🔒 STABILIZED: ${property.address} (${property.rentStabilizedProbability}% confidence, ${property.percentBelowMarket?.toFixed(1)}% market position)`);
-                    
-                } else if (!isStabilized && isUndervalued) {
-                    // Save to regular undervalued table - FIXED: Use Supabase instead of net.http_post
-                    await this.saveToUndervaluedRentalsTable(property, neighborhood);
-                    savedToUndervalued++;
-                    console.log(`     💰 UNDERVALUED: ${property.address} (${property.percentBelowMarket?.toFixed(1)}% below market)`);
-                    
-                } else {
-                    skipped++;
-                    const reason = !isStabilized 
-                        ? `Not stabilized (${property.rentStabilizedProbability}% < ${this.stabilizationThreshold}%) or undervalued (${property.percentBelowMarket?.toFixed(1)}% < ${this.undervaluationThreshold}%)`
-                        : `Stabilized but above threshold (${property.percentBelowMarket?.toFixed(1)}% < ${this.stabilizedUndervaluationThreshold}%)`;
-                    console.log(`     ⚠️ SKIPPED: ${property.address} - ${reason}`);
-                }
-                
-            } catch (error) {
-                console.error(`     ❌ Exception saving ${property.address}: ${error.message}`);
-                skipped++;
-            }
-        }
-        
-        console.log(`   📊 Save Summary: ${savedToStabilized} stabilized, ${savedToUndervalued} undervalued, ${skipped} skipped`);
-        
-        // Update results
-        results.savedCount = savedToStabilized + savedToUndervalued;
-        results.skippedCount = skipped;
+ * Calculate dynamic undervaluation threshold based on neighborhood size
+ * Small neighborhoods get lower thresholds to ensure variety
+ */
+calculateDynamicThreshold(activeListingsCount, neighborhood) {
+    const baseThreshold = this.undervaluationThreshold; // 15% from env
+    const lowInventoryThreshold = 10; // Lower threshold for small neighborhoods
+    const inventoryBreakpoint = 200; // Listings count breakpoint
+    
+    if (activeListingsCount < inventoryBreakpoint) {
+        console.log(`   📊 Small neighborhood (${activeListingsCount} listings) - Using ${lowInventoryThreshold}% threshold for variety`);
+        return lowInventoryThreshold;
+    } else {
+        console.log(`   📊 Large neighborhood (${activeListingsCount} listings) - Using ${baseThreshold}% threshold for quality`);
+        return baseThreshold;
     }
+}
 
+/**
+ * FIXED: Save analyzed properties using SEPARATE THRESHOLDS for each table
+ * UPDATED: Now uses dynamic threshold based on neighborhood size
+ */
+async saveAnalyzedProperties(properties, neighborhood, results) {
+    // Calculate dynamic threshold based on neighborhood size
+    const totalListings = results.totalListings || properties.length;
+    const dynamicUndervaluationThreshold = this.calculateDynamicThreshold(totalListings, neighborhood);
+    
+    console.log(`   💾 Saving ${properties.length} analyzed properties using dynamic thresholds...`);
+    console.log(`   📊 Using ${dynamicUndervaluationThreshold}% undervaluation threshold for this neighborhood`);
+    
+    let savedToStabilized = 0;
+    let savedToUndervalued = 0;
+    let skipped = 0;
+    
+    for (const property of properties) {
+        try {
+            // DYNAMIC THRESHOLD LOGIC - Use calculated threshold instead of fixed
+            const isStabilized = property.rentStabilizedProbability >= this.stabilizationThreshold;
+            const isUndervalued = property.percentBelowMarket >= dynamicUndervaluationThreshold; // CHANGED: Use dynamic
+            const stabilizedMeetsThreshold = property.percentBelowMarket >= this.stabilizedUndervaluationThreshold;
+            
+            if (isStabilized && stabilizedMeetsThreshold) {
+                // Save to rent-stabilized table with FIXED constraint handling
+                await this.saveToRentStabilizedTable(property, neighborhood);
+                savedToStabilized++;
+                console.log(`     🔒 STABILIZED: ${property.address} (${property.rentStabilizedProbability}% confidence, ${property.percentBelowMarket?.toFixed(1)}% market position)`);
+                
+            } else if (!isStabilized && isUndervalued) {
+                // Save to regular undervalued table - FIXED: Use Supabase instead of net.http_post
+                await this.saveToUndervaluedRentalsTable(property, neighborhood);
+                savedToUndervalued++;
+                console.log(`     💰 UNDERVALUED: ${property.address} (${property.percentBelowMarket?.toFixed(1)}% below market)`);
+                
+            } else {
+                skipped++;
+                const reason = !isStabilized 
+                    ? `Not stabilized (${property.rentStabilizedProbability}% < ${this.stabilizationThreshold}%) or undervalued (${property.percentBelowMarket?.toFixed(1)}% < ${dynamicUndervaluationThreshold}%)`
+                    : `Stabilized but above threshold (${property.percentBelowMarket?.toFixed(1)}% < ${this.stabilizedUndervaluationThreshold}%)`;
+                console.log(`     ⚠️ SKIPPED: ${property.address} - ${reason}`);
+            }
+            
+        } catch (error) {
+            console.error(`     ❌ Exception saving ${property.address}: ${error.message}`);
+            skipped++;
+        }
+    }
+    
+    console.log(`   📊 Save Summary: ${savedToStabilized} stabilized, ${savedToUndervalued} undervalued, ${skipped} skipped`);
+    
+    // Update results
+    results.savedCount = savedToStabilized + savedToUndervalued;
+    results.skippedCount = skipped;
+}
     /**
      * RAILWAY FIX: Enhanced method mapping function
      */
