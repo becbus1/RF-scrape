@@ -1,9 +1,3 @@
-}
-            if (criteria.borough) {
-                query = query.eq('borough', criteria.borough);
-            }
-
-            const { data// enhanced-biweekly-streeteasy-sales.js
 // ENHANCED VERSION: Claude AI Analysis + Smart Deduplication + Advanced Market Intelligence
 // NEW: Replaces hardcoded valuation engine with Claude AI natural language reasoning
 // FEATURES: Hierarchical comparable filtering + Human-readable explanations + Method-aware confidence
@@ -577,17 +571,24 @@ class EnhancedBiWeeklySalesAnalyzer {
     }
 
     /**
-     * Get today's neighborhood assignments WITH BULK LOAD SUPPORT
+     * Get today's neighborhood assignments WITH BULK LOAD SUPPORT + TEST_NEIGHBORHOOD
      */
     async getTodaysNeighborhoods() {
-        // INITIAL BULK LOAD: Process ALL neighborhoods
+        // PRIORITY 1: Test neighborhood override (FIXED: Added TEST_NEIGHBORHOOD support)
+        if (process.env.TEST_NEIGHBORHOOD) {
+            console.log(`🧪 TEST MODE: Using single neighborhood: ${process.env.TEST_NEIGHBORHOOD}`);
+            console.log('⚡ This will run full Claude AI analysis on one neighborhood for testing');
+            return [process.env.TEST_NEIGHBORHOOD];
+        }
+        
+        // PRIORITY 2: Initial bulk load mode
         if (this.initialBulkLoad) {
             console.log('🚀 INITIAL BULK LOAD MODE: Processing ALL sales neighborhoods');
             console.log(`📋 Will process ${HIGH_PRIORITY_NEIGHBORHOODS.length} neighborhoods over multiple hours`);
             return HIGH_PRIORITY_NEIGHBORHOODS;
         }
         
-        // Normal bi-weekly schedule (for production)
+        // PRIORITY 3: Normal bi-weekly schedule (for production)
         const todaysNeighborhoods = this.dailySchedule[this.currentDay] || [];
         
         if (todaysNeighborhoods.length === 0) {
@@ -2114,13 +2115,66 @@ CREATE INDEX idx_sales_cache_market_status ON public.sales_market_cache (market_
 async function main() {
     const args = process.argv.slice(2);
     
+    if (args.includes('--help')) {
+        console.log('🏠 Enhanced Claude AI Sales Analyzer');
+        console.log('');
+        console.log('Usage:');
+        console.log('  node enhanced-biweekly-streeteasy-sales.js                    # Run bi-weekly analysis');
+        console.log('  node enhanced-biweekly-streeteasy-sales.js --test soho       # Test single neighborhood');
+        console.log('  node enhanced-biweekly-streeteasy-sales.js --latest 20       # Show latest deals');
+        console.log('  node enhanced-biweekly-streeteasy-sales.js --top-deals 10    # Show top deals');
+        console.log('  node enhanced-biweekly-streeteasy-sales.js --neighborhood park-slope  # Show deals by area');
+        console.log('  node enhanced-biweekly-streeteasy-sales.js --doorman         # Show doorman building deals');
+        console.log('  node enhanced-biweekly-streeteasy-sales.js --setup           # Show database setup');
+        console.log('  node enhanced-biweekly-streeteasy-sales.js --help            # Show this help');
+        console.log('');
+        console.log('Environment Variables:');
+        console.log('  TEST_NEIGHBORHOOD=soho          # Test single neighborhood');
+        console.log('  INITIAL_BULK_LOAD=true          # Process all neighborhoods (first run)');
+        console.log('  ANTHROPIC_API_KEY=sk-...        # Claude AI API key');
+        console.log('  RAPIDAPI_KEY=...                # StreetEasy API key');
+        console.log('  SUPABASE_URL=...                # Supabase project URL');
+        console.log('  SUPABASE_ANON_KEY=...           # Supabase anon key');
+        console.log('');
+        console.log('Features:');
+        console.log('  🤖 Claude AI natural language market analysis');
+        console.log('  🎯 Hierarchical comparable filtering (75-90% more accurate)');
+        console.log('  💾 Smart deduplication (75-90% API call savings)');
+        console.log('  🏠 Automatic sold listing detection');
+        console.log('  ⚡ Adaptive rate limiting');
+        return;
+    }
+    
     if (!process.env.RAPIDAPI_KEY || !process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY || !process.env.ANTHROPIC_API_KEY) {
         console.error('❌ Missing required environment variables!');
         console.error('   RAPIDAPI_KEY, SUPABASE_URL, SUPABASE_ANON_KEY, ANTHROPIC_API_KEY required');
+        console.error('\n💡 For testing, you can also set:');
+        console.error('   TEST_NEIGHBORHOOD=soho (to test single neighborhood)');
         process.exit(1);
     }
 
     const analyzer = new EnhancedBiWeeklySalesAnalyzer();
+
+    if (args.includes('--test')) {
+        const neighborhood = args[args.indexOf('--test') + 1];
+        if (!neighborhood) {
+            console.error('❌ Please provide a neighborhood: --test park-slope');
+            console.error('🧪 Valid examples: soho, east-village, west-village, williamsburg, park-slope');
+            return;
+        }
+        
+        console.log(`🧪 TESTING Claude AI Sales Analysis on: ${neighborhood}`);
+        console.log('⚡ This will run full analysis with smart deduplication and natural language reasoning');
+        
+        // Override environment for testing
+        process.env.TEST_NEIGHBORHOOD = neighborhood;
+        process.env.INITIAL_BULK_LOAD = 'false';
+        
+        const results = await analyzer.runBiWeeklySalesRefresh();
+        
+        console.log('\n🎉 Test completed! Check results above.');
+        return results;
+    }
 
     if (args.includes('--setup')) {
         await analyzer.setupSalesDatabase();
@@ -2201,3 +2255,5 @@ if (require.main === module) {
         process.exit(1);
     });
 }
+                    
+                
