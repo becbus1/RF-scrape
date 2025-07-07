@@ -16,7 +16,7 @@ const path = require('path');
 const axios = require('axios');
 
 // VERIFIED IMPORTS - These match the actual file names in your project
-const EnhancedBiWeeklySalesAnalyzer = require('./biweekly-streeteasy-sales');
+const ClaudePoweredSalesSystem = require('./claude-powered-sales-system');
 const ClaudePoweredRentalsSystem = require('./claude-powered-rentals-system');         // ✅ Correct filename
 
 class ClaudeIntegratedRailwayRunner {
@@ -128,15 +128,16 @@ class ClaudeIntegratedRailwayRunner {
     /**
      * Run Claude-integrated sales analysis - VERIFIED METHOD CALL
      */
-    async runSalesAnalysis() {
-        try {
-            const salesAnalyzer = new EnhancedBiWeeklySalesAnalyzer();
-            return await salesAnalyzer.runBiWeeklySalesRefresh();  // ✅ Correct method name
-        } catch (error) {
-            console.error('❌ Sales analysis failed:', error.message);
-            return { error: error.message };
-        }
+  async runSalesAnalysis() {
+    try {
+        const salesSystem = new ClaudePoweredSalesSystem();
+        const neighborhoods = await this.determineTargetNeighborhoods();
+        return await salesSystem.runComprehensiveAnalysis(neighborhoods);
+    } catch (error) {
+        console.error('❌ Claude sales analysis failed:', error.message);
+        return { error: error.message };
     }
+}
 
     /**
      * Run Claude-powered rentals analysis - VERIFIED METHOD CALLS
