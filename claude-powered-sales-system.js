@@ -40,6 +40,7 @@ class ClaudePoweredSalesSystem {
         this.totalAnalyzed = 0;
         this.undervaluedCount = 0;
         this.twoStageCallsSaved = 0;
+        this.rentStabilizedBuildings = [];
         
         console.log('🏠 Claude-Powered Sales Opportunity System initialized');
         console.log(`   🎯 Base undervaluation threshold: ${this.undervaluationThreshold}%`);
@@ -98,6 +99,11 @@ class ClaudePoweredSalesSystem {
             const analyzedProperties = [];
             const totalListings = results.totalListings || detailedSales.length;
             const dynamicThreshold = this.calculateDynamicThreshold(totalListings, neighborhood);
+
+            // ✅ ADD: Load DHCR buildings for rent stabilization analysis  
+            if (this.rentStabilizedBuildings.length === 0) {
+                this.rentStabilizedBuildings = await this.loadRentStabilizedBuildings();
+            }
             
             for (const listing of detailedSales) {
                 try {
@@ -111,6 +117,12 @@ class ClaudePoweredSalesSystem {
                     
                     // 🔧 MOVED: Cache ALL detailed listings immediately after detailed fetch
                     await this.cacheDetailedSalesListing(listing, neighborhood);
+
+                       // ✅ ADD: Rent stabilization analysis for investor reasoning
+                    const rentStabilizationAnalysis = this.claudeAnalyzer.generateRentStabilizationAnalysis(
+                        listing, 
+                        this.rentStabilizedBuildings
+                    );
                     
                     // STAGE 1: Quick undervaluation check (no expensive reasoning)
                     const quickCheck = await this.claudeAnalyzer.analyzeSalesUndervaluation(
@@ -148,6 +160,8 @@ class ClaudePoweredSalesSystem {
                             investmentReasoning: cleanAnalysis.investmentReasoning,
                             propertyTypeAnalysis: cleanAnalysis.propertyTypeAnalysis,
                             hoaFactorAnalysis: cleanAnalysis.hoaFactorAnalysis,
+                            rentStabilizationAnalysis: rentStabilizationAnalysis,
+
                             
                             // Classifications
                             isUndervalued: true,
@@ -409,6 +423,8 @@ Must include:
 4. **Value-Add Potential** – Room to raise rents? Renovation upside? Include estimated costs + ROI
 5. **Cost Risks/Flags** – HOA fees, taxes, legal risks, liquidity concerns
 6. **Conclude** – Strong/average/weak deal and why
+7. **Rent Stabilization Risk Assessment** – Analyze probability of rent stabilization using these criteria: (1) DHCR database match is REQUIRED, (2) Buildings with 6+ units built 1943-1972 have highest probability, (3) Quantify impact on 10-year rental income projections if rent increases are capped at 2.5% annually vs 5-6% market rate.
+
 
 Use realistic investor tone, not marketing speak. Example phrasing: "This could be a solid BRRRR opportunity..." / "Cap rate is thin unless..."
 
@@ -424,7 +440,7 @@ Provide factual, actionable analysis for both perspectives.`;
 /**
  * Build prompt context for dual analysis
  */
-buildDualAnalysisPrompt(listing, quickCheck, neighborhood) {
+buildDualAnalysisPrompt(listing, quickCheck, neighborhood, rentStabilizationAnalysis) {
     const savings = quickCheck.potentialSavings || quickCheck.potentialProfit || 0;
     const annualSavings = savings; // One-time savings for sales
     const discountPercent = quickCheck.discountPercent || 0;
@@ -481,6 +497,12 @@ INVESTMENT CALCULATION ASSUMPTIONS:
 - Loan Term: 30 years
 - Vacancy Rate: 5%
 - Maintenance: 8% of gross rent annually
+
+RENT STABILIZATION ANALYSIS:
+DHCR Database Match: ${rentStabilizationAnalysis?.dhcr_matches?.length > 0 ? 'YES' : 'NO'}
+Rent Stabilization Probability: ${rentStabilizationAnalysis?.confidence_percentage || 0}%
+Building Age: ${listing.builtIn || 'Unknown'} (Built ${listing.builtIn ? (listing.builtIn >= 1943 && listing.builtIn <= 1972 ? 'during rent stabilization era' : 'outside primary stabilization era') : 'unknown'})
+Risk Assessment: ${rentStabilizationAnalysis?.confidence_percentage >= 60 ? 'HIGH RISK - Likely rent stabilized' : 'LOW RISK - Probably market rate'}
 
 Generate both consumer and investment analyses for this ${discountPercent.toFixed(1)}% below-market ${listing.propertyType} in ${neighborhood}.`;
 }
@@ -800,6 +822,65 @@ generateFallbackInvestmentAnalysis(listing, quickCheck) {
         }
     }
 
+    /**
+     * Load rent-stabilized buildings from Supabase (CRITICAL for accuracy)
+     */
+    async loadRentStabilizedBuildings() {
+        try {
+            let allBuildings = [];
+            let offset = 0;
+            const batchSize = 1000;
+            let hasMoreData = true;
+            
+            console.log('🏢 Loading rent-stabilized buildings from DHCR data...');
+            
+            while (hasMoreData) {
+                console.log(`   📊 Loading batch starting at offset ${offset}...`);
+                
+                const { data, error } = await this.supabase
+                    .from('rent_stabilized_buildings')
+                    .select('*')
+                    .range(offset, offset + batchSize - 1)
+                    .order('id');
+                
+                if (error) {
+                    console.error(`   ❌ Error loading buildings at offset ${offset}:`, error.message);
+                    throw error;
+                }
+                
+                // Robust stopping condition
+                if (!data || data.length === 0) {
+                    hasMoreData = false;
+                    break;
+                }
+                
+                allBuildings = allBuildings.concat(data);
+                console.log(`   ✅ Loaded ${data.length} buildings (total: ${allBuildings.length})`);
+                
+                // Dynamic continuation
+                if (data.length < batchSize) {
+                    hasMoreData = false;
+                }
+                
+                offset += batchSize;
+                
+                // Safety check
+                if (offset > 100000) {
+                    console.log('   ⚠️ Reached safety limit of 100,000 buildings');
+                    hasMoreData = false;
+                }
+            }
+            
+            console.log(`   ✅ Loaded ${allBuildings.length} total rent-stabilized buildings`);
+            return allBuildings;
+            
+        } catch (error) {
+            console.error('Failed to load rent-stabilized buildings:', error.message);
+            console.log('   🔄 Continuing without DHCR data - will use building characteristics only');
+            return [];
+        }
+    }
+    
     /**
      * Handle price change updates for undervalued_sales table
      */
