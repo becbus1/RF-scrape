@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-/**
+/** 
  * CHECKED: CLAUDE-INTEGRATED RAILWAY RUNNER - RENTALS FIRST VERSION
  * 
  * ✅ SYNTAX VERIFIED: All functions complete and properly closed
