@@ -109,6 +109,9 @@ class ClaudePoweredSalesSystem {
                         continue;
                     }
                     
+                    // 🔧 MOVED: Cache ALL detailed listings immediately after detailed fetch
+                    await this.cacheDetailedSalesListing(listing, neighborhood);
+                    
                     // STAGE 1: Quick undervaluation check (no expensive reasoning)
                     const quickCheck = await this.claudeAnalyzer.analyzeSalesUndervaluation(
                         listing,
@@ -158,8 +161,7 @@ class ClaudePoweredSalesSystem {
                         
                         analyzedProperties.push(analyzedProperty);
                         
-                        // Cache the detailed listing and analysis
-                        await this.cacheDetailedSalesListing(analyzedProperty, neighborhood);
+                        // 🔧 REMOVED: No longer cache here - already cached above
                         
                         results.undervaluedCount++;
                         console.log(`     ✅ ${listing.address}: ${cleanAnalysis.discountPercent}% below market (${listing.propertyType})`);
@@ -181,6 +183,11 @@ class ClaudePoweredSalesSystem {
             
             // Calculate API efficiency
             results.apiCallsSaved = results.quickChecks - results.detailedAnalyses;
+
+   // 🔧 ADD THIS: Handle price updates for existing undervalued_sales
+            if (priceUpdates.length > 0) {
+                await this.handlePriceUpdatesForUndervaluedSales(priceUpdates);
+            }
             
             // STEP 7: Save results to database
             if (analyzedProperties.length > 0) {
@@ -667,34 +674,78 @@ generateFallbackInvestmentAnalysis(listing, quickCheck) {
         }
     }
 
-    /**
+/**
+     * Update cache with analysis results (mark as undervalued or market_rate)
+     */
+    async updateCacheWithSalesAnalysisResults(detailedSales, undervaluedSales) {
+        try {
+            const cacheUpdates = detailedSales.map(sale => {
+                const isUndervalued = undervaluedSales.some(us => us.id === sale.id);
+                
+                return {
+                    listing_id: sale.id?.toString(),
+                    market_status: isUndervalued ? 'undervalued' : 'market_rate',
+                    last_analyzed: new Date().toISOString(),
+                    last_checked: new Date().toISOString()
+                };
+            });
+
+            // Batch update all analyzed properties
+            for (const update of cacheUpdates) {
+                const { error } = await this.supabase
+                    .from('sales_market_cache')
+                    .update({
+                        market_status: update.market_status,
+                        last_analyzed: update.last_analyzed,
+                        last_checked: update.last_checked
+                    })
+                    .eq('listing_id', update.listing_id);
+
+                if (error) {
+                    console.warn(`⚠️ Failed to update cache for ${update.listing_id}:`, error.message);
+                }
+            }
+
+            console.log(`   💾 Updated cache for ${cacheUpdates.length} analyzed properties`);
+            
+        } catch (error) {
+            console.warn(`⚠️ Error updating cache with analysis results:`, error.message);
+        }
+    }
+    
+   /**
      * Smart caching - check which sales need individual API calls
      */
     async getSalesNeedingFetch(activeListings, cachedListings) {
-        const cachedIds = new Set(cachedListings.map(c => c.id));
         const needFetch = [];
         const priceUpdates = [];
         
         for (const listing of activeListings) {
-            const cached = cachedListings.find(c => c.id === listing.id);
+            // 🔧 FIX 1: Use listing_id field (not id)
+            const cached = cachedListings.find(c => c.listing_id === listing.id?.toString());
             
             if (!cached) {
                 // New listing - needs full fetch
                 needFetch.push(listing);
+            // 🔧 FIX 2: Use correct price field names 
             } else if (cached.price !== listing.price) {
                 // Price changed - needs re-fetch and analysis update
                 console.log(`   💰 Price change detected for ${listing.id}: ${cached.price} → ${listing.price}`);
                 needFetch.push(listing);
                 priceUpdates.push({ id: listing.id, oldPrice: cached.price, newPrice: listing.price });
+            // 🔧 FIX 3: Add market_status check to skip already analyzed
+            } else if (cached.market_status === 'pending' || cached.market_status === 'fetch_failed') {
+                // Never analyzed or failed - needs analysis
+                needFetch.push(listing);
             }
-            // else: cached and price same - no fetch needed
+            // else: cached, same price, and already analyzed - skip
         }
         
         return { needFetch, priceUpdates, cacheHits: activeListings.length - needFetch.length };
     }
 
-    /**
-     * Mark missing listings as likely sold
+   /**
+     * Mark missing listings as likely sold and handle price updates
      */
     async markMissingListingsAsSold(currentListingIds, neighborhood) {
         try {
@@ -715,7 +766,7 @@ generateFallbackInvestmentAnalysis(listing, quickCheck) {
                 .filter(id => !currentIds.has(id));
             
             if (missingIds.length > 0) {
-                // Mark as likely sold
+                // Mark as likely sold in cache
                 const { error: updateError } = await this.supabase
                     .from('sales_market_cache')
                     .update({ 
@@ -742,13 +793,39 @@ generateFallbackInvestmentAnalysis(listing, quickCheck) {
                 if (markSalesError) {
                     console.warn('⚠️ Error marking undervalued_sales as sold:', markSalesError.message);
                 }
-                
-                // Remove from analysis tables
-                await this.removeSoldFromAnalysisTables(missingIds);
             }
             
         } catch (error) {
             console.warn(`   ⚠️ Error marking missing listings: ${error.message}`);
+        }
+    }
+
+    /**
+     * Handle price change updates for undervalued_sales table
+     */
+    async handlePriceUpdatesForUndervaluedSales(priceUpdates) {
+        if (priceUpdates.length === 0) return;
+        
+        try {
+            for (const update of priceUpdates) {
+                // Update price in undervalued_sales if it exists
+                const { error } = await this.supabase
+                    .from('undervalued_sales')
+                    .update({
+                        price: update.newPrice,
+                        last_seen_in_search: new Date().toISOString()
+                    })
+                    .eq('listing_id', update.id.toString())
+                    .eq('status', 'active');
+                
+                if (error) {
+                    console.warn(`⚠️ Error updating price for undervalued sale ${update.id}:`, error.message);
+                } else {
+                    console.log(`   💰 Updated undervalued_sales price for ${update.id}: ${update.oldPrice} → ${update.newPrice}`);
+                }
+            }
+        } catch (error) {
+            console.warn(`⚠️ Error handling price updates for undervalued_sales:`, error.message);
         }
     }
 
