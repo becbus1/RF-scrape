@@ -395,7 +395,7 @@ Generate TWO distinct analyses for this undervalued property:
 - State the exact discount percentage below market
 - Mention the actual price vs estimated market price
 - Explain why it's a good deal (features, location, value)
-- Include monthly/annual savings amount
+- Include new lower average monthly mortgage payment amount (not monthly savings)
 - Note any reasons why it may be undervalued (if applicable)
 - Keep to 3-4 sentences, conversational tone
 
