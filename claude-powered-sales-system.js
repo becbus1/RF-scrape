@@ -364,8 +364,15 @@ class ClaudePoweredSalesSystem {
  */
 async generateTwoTierSalesAnalysis(listing, quickCheck, comparables, neighborhood) {
     try {
+
+// ✅ FIXED: Generate rent stabilization analysis inside this function
+        const rentStabilizationAnalysis = this.claudeAnalyzer.generateRentStabilizationAnalysis(
+            listing, 
+            this.rentStabilizedBuildings
+        );
+
         // Single Claude call with dual analysis request
-        const dualAnalysisPrompt = this.buildDualAnalysisPrompt(listing, quickCheck, neighborhood);
+        const dualAnalysisPrompt = this.buildDualAnalysisPrompt(listing, quickCheck, neighborhood, rentStabilizationAnalysis);
         
         // Use Claude analyzer's callClaude method directly
         const response = await this.claudeAnalyzer.callClaude(
