@@ -1248,11 +1248,11 @@ generateFallbackInvestmentAnalysis(listing, quickCheck) {
      * Calculate property grade based on score
      */
     calculatePropertyGrade(score) {
-        if (score >= 98) return 'A+';
-        if (score >= 93) return 'A';
-        if (score >= 88) return 'B+';
-        if (score >= 83) return 'B';
-        if (score >= 75) return 'C+';
+        if (score >= 95) return 'A+';
+        if (score >= 87) return 'A';
+        if (score >= 83) return 'B+';
+        if (score >= 76) return 'B';
+        if (score >= 70) return 'C+';
         if (score >= 65) return 'C';
         if (score >= 60) return 'D';
         return 'F';
