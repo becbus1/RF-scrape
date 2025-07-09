@@ -421,27 +421,33 @@ Generate TWO distinct analyses for this undervalued property:
 - Keep to 3-4 sentences, conversational tone
 
 **INVESTOR ANALYSIS REQUIREMENTS:**
-You are an expert NYC residential real estate investor evaluating potential acquisitions. Write a concise 3-5 sentence investment memo highlighting financial viability.
+You are an expert NYC residential real estate investor providing specific financial calculations. Write a concise 3-5 sentence investment memo with actionable numbers.
 
 Must include:
-1. **Cap Rate** – Estimate based on realistic market rent, taxes, HOA, maintenance
-2. **Cash-on-Cash Return** – Assume 25% down, 7% interest, 30-year amortization, 5% vacancy
-3. **GRM** – Purchase price divided by annual gross rent
-4. **Value-Add Potential** – Room to raise rents? Renovation upside? Include estimated costs + ROI
-5. **Cost Risks/Flags** – HOA fees, taxes, legal risks, liquidity concerns
-6. **Conclude** – Strong/average/weak deal and why
-7. **Rent Stabilization Risk Assessment** – Analyze probability of rent stabilization using these criteria: (1) DHCR database match is REQUIRED, (2) Buildings with 6+ units built 1943-1972 have highest probability, (3) Quantify impact on 10-year rental income projections if rent increases are capped at 2.5% annually vs 5-6% market rate.
+1. **Specific Financial Metrics** – State exact cap rate, cash-on-cash return, and GRM with precision
+2. **Monthly Cash Flow Calculation** – Calculate exact monthly cash flow after mortgage, taxes, HOA, maintenance, vacancy
+3. **Break-Even Analysis** – What rent is needed to break even? How does this compare to estimated market rent?
+4. **Equity Capture** – Quantify immediate equity gain from below-market purchase
+5. **Value-Add Scenarios** – If renovation potential exists, provide specific cost estimates and projected ROI
+6. **Deal Classification** – Classify as "Strong Buy," "Marginal," or "Pass" with specific reasoning
 
+**RENT STABILIZATION RISK ASSESSMENT RULES:**
+- If rent stabilization probability < 60%: Simply state "Property is almost certainly not rent-stabilized" and move on
+- If rent stabilization probability ≥ 60%: Explain "High rent stabilization risk due to [specific factors: mention DHCR database match if present, building constructed in 19XX (rent stabilization era), estimated X+ units meeting 6+ unit threshold]. This caps rent increases to 2.5% annually vs 5-6% market rate, reducing 10-year income potential by approximately $X."
 
-Use realistic investor tone, not marketing speak. Example phrasing: "This could be a solid BRRRR opportunity..." / "Cap rate is thin unless..."
+**TONE REQUIREMENTS:**
+- NO generic phrases like "could be a solid BRRRR opportunity" 
+- Lead with specific numbers and calculations
+- Use precise investment terminology
+- Focus on actionable financial data investors need
 
 RESPONSE FORMAT (JSON):
 {
   "consumerReasoning": "[Consumer analysis following the structure above]",
-  "investmentReasoning": "[Investment memo following the requirements above]"
+  "investmentReasoning": "[Investment memo with specific calculations and metrics]"
 }
 
-Provide factual, actionable analysis for both perspectives.`;
+Provide factual, actionable, insightful analysis for both perspectives. Provide precise, calculation-heavy analysis that saves investors time on due diligence math for investment reasoning specifically.`;
 }
 
 /**
