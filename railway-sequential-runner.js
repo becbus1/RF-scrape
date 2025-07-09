@@ -329,26 +329,21 @@ Auto-download failed, but rentals system will use fallback neighborhoods.
         }
     }
 
-    /**
-     * Determine target neighborhoods with fallbacks
-     */
-    async determineTargetNeighborhoods() {
-        // Priority 1: Test neighborhood override
-        if (process.env.TEST_NEIGHBORHOOD) {
-            console.log(`🧪 TEST MODE: Using single neighborhood: ${process.env.TEST_NEIGHBORHOOD}`);
-            return [process.env.TEST_NEIGHBORHOOD];
-        }
-        
-        // Priority 2: Default neighborhood set
-        const defaultNeighborhoods = [
-            'park-slope', 'williamsburg', 'astoria', 'bushwick',
-            'crown-heights', 'prospect-heights', 'greenpoint',
-            'bed-stuy', 'fort-greene', 'long-island-city'
-        ];
-        
-        console.log(`🏘️ Using default neighborhoods: ${defaultNeighborhoods.length} areas`);
-        return defaultNeighborhoods;
+  async determineTargetNeighborhoods() {
+    // Priority 1: Test neighborhood override
+    if (process.env.TEST_NEIGHBORHOOD) {
+        console.log(`🧪 TEST MODE: Using single neighborhood: ${process.env.TEST_NEIGHBORHOOD}`);
+        return [process.env.TEST_NEIGHBORHOOD];
     }
+    
+    // Priority 2: Use sales system's full high-priority list
+    const ClaudePoweredSalesSystem = require('./claude-powered-sales-system.js');
+    const salesSystem = new ClaudePoweredSalesSystem();
+    const neighborhoods = salesSystem.getHighPriorityNeighborhoods();
+    
+    console.log(`🏘️ Using high-priority neighborhoods: ${neighborhoods.length} areas`);
+    return neighborhoods;
+}
 
     /**
      * UPDATED: Log combined results with new order
