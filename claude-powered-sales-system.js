@@ -1047,6 +1047,7 @@ generateFallbackInvestmentAnalysis(listing, quickCheck) {
                 estimated_market_price: this.safeInt(property.estimatedMarketPrice),
                 discount_percent: this.safeDecimal(property.percentBelowMarket, 2, 0),
                 potential_savings: this.safeInt(property.potentialSavings, 0),
+    investor_plan_property: this.determineInvestorPlanStatus(property.price),
                 price_per_sqft: property.sqft > 0 ? this.safeDecimal(property.price / property.sqft, 2) : null,
                 market_price_per_sqft: (property.estimatedMarketPrice && property.sqft > 0) ? 
                     this.safeDecimal(property.estimatedMarketPrice / property.sqft, 2) : null,
@@ -1309,6 +1310,14 @@ generateFallbackInvestmentAnalysis(listing, quickCheck) {
     delay(ms) {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
+
+/**
+ * ✅ ADD THIS FUNCTION HERE
+ * Determines if a property should be marked for investor plan
+ */
+determineInvestorPlanStatus(price) {
+    return price >= 10000000 ? true : null;
+}
 
     /**
      * Main comprehensive sales analysis entry point
