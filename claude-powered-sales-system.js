@@ -779,61 +779,76 @@ generateFallbackInvestmentAnalysis(listing, quickCheck) {
         return { needFetch, priceUpdates, cacheHits: activeListings.length - needFetch.length };
     }
 
-   /**
-     * Mark missing listings as likely sold and handle price updates
-     */
-    async markMissingListingsAsSold(currentListingIds, neighborhood) {
-        try {
-            const currentIds = new Set(currentListingIds.map(id => id.toString()));
-            
-            // Find cached listings not in current search
-            const { data: cachedListings, error } = await this.supabase
+  // ✅ NEW VERSION (Gets ALL cached listings with pagination):
+async markMissingListingsAsSold(currentListingIds, neighborhood) {
+    try {
+        const currentIds = new Set(currentListingIds.map(id => id.toString()));
+        
+        // ✅ FIX: Get ALL cached listings with pagination
+        let allCachedListings = [];
+        let offset = 0;
+        const limit = 1000; // Supabase batch size
+        let hasMoreData = true;
+        
+        while (hasMoreData) {
+            const { data, error } = await this.supabase
                 .from('sales_market_cache')
                 .select('listing_id')
                 .eq('neighborhood', neighborhood)
                 .not('address', 'is', null)
-                .neq('market_status', 'likely_sold');
+                .neq('market_status', 'likely_sold')
+                .range(offset, offset + limit - 1);
             
             if (error) throw error;
             
-            const missingIds = (cachedListings || [])
-                .map(row => row.listing_id)
-                .filter(id => !currentIds.has(id));
-            
-            if (missingIds.length > 0) {
-                // Mark as likely sold in cache
-                const { error: updateError } = await this.supabase
-                    .from('sales_market_cache')
-                    .update({ 
-                        market_status: 'likely_sold',
-                        last_checked: new Date().toISOString()
-                    })
-                    .in('listing_id', missingIds);
-                
-                if (updateError) throw updateError;
-
-                // Mark corresponding entries in undervalued_sales as likely sold
-                const { error: markSalesError } = await this.supabase
-                    .from('undervalued_sales')
-                    .update({
-                        status: 'likely_sold',
-                        likely_sold: true,
-                        sold_detected_at: new Date().toISOString()
-                    })
-                    .in('listing_id', missingIds)
-                    .eq('status', 'active');
-                
-                console.log(`   🔄 Marked ${missingIds.length} missing listings as likely sold`);
-                
-                if (markSalesError) {
-                    console.warn('⚠️ Error marking undervalued_sales as sold:', markSalesError.message);
-                }
+            if (!data || data.length === 0) {
+                hasMoreData = false;
+            } else {
+                allCachedListings = allCachedListings.concat(data);
+                if (data.length < limit) hasMoreData = false;
+                offset += limit;
             }
-            
-        } catch (error) {
-            console.warn(`   ⚠️ Error marking missing listings: ${error.message}`);
         }
+        
+        const missingIds = allCachedListings
+            .map(row => row.listing_id)
+            .filter(id => !currentIds.has(id));
+        
+        // ... rest of function stays exactly the same
+        if (missingIds.length > 0) {
+            // Mark as likely sold in cache
+            const { error: updateError } = await this.supabase
+                .from('sales_market_cache')
+                .update({ 
+                    market_status: 'likely_sold',
+                    last_checked: new Date().toISOString()
+                })
+                .in('listing_id', missingIds);
+            
+            if (updateError) throw updateError;
+
+            // Mark corresponding entries in undervalued_sales as likely sold
+            const { error: markSalesError } = await this.supabase
+                .from('undervalued_sales')
+                .update({
+                    status: 'likely_sold',
+                    likely_sold: true,
+                    sold_detected_at: new Date().toISOString()
+                })
+                .in('listing_id', missingIds)
+                .eq('status', 'active');
+            
+            console.log(`   🔄 Marked ${missingIds.length} missing listings as likely sold`);
+            
+            if (markSalesError) {
+                console.warn('⚠️ Error marking undervalued_sales as sold:', markSalesError.message);
+            }
+        }
+        
+    } catch (error) {
+        console.warn(`   ⚠️ Error marking missing listings: ${error.message}`);
     }
+}
 
     /**
      * Load rent-stabilized buildings from Supabase (CRITICAL for accuracy)
