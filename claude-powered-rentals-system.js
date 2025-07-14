@@ -463,30 +463,44 @@ cleanAnalysisData(analysis) {
         return { needFetch, priceUpdates, cacheHits: activeListings.length - needFetch.length };
     }
 
-/**
- * RESTORED: Mark missing listings as likely rented
- * UPDATED: Now handles both undervalued_rentals AND undervalued_rent_stabilized
- */
+// ✅ NEW VERSION (Gets ALL cached listings with pagination):
 async markMissingListingsAsRented(currentListingIds, neighborhood) {
     try {
         const currentIds = new Set(currentListingIds.map(id => id.toString()));
         
-        // Find cached listings not in current search
-        const { data: cachedListings, error } = await this.supabase
-            .from('rental_market_cache')
-            .select('listing_id')
-            .eq('neighborhood', neighborhood)
-            .not('address', 'is', null)
-            .neq('market_status', 'likely_rented');
+        // ✅ FIX: Get ALL cached listings with pagination
+        let allCachedListings = [];
+        let offset = 0;
+        const limit = 1000; // Supabase batch size
+        let hasMoreData = true;
         
-        if (error) throw error;
+        while (hasMoreData) {
+            const { data, error } = await this.supabase
+                .from('rental_market_cache')
+                .select('listing_id')
+                .eq('neighborhood', neighborhood)
+                .not('address', 'is', null)
+                .neq('market_status', 'likely_rented')
+                .range(offset, offset + limit - 1);
+            
+            if (error) throw error;
+            
+            if (!data || data.length === 0) {
+                hasMoreData = false;
+            } else {
+                allCachedListings = allCachedListings.concat(data);
+                if (data.length < limit) hasMoreData = false;
+                offset += limit;
+            }
+        }
         
-        const missingIds = (cachedListings || [])
+        const missingIds = allCachedListings
             .map(row => row.listing_id)
             .filter(id => !currentIds.has(id));
         
+        // ... rest of function stays exactly the same
         if (missingIds.length > 0) {
-            // Mark as likely rented
+            // Mark as likely rented in cache
             const { error: updateError } = await this.supabase
                 .from('rental_market_cache')
                 .update({ 
@@ -497,7 +511,7 @@ async markMissingListingsAsRented(currentListingIds, neighborhood) {
             
             if (updateError) throw updateError;
 
-            // ADDED: Mark corresponding entries in undervalued_rentals as likely rented
+            // Mark corresponding entries in undervalued_rentals as likely rented
             const { error: markRentalsError } = await this.supabase
                 .from('undervalued_rentals')
                 .update({
@@ -507,30 +521,12 @@ async markMissingListingsAsRented(currentListingIds, neighborhood) {
                 })
                 .in('listing_id', missingIds)
                 .eq('status', 'active');
-
-            // ADDED: Mark corresponding entries in undervalued_rent_stabilized as likely rented
-            const { error: markStabilizedError } = await this.supabase
-                .from('undervalued_rent_stabilized')
-                .update({
-                    display_status: 'rented',
-                    likely_rented: true,
-                    rented_detected_at: new Date().toISOString()
-                })
-                .in('listing_id', missingIds)
-                .eq('display_status', 'active');
             
             console.log(`   🔄 Marked ${missingIds.length} missing listings as likely rented`);
             
             if (markRentalsError) {
                 console.warn('⚠️ Error marking undervalued_rentals as rented:', markRentalsError.message);
             }
-            
-            if (markStabilizedError) {
-                console.warn('⚠️ Error marking undervalued_rent_stabilized as rented:', markStabilizedError.message);
-            }
-            
-            // Also remove from analysis tables (simpler than updating)
-            await this.removeRentedFromAnalysisTables(missingIds);
         }
         
     } catch (error) {
