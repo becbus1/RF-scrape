@@ -272,6 +272,10 @@ class ClaudePoweredSalesSystem {
             let hasMoreData = true;
             
             while (hasMoreData && allSales.length < maxListings) {
+// ✅ ADD THIS LOGGING HERE:
+    console.log(`🔍 Starting API call for ${neighborhood} at ${new Date().toISOString()}`);
+    console.log(`📡 Calling: areas=${neighborhood}, limit=${limit}, offset=${offset}`);
+
                 const response = await axios.get('https://streeteasy-api.p.rapidapi.com/sales/search', {
                     params: {
                         areas: neighborhood,
@@ -286,6 +290,10 @@ class ClaudePoweredSalesSystem {
                     },
                     timeout: 30000
                 });
+
+ // ✅ ADD THIS LOGGING HERE:
+    console.log(`✅ API call completed for ${neighborhood} at ${new Date().toISOString()}`);
+    console.log(`📊 Got ${response.data?.results?.length || response.data?.length || 0} results`);
                 
                 this.apiCallsUsed++;
                 
