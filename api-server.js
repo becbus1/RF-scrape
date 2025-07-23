@@ -80,14 +80,24 @@ class SmartCacheFirstAPI {
     }
 
     setupRoutes() {
-        // Health check
+       // Health check
         this.app.get('/health', (req, res) => {
             res.json({
                 status: 'healthy',
+                service: 'nyc_full_api',
                 timestamp: new Date().toISOString(),
                 uptime: process.uptime(),
                 version: '3.0.0',
-                mode: 'smart_cache_first_api_instagram_optimized'
+                mode: 'comprehensive_scraping_with_railway_functions_integration',
+                features: [
+                    'smart_search',
+                    'job_queue',
+                    'railway_function_fallback',
+                    'instagram_dm_ready',
+                    'comprehensive_analysis'
+                ],
+                activeJobs: this.activeJobs.size,
+                queueStatus: 'operational'
             });
         });
 
@@ -240,7 +250,7 @@ class SmartCacheFirstAPI {
             });
         });
 
-        // Job results endpoint
+// Job results endpoint
         this.app.get('/api/results/:jobId', (req, res) => {
             const { jobId } = req.params;
             const results = this.jobResults.get(jobId);
@@ -251,11 +261,67 @@ class SmartCacheFirstAPI {
                     message: 'Results not found for this job ID'
                 });
             }
-
             res.json({
                 success: true,
                 data: results
             });
+        });
+
+        // NEW ENDPOINT: Trigger full API from Railway Function
+        this.app.post('/api/trigger/full-search', async (req, res) => {
+            try {
+                const apiKey = req.headers['x-api-key'] || req.query.apiKey;
+                
+                if (!apiKey || apiKey !== this.apiKey) {
+                    return res.status(401).json({
+                        error: 'Unauthorized',
+                        message: 'Valid API key required'
+                    });
+                }
+
+                // Extract search parameters from Railway Function
+                const searchParams = req.body;
+                
+                console.log('🚀 Full API triggered by Railway Function for cache miss');
+                console.log('📋 Search params:', {
+                    neighborhood: searchParams.neighborhood,
+                    propertyType: searchParams.propertyType,
+                    bedrooms: searchParams.bedrooms,
+                    maxPrice: searchParams.maxPrice
+                });
+                
+                // Use existing smart search logic
+                const jobId = this.generateJobId();
+                
+                // Start smart search with fallback-optimized settings
+                this.startSmartSearch(jobId, {
+                    ...searchParams,
+                    neighborhood: searchParams.neighborhood?.toLowerCase().replace(/\s+/g, '-'),
+                    maxResults: Math.min(parseInt(searchParams.maxResults || 1), 5), // Limit for triggered searches
+                    source: 'railway_function_fallback'
+                });
+
+                res.status(202).json({
+                    success: true,
+                    data: {
+                        jobId: jobId,
+                        status: 'started',
+                        message: `Full API search started for ${searchParams.neighborhood}`,
+                        estimatedDuration: '2-5 minutes (fresh scraping + analysis)',
+                        checkStatusUrl: `/api/jobs/${jobId}`,
+                        getResultsUrl: `/api/results/${jobId}`,
+                        source: 'railway_function_fallback'
+                    }
+                });
+
+            } catch (error) {
+                console.error('Full API trigger error:', error);
+                res.status(500).json({
+                    error: 'Internal Server Error',
+                    message: 'Failed to trigger full API search',
+                    details: error.message
+                });
+            }
         });
     }
 
