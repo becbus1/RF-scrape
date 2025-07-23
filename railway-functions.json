@@ -1,0 +1,14 @@
+// =============================================================================
+// FILE 4: railway-functions.json (Railway Functions Config)
+// =============================================================================
+
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "NIXPACKS"
+  },
+  "functions": {
+    "search": "api/search.js",
+    "health": "api/health.js"
+  }
+}
