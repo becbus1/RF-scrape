@@ -1234,15 +1234,21 @@ valuationMethod: 'claude_hierarchical_analysis'
 
     analyzeNeighborhood(neighborhood, type) {
         // Default neighborhood analysis
-        const neighborhoodData = {
-            'soho': { tier: 'luxury', desirabilityScore: 9, rentPremium: '+40%', velocity: 'fast' },
-            'tribeca': { tier: 'ultra-luxury', desirabilityScore: 10, rentPremium: '+60%', velocity: 'fast' },
-            'west-village': { tier: 'luxury', desirabilityScore: 9, rentPremium: '+35%', velocity: 'moderate' },
-            'east-village': { tier: 'mid-luxury', desirabilityScore: 8, rentPremium: '+20%', velocity: 'fast' },
-            'brooklyn-heights': { tier: 'luxury', desirabilityScore: 8, rentPremium: '+25%', velocity: 'moderate' },
-            'dumbo': { tier: 'luxury', desirabilityScore: 8, rentPremium: '+25%', velocity: 'moderate' },
-            'williamsburg': { tier: 'mid-luxury', desirabilityScore: 8, rentPremium: '+20%', velocity: 'fast' }
-        };
+       const neighborhoodData = {
+    // Keep your existing 7 neighborhoods
+    'soho': { tier: 'luxury', desirabilityScore: 9, rentPremium: '+40%', velocity: 'fast' },
+    'tribeca': { tier: 'ultra-luxury', desirabilityScore: 10, rentPremium: '+60%', velocity: 'fast' },
+    'west-village': { tier: 'luxury', desirabilityScore: 9, rentPremium: '+35%', velocity: 'moderate' },
+    'east-village': { tier: 'mid-luxury', desirabilityScore: 8, rentPremium: '+20%', velocity: 'fast' },
+    'brooklyn-heights': { tier: 'luxury', desirabilityScore: 8, rentPremium: '+25%', velocity: 'moderate' },
+    'dumbo': { tier: 'luxury', desirabilityScore: 8, rentPremium: '+25%', velocity: 'moderate' },
+    'williamsburg': { tier: 'mid-luxury', desirabilityScore: 8, rentPremium: '+20%', velocity: 'fast' },
+    
+    // Add only the unique/emerging ones Claude might not know well
+    'roosevelt-island': { tier: 'mid-market', desirabilityScore: 7, rentPremium: '+10%', velocity: 'moderate' },
+    'hudson-yards': { tier: 'luxury', desirabilityScore: 9, rentPremium: '+45%', velocity: 'fast' },
+    'nomad': { tier: 'mid-luxury', desirabilityScore: 8, rentPremium: '+25%', velocity: 'fast' }
+};
         
         const data = neighborhoodData[neighborhood?.toLowerCase()] || {
             tier: 'mid-market',
