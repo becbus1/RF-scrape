@@ -1283,49 +1283,57 @@ async markMissingListingsAsSold(currentListingIds, neighborhood) {
     }
 
     /**
-     * Get borough from neighborhood
-     */
-    getBoroughFromNeighborhood(neighborhood) {
-        const manhattanNeighborhoods = [
-            'soho', 'tribeca', 'west-village', 'east-village', 'lower-east-side',
-            'financial-district', 'battery-park-city', 'chinatown', 'little-italy',
-            'nolita', 'midtown', 'two-bridges', 'chelsea', 'gramercy-park', 'kips-bay',
-            'murray-hill', 'midtown-east', 'midtown-west', 'hells-kitchen',
-            'upper-east-side', 'upper-west-side', 'morningside-heights',
-            'hamilton-heights', 'washington-heights', 'inwood', 'greenwich-village',
-            'flatiron', 'noho', 'civic-center', 'hudson-square'
-        ];
-        
-        const brooklynNeighborhoods = [
-            'brooklyn-heights', 'dumbo', 'williamsburg', 'greenpoint', 'park-slope',
-            'carroll-gardens', 'cobble-hill', 'boerum-hill', 'fort-greene',
-            'prospect-heights', 'crown-heights', 'bedford-stuyvesant', 'bushwick', 
-            'gowanus', 'clinton-hill', 'red-hook', 'prospect-lefferts-gardens', 
-            'sunset-park', 'bay-ridge', 'bensonhurst', 'downtown-brooklyn', 
-            'columbia-st-waterfront-district', 'vinegar-hill'
-        ];
-        
-        const queensNeighborhoods = [
-            'long-island-city', 'astoria', 'sunnyside', 'woodside', 'elmhurst',
-            'jackson-heights', 'corona', 'flushing', 'forest-hills', 'ridgewood',
-            'maspeth', 'rego-park'
-        ];
-        
-        const bronxNeighborhoods = [
-            'mott-haven', 'melrose', 'concourse', 'yankee-stadium', 'fordham',
-            'belmont', 'tremont', 'mount-eden', 'south-bronx', 'highbridge',
-            'university-heights', 'morrisania'
-        ];
-        
-        const normalizedNeighborhood = neighborhood.toLowerCase();
-        
-        if (manhattanNeighborhoods.includes(normalizedNeighborhood)) return 'Manhattan';
-        if (brooklynNeighborhoods.includes(normalizedNeighborhood)) return 'Brooklyn';
-        if (queensNeighborhoods.includes(normalizedNeighborhood)) return 'Queens';
-        if (bronxNeighborhoods.includes(normalizedNeighborhood)) return 'Bronx';
-        
-        return 'Unknown';
-    }
+ * Get borough from neighborhood - UPDATED WITH NEW NEIGHBORHOODS
+ */
+getBoroughFromNeighborhood(neighborhood) {
+    const manhattanNeighborhoods = [
+        'soho', 'tribeca', 'west-village', 'east-village', 'lower-east-side',
+        'financial-district', 'battery-park-city', 'chinatown', 'little-italy',
+        'nolita', 'midtown', 'two-bridges', 'chelsea', 'gramercy-park', 'kips-bay',
+        'murray-hill', 'midtown-east', 'midtown-west', 'hells-kitchen',
+        'upper-east-side', 'upper-west-side', 'morningside-heights',
+        'hamilton-heights', 'washington-heights', 'inwood', 'greenwich-village',
+        'flatiron', 'noho', 'civic-center', 'hudson-square',
+        // NEW MANHATTAN NEIGHBORHOODS ADDED:
+        'roosevelt-island', 'hudson-yards', 'nomad', 'manhattan-valley'
+    ];
+    
+    const brooklynNeighborhoods = [
+        'brooklyn-heights', 'dumbo', 'williamsburg', 'greenpoint', 'park-slope',
+        'carroll-gardens', 'cobble-hill', 'boerum-hill', 'fort-greene',
+        'prospect-heights', 'crown-heights', 'bedford-stuyvesant', 'bushwick', 
+        'gowanus', 'clinton-hill', 'red-hook', 'prospect-lefferts-gardens', 
+        'sunset-park', 'bay-ridge', 'bensonhurst', 'downtown-brooklyn', 
+        'columbia-st-waterfront-district', 'vinegar-hill',
+        // NEW BROOKLYN NEIGHBORHOODS ADDED:
+        'windsor-terrace', 'ditmas-park'
+    ];
+    
+    const queensNeighborhoods = [
+        'long-island-city', 'astoria', 'sunnyside', 'woodside', 'elmhurst',
+        'jackson-heights', 'corona', 'flushing', 'forest-hills', 'ridgewood',
+        'maspeth', 'rego-park',
+        // NEW QUEENS NEIGHBORHOODS ADDED:
+        'bayside', 'fresh-meadows', 'ditmars-steinway', 'briarwood'
+    ];
+    
+    const bronxNeighborhoods = [
+        'mott-haven', 'melrose', 'concourse', 'yankee-stadium', 'fordham',
+        'belmont', 'tremont', 'mount-eden', 'south-bronx', 'highbridge',
+        'university-heights', 'morrisania',
+        // NEW BRONX NEIGHBORHOODS ADDED:
+        'kingsbridge', 'norwood', 'pelham-bay'
+    ];
+    
+    const normalizedNeighborhood = neighborhood.toLowerCase();
+    
+    if (manhattanNeighborhoods.includes(normalizedNeighborhood)) return 'Manhattan';
+    if (brooklynNeighborhoods.includes(normalizedNeighborhood)) return 'Brooklyn';
+    if (queensNeighborhoods.includes(normalizedNeighborhood)) return 'Queens';
+    if (bronxNeighborhoods.includes(normalizedNeighborhood)) return 'Bronx';
+    
+    return 'Unknown';
+}
 
     /**
      * Helper function for delays
@@ -1510,30 +1518,34 @@ determineInvestorPlanStatus(price) {
         console.log('\n🎉 CLAUDE SALES ANALYSIS COMPLETE!');
     }
 
-    /**
-     * Get high-priority neighborhoods for analysis
-     */
-    getHighPriorityNeighborhoods() {
-        return [
-            // Manhattan priority areas
-            'east-village', 'west-village', 'lower-east-side', 'chinatown',
-            'little-italy', 'nolita', 'soho', 'tribeca', 'financial-district',
-            'two-bridges', 'chelsea', 'gramercy-park', 'kips-bay', 'murray-hill',
-            
-            // Brooklyn priority areas  
-            'williamsburg', 'greenpoint', 'bushwick', 'bedford-stuyvesant',
-            'crown-heights', 'prospect-heights', 'park-slope', 'gowanus',
-            'carroll-gardens', 'cobble-hill', 'brooklyn-heights', 'dumbo',
-            'fort-greene', 'clinton-hill', 'boerum-hill',
-            
-            // Queens priority areas
-            'long-island-city', 'astoria', 'sunnyside', 'woodside',
-            'jackson-heights', 'elmhurst', 'corona', 'ridgewood',
-            
-            // Bronx priority areas
-            'mott-haven', 'melrose', 'concourse', 'south-bronx'
-        ];
-    }
+/**
+ * Get high-priority neighborhoods for analysis - UPDATED WITH NEW NEIGHBORHOODS
+ */
+getHighPriorityNeighborhoods() {
+    return [
+        // Manhattan priority areas (existing + new)
+        'east-village', 'west-village', 'lower-east-side', 'chinatown',
+        'little-italy', 'nolita', 'soho', 'tribeca', 'financial-district',
+        'two-bridges', 'chelsea', 'gramercy-park', 'kips-bay', 'murray-hill',
+        'roosevelt-island', 'hudson-yards', 'nomad', 'manhattan-valley',
+        
+        // Brooklyn priority areas (existing + new)
+        'williamsburg', 'greenpoint', 'bushwick', 'bedford-stuyvesant',
+        'crown-heights', 'prospect-heights', 'park-slope', 'gowanus',
+        'carroll-gardens', 'cobble-hill', 'brooklyn-heights', 'dumbo',
+        'fort-greene', 'clinton-hill', 'boerum-hill', 'windsor-terrace', 
+        'ditmas-park',
+        
+        // Queens priority areas (existing + new)
+        'long-island-city', 'astoria', 'sunnyside', 'woodside',
+        'jackson-heights', 'elmhurst', 'corona', 'ridgewood',
+        'bayside', 'fresh-meadows', 'ditmars-steinway', 'briarwood',
+        
+        // Bronx priority areas (existing + new)
+        'mott-haven', 'melrose', 'concourse', 'south-bronx',
+        'kingsbridge', 'norwood', 'pelham-bay'
+    ];
+}
 }
 
 module.exports = ClaudePoweredSalesSystem;
