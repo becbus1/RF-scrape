@@ -1295,7 +1295,7 @@ getBoroughFromNeighborhood(neighborhood) {
         'hamilton-heights', 'washington-heights', 'inwood', 'greenwich-village',
         'flatiron', 'noho', 'civic-center', 'hudson-square',
         // NEW MANHATTAN NEIGHBORHOODS ADDED:
-        'roosevelt-island', 'hudson-yards', 'nomad', 'harlem', 'manhattan-valley'
+        'roosevelt-island', 'hudson-yards', 'nomad', 'central-harlem', 'manhattan-valley'
     ];
     
     const brooklynNeighborhoods = [
@@ -1530,7 +1530,7 @@ getHighPriorityNeighborhoods() {
         'murray-hill', 'midtown-east', 'midtown-west', 'hells-kitchen',
         'upper-east-side', 'upper-west-side', 'morningside-heights',
         'hamilton-heights', 'washington-heights', 'inwood', 'greenwich-village',
-        'flatiron', 'noho', 'civic-center', 'hudson-square', 'roosevelt-island', 'hudson-yards', 'nomad', 'manhattan-valley', 'harlem',
+        'flatiron', 'noho', 'civic-center', 'hudson-square', 'roosevelt-island', 'hudson-yards', 'nomad', 'manhattan-valley', 'central-harlem',
         
         // Brooklyn priority areas (existing + new)
          'brooklyn-heights', 'dumbo', 'williamsburg', 'greenpoint', 'park-slope',
