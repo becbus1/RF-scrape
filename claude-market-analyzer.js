@@ -740,7 +740,7 @@ calculateDealLevel(property, analysis) {
         else grade = 'D';
     }
     
-    // Map grade to deal level
+   // Map grade to deal level
     const dealLevels = {
         'A+': 'Amazing Deal',
         'A': 'Great Deal',
@@ -751,6 +751,10 @@ calculateDealLevel(property, analysis) {
         'D': 'Decent Deal',
         'F': 'Not a Deal'
     };
+    
+    return dealLevels[grade] || 'Good Deal'; // ← ADD THIS MISSING RETURN STATEMENT
+} // ← ADD THIS MISSING CLOSING BRACE
+
     
 /**
  * Updated user prompt for rentals analysis with deal level
