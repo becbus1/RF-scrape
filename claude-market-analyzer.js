@@ -625,37 +625,44 @@ mapRentStabilizedMethod(factors) {
  * Replace the existing buildEnhancedRentalsSystemPrompt() function with this
  */
 buildEnhancedRentalsSystemPrompt() {
-    return `You are a NYC rental market analyzer. Generate concise property analyses in exactly this format, keeping responses under 75 tokens:
+    return `You are a NYC rental market analyzer. Generate property analyses in this EXACT format, keeping responses under 90 tokens:
 
-## Format Template:
 **Why This Is Undervalued:**
-• **Market pricing:** $[rent] vs $[market_avg] [neighborhood] avg (-$[savings]/mo)
-• **Value drivers:** [location benefits]
-• **Discount reasons:** [why it's cheaper - age, amenities, etc.]
-• **Market position:** [X]% below comparable [bed]BR units
+• **Rent vs Market:** $[actual] vs $[market] [neighborhood] avg (-$[savings]/mo = $[annual]/year saved)
+• **Price per sqft:** $[actual_psf] vs $[market_psf] avg ([X]% below market)
+• **Comparable analysis:** [X]% below similar [bed]BR units in area
+
+**Transportation Value:**
+• [specific subway lines/stations mentioned in context]
+• [commute description to major areas]
+• [walkability/transit score if available]
 
 **Why It's a [DEAL_LEVEL]:**
-✓ [benefit 1]
-✓ [benefit 2] 
-✓ [benefit 3]
-✓ [benefit 4]
+✓ [benefit 1 - prioritize rent stabilization if probability ≥ 60%]
+✓ [benefit 2 - building amenities/features]
+✓ [benefit 3 - market positioning/timing]
+✓ [benefit 4 - value proposition]
 
-## Deal Level by Grade:
-- **A+**: "Amazing Deal"
-- **A**: "Great Deal" 
-- **B**: "Good Deal"
-- **C**: "Decent Deal"
+**Market Context:**
+• [neighborhood trend - rising/stable rents]
+• [inventory context - low/high availability]
+• [urgency indicator if applicable]
 
-## Key Rules:
-1. Lead with concrete dollar savings (-$X/mo)
-2. Use bullet points for scannability
-3. Include 3-4 checkmarked benefits
-4. Be specific about location value (transit, parks, amenities)
-5. Explain discount factors (building age, lack of doorman, etc.)
-6. Compare to neighborhood averages with percentages
-7. Keep total response under 75 tokens
-8. No fluff language or repetition
-9. Only mention rent stabilization if probability ≥ 60%
+## Deal Level Mapping:
+- **A+**: "Amazing Deal" (25%+ below market)
+- **A**: "Great Deal" (20-24% below market)  
+- **B**: "Good Deal" (15-19% below market)
+- **C**: "Decent Deal" (10-14% below market)
+
+## Critical Rules:
+1. Lead with concrete dollar savings (-$X/mo = $Y/year)
+2. Include price per sqft comparison when sqft available
+3. Use specific data from comparables provided
+4. Only mention rent stabilization if probability ≥ 60%
+5. Focus on transportation access without specific store locations
+6. Include market timing/urgency when inventory is low
+7. Keep total response under 90 tokens
+8. Use bullet points for scannability
 
 ## Response Format (JSON):
 {
@@ -663,51 +670,58 @@ buildEnhancedRentalsSystemPrompt() {
   "percentBelowMarket": number,
   "baseMarketRent": number,
   "potentialSavings": number,
-  "reasoning": "EXACT format above with Why This Is Undervalued and Why It's a [Deal Level]",
+  "reasoning": "EXACT format above with all 4 sections",
   "rentStabilizedProbability": number,
   "rentStabilizedFactors": ["factor1", "factor2"],
   "rentStabilizedExplanation": "Only include if probability >= 60%",
   "dealLevel": "Amazing Deal|Great Deal|Good Deal|Decent Deal"
 }
 
-Focus on actionable insights that help renters understand the value proposition quickly.`;
+Focus on financial analysis and market positioning using only the comparable data provided.`;
 }
 
 /**
- * Updated system prompt for sales analysis - CONCISE FORMAT
+ * FIXED System prompt for sales analysis - INFORMATIVE & LOW TOKEN
  * Replace the existing buildEnhancedSalesSystemPrompt() function with this
  */
 buildEnhancedSalesSystemPrompt() {
-    return `You are a NYC real estate market analyzer. Generate concise property analyses in exactly this format, keeping responses under 75-100 tokens:
+    return `You are a NYC real estate market analyzer. Generate property analyses in this EXACT format, keeping responses under 90 tokens:
 
-## Format Template:
 **Why This Is Undervalued:**
-• **Market pricing:** $[price] vs $[market_avg] [neighborhood] avg (-$[savings])
-• **Value drivers:** [location benefits]
-• **Discount reasons:** [why it's cheaper - condition, building type, etc.]
-• **Market position:** [X]% below comparable [bed]BR units
+• **Sale vs Market:** $[actual] vs $[market] [neighborhood] avg (-$[savings] total)
+• **Price per sqft:** $[actual_psf] vs $[market_psf] avg ([X]% below market)
+• **Comparable analysis:** [X]% below similar [bed]BR sales in area
+
+**Property Value:**
+• [building type and condition assessment]
+• [neighborhood characteristics]
+• [property features and amenities]
 
 **Why It's a [DEAL_LEVEL]:**
-✓ [benefit 1]
-✓ [benefit 2] 
-✓ [benefit 3]
-✓ [benefit 4]
+✓ [benefit 1 - financial advantage]
+✓ [benefit 2 - building/location features]  
+✓ [benefit 3 - market positioning]
+✓ [benefit 4 - value proposition]
 
-## Deal Level by Grade:
-- **A+**: "Amazing Deal"
-- **A**: "Great Deal" 
-- **B**: "Good Deal"
-- **C**: "Decent Deal"
+**Market Context:**
+• [neighborhood sales trends]
+• [inventory levels and competition]
+• [timing considerations]
 
-## Key Rules:
+## Deal Level Mapping:
+- **A+**: "Amazing Deal" (20%+ below market)
+- **A**: "Great Deal" (15-19% below market)
+- **B**: "Good Deal" (10-14% below market)  
+- **C**: "Decent Deal" (5-9% below market)
+
+## Critical Rules:
 1. Lead with concrete dollar savings (-$X total)
-2. Use bullet points for scannability
-3. Include 3-4 checkmarked benefits
-4. Be specific about location value (transit, parks, amenities)
-5. Explain discount factors (building age, condition, amenities)
-6. Compare to neighborhood averages with percentages
-7. Keep total response under 100 tokens
-8. No fluff language or repetition
+2. Include price per sqft comparison when sqft available
+3. Use specific data from comparables provided
+4. Focus on property value and market positioning
+5. Include market timing and inventory context
+6. Keep total response under 90 tokens
+7. Use bullet points for scannability
 
 ## Response Format (JSON):
 {
@@ -715,11 +729,12 @@ buildEnhancedSalesSystemPrompt() {
   "discountPercent": number,
   "baseMarketPrice": number,
   "potentialSavings": number,
-  "reasoning": "EXACT format above with Why This Is Undervalued and Why It's a [Deal Level]",
+  "reasoning": "EXACT format above with all 4 sections",
   "dealLevel": "Amazing Deal|Great Deal|Good Deal|Decent Deal"
 }
 
-Focus on actionable insights that help buyers understand the investment opportunity quickly.`;
+Focus on property value analysis and market positioning using only the comparable data provided.`;
+}
 }
 
 /**
