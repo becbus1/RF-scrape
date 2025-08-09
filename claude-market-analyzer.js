@@ -620,194 +620,206 @@ mapRentStabilizedMethod(factors) {
      * SYSTEM PROMPTS FOR CLAUDE AI
      */
 
-    /**
-     * Enhanced system prompt for rentals analysis
-     */
-    buildEnhancedRentalsSystemPrompt() {
-        return `You are an expert NYC rental market analyst with deep knowledge of micro-market pricing and rent stabilization laws. You provide natural, human-like analysis that helps renters understand market value and potential savings.
+/**
+ * Updated system prompt for rentals analysis - CONCISE FORMAT
+ * Replace the existing buildEnhancedRentalsSystemPrompt() function with this
+ */
+buildEnhancedRentalsSystemPrompt() {
+    return `You are a NYC rental market analyzer. Generate concise property analyses in exactly this format, keeping responses under 75 tokens:
 
-ANALYSIS APPROACH:
-You will analyze a rental property using a curated set of comparable properties that have been pre-filtered to match the target property's bed/bath configuration and amenities. Focus on these specific comparables rather than general neighborhood averages.
+## Format Template:
+**Why This Is Undervalued:**
+• **Market pricing:** $[rent] vs $[market_avg] [neighborhood] avg (-$[savings]/mo)
+• **Value drivers:** [location benefits]
+• **Discount reasons:** [why it's cheaper - age, amenities, etc.]
+• **Market position:** [X]% below comparable [bed]BR units
 
-KEY REQUIREMENTS:
-- Provide natural, conversational reasoning that explains the value proposition clearly
-- Calculate market value based on the provided filtered comparable properties
-- Explain any price differences due to specific factors (amenities, condition, location)
-- Calculate monthly savings compared to the comparable properties
-- Assess rent stabilization probability based on building characteristics
+**Why It's a [DEAL_LEVEL]:**
+✓ [benefit 1]
+✓ [benefit 2] 
+✓ [benefit 3]
+✓ [benefit 4]
 
-RENT STABILIZATION RULES:
-- Only mention rent stabilization if probability is 60% or higher
-- If probability is below 60%, do not mention it in your reasoning
-- Base assessment on building age, unit count, rent level, and legal indicators
+## Deal Level by Grade:
+- **A+**: "Amazing Deal"
+- **A**: "Great Deal" 
+- **B**: "Good Deal"
+- **C**: "Decent Deal"
 
-Only assign a rentStabilizedProbability ≥ 60 if there is strong evidence. This includes:
-	•	Direct mention of “rent-stabilized”, “regulated”, or “long-term tenant” or similar indicators in the listing description
-	•	Matching building in DHCR database
-	•	Buildings constructed between 1947 and 1973 with 6 or more units are potentially rent-stabilized, but this must be confirmed through direct evidence (listing description or DHCR match).
+## Key Rules:
+1. Lead with concrete dollar savings (-$X/mo)
+2. Use bullet points for scannability
+3. Include 3-4 checkmarked benefits
+4. Be specific about location value (transit, parks, amenities)
+5. Explain discount factors (building age, lack of doorman, etc.)
+6. Compare to neighborhood averages with percentages
+7. Keep total response under 75 tokens
+8. No fluff language or repetition
+9. Only mention rent stabilization if probability ≥ 60%
 
-
-Be cautious with assumptions based on rent level or age alone — those are not conclusive.
-
-REASONING STYLE:
-Write naturally and conversationally, like explaining to a friend. Example:
-"This rental offers excellent value at 23% below similar properties in the area. The $4,200/month rent compares favorably to nearby 2BR apartments which typically rent for $5,500-$6,000. The below-market pricing is due to the building's 1960s construction and basic amenities, but you still get the prime location benefits."
-
-RESPONSE FORMAT (JSON):
+## Response Format (JSON):
 {
   "estimatedMarketRent": number,
   "percentBelowMarket": number,
   "baseMarketRent": number,
   "potentialSavings": number,
-  "reasoning": "Natural, conversational explanation of the value and market positioning",
+  "reasoning": "EXACT format above with Why This Is Undervalued and Why It's a [Deal Level]",
   "rentStabilizedProbability": number,
-  "rentStabilizedFactors": ["dhcr_database", "building_age", "unit_count", "rent_level"],
+  "rentStabilizedFactors": ["factor1", "factor2"],
   "rentStabilizedExplanation": "Only include if probability >= 60%",
-  "detailedAnalysis": {
-    "valueExplanation": "Why this property offers good/poor value",
-    "comparableAnalysis": "How it compares to the specific filtered properties",
-    "amenityComparison": "Amenity differences vs comparable properties",
-    "locationFactors": "Location-specific factors affecting price"
-  },
-  "adjustmentBreakdown": {
-    "amenities": number,
-    "condition": number,
-    "size": number,
-    "location": number
-  }
+  "dealLevel": "Amazing Deal|Great Deal|Good Deal|Decent Deal"
 }
 
-Provide insightful, natural analysis that helps renters understand exactly what they're getting for their money.`;
-    }
+Focus on actionable insights that help renters understand the value proposition quickly.`;
+}
 
-    /**
-     * Enhanced system prompt for sales analysis
-     */
-    buildEnhancedSalesSystemPrompt() {
-        return `You are an expert NYC real estate investment analyst with deep knowledge of micro-market pricing and building characteristics. You provide natural, human-like analysis that helps buyers understand market value and investment potential.
+/**
+ * Updated system prompt for sales analysis - CONCISE FORMAT
+ * Replace the existing buildEnhancedSalesSystemPrompt() function with this
+ */
+buildEnhancedSalesSystemPrompt() {
+    return `You are a NYC real estate market analyzer. Generate concise property analyses in exactly this format, keeping responses under 75-100 tokens:
 
-ANALYSIS APPROACH:
-You will analyze a property for sale using a curated set of comparable sales that have been pre-filtered to match the target property's bed/bath configuration and amenities. Focus on these specific comparables rather than general neighborhood averages.
+## Format Template:
+**Why This Is Undervalued:**
+• **Market pricing:** $[price] vs $[market_avg] [neighborhood] avg (-$[savings])
+• **Value drivers:** [location benefits]
+• **Discount reasons:** [why it's cheaper - condition, building type, etc.]
+• **Market position:** [X]% below comparable [bed]BR units
 
-KEY REQUIREMENTS:
-- Provide natural, conversational reasoning that explains the value proposition clearly
-- Calculate market value based on the provided filtered comparable sales
-- Explain any price differences due to specific factors (amenities, condition, location, building type)
-- Calculate potential savings compared to the comparable sales
-- Assess investment merit and market positioning
+**Why It's a [DEAL_LEVEL]:**
+✓ [benefit 1]
+✓ [benefit 2] 
+✓ [benefit 3]
+✓ [benefit 4]
 
-REASONING STYLE:
-Write naturally and conversationally, like explaining to a friend. Example:
-"This property offers excellent value at 18% below similar sales in the area. The $850,000 price compares favorably to nearby 2BR condos which typically sell for $1,000,000-$1,100,000. The below-market pricing reflects the need for kitchen updates and the building's lack of amenities, but you're still getting prime location access at significant savings."
+## Deal Level by Grade:
+- **A+**: "Amazing Deal"
+- **A**: "Great Deal" 
+- **B**: "Good Deal"
+- **C**: "Decent Deal"
 
-RESPONSE FORMAT (JSON):
+## Key Rules:
+1. Lead with concrete dollar savings (-$X total)
+2. Use bullet points for scannability
+3. Include 3-4 checkmarked benefits
+4. Be specific about location value (transit, parks, amenities)
+5. Explain discount factors (building age, condition, amenities)
+6. Compare to neighborhood averages with percentages
+7. Keep total response under 100 tokens
+8. No fluff language or repetition
+
+## Response Format (JSON):
 {
   "estimatedMarketPrice": number,
   "discountPercent": number,
   "baseMarketPrice": number,
   "potentialSavings": number,
-  "reasoning": "Natural, conversational explanation of the value and market positioning",
-  "detailedAnalysis": {
-    "valueExplanation": "Why this property offers good/poor value",
-    "comparableAnalysis": "How it compares to the specific filtered properties",
-    "amenityComparison": "Amenity differences vs comparable properties",
-    "investmentFactors": "Investment-specific factors affecting value",
-    "marketTiming": "Market timing and velocity considerations"
-  },
-  "adjustmentBreakdown": {
-    "amenities": number,
-    "condition": number,
-    "size": number,
-    "location": number,
-    "buildingType": number
-  }
+  "reasoning": "EXACT format above with Why This Is Undervalued and Why It's a [Deal Level]",
+  "dealLevel": "Amazing Deal|Great Deal|Good Deal|Decent Deal"
 }
 
-Provide insightful, natural analysis that helps buyers understand exactly what they're getting for their money and the investment potential.`;
+Focus on actionable insights that help buyers understand the investment opportunity quickly.`;
+}
+
+/**
+ * Calculate deal level based on property grade
+ * Add this helper function to your EnhancedClaudeMarketAnalyzer class
+ */
+calculateDealLevel(property, analysis) {
+    // Get grade from existing scoring system or analysis
+    let grade = property.grade;
+    
+    // If no grade available, calculate from discount percentage
+    if (!grade && analysis) {
+        const discount = analysis.percentBelowMarket || analysis.discountPercent || 0;
+        if (discount >= 30) grade = 'A+';
+        else if (discount >= 20) grade = 'A';
+        else if (discount >= 15) grade = 'B';
+        else if (discount >= 10) grade = 'C';
+        else grade = 'D';
     }
-
-    /**
-     * USER PROMPTS FOR CLAUDE ANALYSIS
-     */
-
-    /**
-     * Build enhanced user prompt for rentals analysis with filtered comparables
-     */
-    buildEnhancedRentalsUserPrompt(enhancedContext, threshold) {
-        const target = enhancedContext.targetProperty;
-        const comparables = enhancedContext.comparables;
-        const rsContext = enhancedContext.rentStabilizationContext;
-        
-        return `Analyze this NYC rental property using the provided filtered comparable properties:
+    
+    // Map grade to deal level
+    const dealLevels = {
+        'A+': 'Amazing Deal',
+        'A': 'Great Deal',
+        'B+': 'Great Deal',
+        'B': 'Good Deal',
+        'C+': 'Good Deal',
+        'C': 'Decent Deal',
+        'D': 'Decent Deal',
+        'F': 'Not a Deal'
+    };
+    
+/**
+ * Updated user prompt for rentals analysis with deal level
+ * Update your existing buildEnhancedRentalsUserPrompt function
+ */
+buildEnhancedRentalsUserPrompt(enhancedContext, threshold) {
+    const target = enhancedContext.targetProperty;
+    const comparables = enhancedContext.comparables;
+    const dealLevel = this.calculateDealLevel(target, null);
+    
+    return `Analyze this NYC rental using the EXACT format specified in your system prompt:
 
 TARGET PROPERTY:
 Address: ${target.address}
-Rent: $${target.price.toLocaleString()}/month
+Rent: ${target.price.toLocaleString()}/month
 Layout: ${target.bedrooms}BR/${target.bathrooms}BA
-Square Feet: ${target.sqft || 'Not listed'}
-Built: ${target.builtIn || 'Unknown'}
+Grade: ${target.grade || 'TBD'}
+Expected Deal Level: ${dealLevel}
 Neighborhood: ${target.neighborhood}
-No Fee: ${target.noFee ? 'YES' : 'NO'}
-Amenities: ${target.amenities.join(', ') || 'None listed'}
-Description: ${target.description}
+Amenities: ${target.amenities.join(', ') || 'Basic'}
 
-FILTERED COMPARABLE PROPERTIES (${enhancedContext.valuationMethod}):
-${comparables.slice(0, 12).map((comp, i) => 
-  `${i+1}. ${comp.address} - $${comp.price?.toLocaleString()}/month | ${comp.bedrooms}BR/${comp.bathrooms}BA | ${comp.sqft || 'N/A'} sqft | No Fee: ${comp.noFee ? 'YES' : 'NO'} | Amenities: ${comp.amenities?.slice(0, 4).join(', ') || 'None'}`
+FILTERED COMPARABLES (${comparables.length} properties):
+${comparables.slice(0, 6).map((comp, i) => 
+  `${i+1}. ${comp.price?.toLocaleString()}/month | ${comp.bedrooms}BR/${comp.bathrooms}BA`
 ).join('\n')}
 
-RENT STABILIZATION CONTEXT:
-Building Age: ${rsContext.buildingAgeFactor}
-Potential Matches in Database: ${rsContext.buildingMatches.length}
-${rsContext.strongestMatch ? `Strongest Match: ${rsContext.strongestMatch.address} (${rsContext.strongestMatch.confidence}% confidence)` : 'No strong database matches'}
+INSTRUCTIONS:
+1. Use EXACTLY the format from your system prompt
+2. Set dealLevel to: ${dealLevel}
+3. Calculate savings vs these ${comparables.length} comparables
+4. Keep reasoning under 100 tokens total
+5. Focus on why it's undervalued and why it's a ${dealLevel.toLowerCase()}
 
-ANALYSIS INSTRUCTIONS:
-- Compare this property to the ${comparables.length} filtered comparable properties above
-- Explain value relative to these specific comparables, not general neighborhood averages
-- Calculate if rent is ${threshold}%+ below market based on these comparables
-- Provide natural, conversational reasoning about the value proposition
-- Only mention rent stabilization if probability ≥ 60%
-- Focus on monthly savings and specific factors affecting price
+Return analysis as JSON with the exact structure specified.`;
+}
 
-Return your analysis as JSON.`;
-    }
-
-    /**
-     * Build enhanced user prompt for sales analysis with filtered comparables
-     */
-    buildEnhancedSalesUserPrompt(enhancedContext, threshold) {
-        const target = enhancedContext.targetProperty;
-        const comparables = enhancedContext.comparables;
-        
-        return `Analyze this NYC property for sale using the provided filtered comparable sales:
+/**
+ * Updated user prompt for sales analysis with deal level
+ * Update your existing buildEnhancedSalesUserPrompt function
+ */
+buildEnhancedSalesUserPrompt(enhancedContext, threshold) {
+    const target = enhancedContext.targetProperty;
+    const comparables = enhancedContext.comparables;
+    const dealLevel = this.calculateDealLevel(target, null);
+    
+    return `Analyze this NYC property sale using the EXACT format specified in your system prompt:
 
 TARGET PROPERTY:
 Address: ${target.address}
-Sale Price: $${target.salePrice?.toLocaleString() || target.price?.toLocaleString()}
+Sale Price: ${target.salePrice?.toLocaleString() || target.price?.toLocaleString()}
 Layout: ${target.bedrooms}BR/${target.bathrooms}BA
-Square Feet: ${target.sqft || 'Not listed'}
-Built: ${target.builtIn || 'Unknown'}
-Property Type: ${target.propertyType || 'Unknown'}
+Grade: ${target.grade || 'TBD'}
+Expected Deal Level: ${dealLevel}
 Neighborhood: ${target.neighborhood}
-Monthly HOA: $${target.monthlyHoa?.toLocaleString() || '0'}
-Monthly Tax: $${target.monthlyTax?.toLocaleString() || '0'}
-Amenities: ${target.amenities.join(', ') || 'None listed'}
-Description: ${target.description}
 
-FILTERED COMPARABLE SALES (${enhancedContext.valuationMethod}):
-${comparables.slice(0, 12).map((comp, i) => 
-  `${i+1}. ${comp.address} - $${comp.salePrice?.toLocaleString() || comp.price?.toLocaleString()} | ${comp.bedrooms}BR/${comp.bathrooms}BA | ${comp.sqft || 'N/A'} sqft | Built: ${comp.builtIn || 'N/A'} | Amenities: ${comp.amenities?.slice(0, 4).join(', ') || 'None'}`
+FILTERED COMPARABLES (${comparables.length} properties):
+${comparables.slice(0, 6).map((comp, i) => 
+  `${i+1}. ${comp.salePrice?.toLocaleString() || comp.price?.toLocaleString()} | ${comp.bedrooms}BR/${comp.bathrooms}BA`
 ).join('\n')}
 
-ANALYSIS INSTRUCTIONS:
-- Compare this property to the ${comparables.length} filtered comparable sales above
-- Explain value relative to these specific comparables, not general neighborhood averages
-- Calculate if property is ${threshold}%+ below market based on these comparables
-- Provide natural, conversational reasoning about the value proposition and investment merit
-- Focus on potential savings and specific factors affecting price
+INSTRUCTIONS:
+1. Use EXACTLY the format from your system prompt
+2. Set dealLevel to: ${dealLevel}
+3. Calculate savings vs these ${comparables.length} comparables
+4. Keep reasoning under 100 tokens total
+5. Focus on why it's undervalued and why it's a ${dealLevel.toLowerCase()}
 
-Return your analysis as JSON.`;
-    }
+Return analysis as JSON with the exact structure specified.`;
+}
 
     /**
      * CONTEXT BUILDING FUNCTIONS
