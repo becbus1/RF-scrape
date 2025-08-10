@@ -624,18 +624,21 @@ mapRentStabilizedMethod(factors) {
  * Updated system prompt for rentals analysis - CONCISE FORMAT
  * Replace the existing buildEnhancedRentalsSystemPrompt() function with this
  */
+/**
+ * Updated system prompt for rentals analysis - CONCISE FORMAT
+ */
 buildEnhancedRentalsSystemPrompt() {
     return `You are a NYC rental market analyzer. Generate property analyses in this EXACT format, keeping responses under 90 tokens:
 
 **Why This Is Undervalued:**
-• **Rent vs Market:** $[actual] vs $[market] [neighborhood] avg (-$[savings]/mo = $[annual]/year saved)
-• **Price per sqft:** $[actual_psf] vs $[market_psf] avg ([X]% below market)
-• **Comparable analysis:** [X]% below similar [bed]BR units in area
+- **Rent vs Market:** $[actual] vs $[market] [neighborhood] avg (-$[savings]/mo = $[annual]/year saved)
+- **Price per sqft:** $[actual_psf] vs $[market_psf] avg ([X]% below market)
+- **Comparable analysis:** [X]% below similar [bed]BR units in area
 
 **Transportation Value:**
-• [specific subway lines/stations mentioned in context]
-• [commute description to major areas]
-• [walkability/transit score if available]
+- [specific subway lines/stations mentioned in context]
+- [commute description to major areas]
+- [walkability/transit score if available]
 
 **Why It's a [DEAL_LEVEL]:**
 ✓ [benefit 1 - prioritize rent stabilization if probability ≥ 60%]
@@ -644,9 +647,9 @@ buildEnhancedRentalsSystemPrompt() {
 ✓ [benefit 4 - value proposition]
 
 **Market Context:**
-• [neighborhood trend - rising/stable rents]
-• [inventory context - low/high availability]
-• [urgency indicator if applicable]
+- [neighborhood trend - rising/stable rents]
+- [inventory context - low/high availability]
+- [urgency indicator if applicable]
 
 ## Deal Level Mapping:
 - **A+**: "Amazing Deal" (25%+ below market)
@@ -681,21 +684,20 @@ Focus on financial analysis and market positioning using only the comparable dat
 }
 
 /**
- * FIXED System prompt for sales analysis - INFORMATIVE & LOW TOKEN
- * Replace the existing buildEnhancedSalesSystemPrompt() function with this
+ * System prompt for sales analysis - CONCISE FORMAT
  */
 buildEnhancedSalesSystemPrompt() {
     return `You are a NYC real estate market analyzer. Generate property analyses in this EXACT format, keeping responses under 90 tokens:
 
 **Why This Is Undervalued:**
-• **Sale vs Market:** $[actual] vs $[market] [neighborhood] avg (-$[savings] total)
-• **Price per sqft:** $[actual_psf] vs $[market_psf] avg ([X]% below market)
-• **Comparable analysis:** [X]% below similar [bed]BR sales in area
+- **Sale vs Market:** $[actual] vs $[market] [neighborhood] avg (-$[savings] total)
+- **Price per sqft:** $[actual_psf] vs $[market_psf] avg ([X]% below market)
+- **Comparable analysis:** [X]% below similar [bed]BR sales in area
 
 **Property Value:**
-• [building type and condition assessment]
-• [neighborhood characteristics]
-• [property features and amenities]
+- [building type and condition assessment]
+- [neighborhood characteristics]
+- [property features and amenities]
 
 **Why It's a [DEAL_LEVEL]:**
 ✓ [benefit 1 - financial advantage]
@@ -704,9 +706,9 @@ buildEnhancedSalesSystemPrompt() {
 ✓ [benefit 4 - value proposition]
 
 **Market Context:**
-• [neighborhood sales trends]
-• [inventory levels and competition]
-• [timing considerations]
+- [neighborhood sales trends]
+- [inventory levels and competition]
+- [timing considerations]
 
 ## Deal Level Mapping:
 - **A+**: "Amazing Deal" (20%+ below market)
@@ -735,7 +737,39 @@ buildEnhancedSalesSystemPrompt() {
 
 Focus on property value analysis and market positioning using only the comparable data provided.`;
 }
-}
+
+    /**
+     * Calculate deal level based on property grade
+     */
+    calculateDealLevel(property, analysis) {
+        // Get grade from existing scoring system or analysis
+        let grade = property.grade;
+        
+        // If no grade available, calculate from discount percentage
+        if (!grade && analysis) {
+            const discount = analysis.percentBelowMarket || analysis.discountPercent || 0;
+            if (discount >= 30) grade = 'A+';
+            else if (discount >= 20) grade = 'A';
+            else if (discount >= 15) grade = 'B';
+            else if (discount >= 10) grade = 'C';
+            else grade = 'D';
+        }
+        
+        // Map grade to deal level
+        const dealLevels = {
+            'A+': 'Amazing Deal',
+            'A': 'Great Deal',
+            'B+': 'Great Deal',
+            'B': 'Good Deal',
+            'C+': 'Good Deal',
+            'C': 'Decent Deal',
+            'D': 'Decent Deal',
+            'F': 'Not a Deal'
+        };
+        
+        return dealLevels[grade] || 'Good Deal';
+    }
+
 
 /**
  * Calculate deal level based on property grade
