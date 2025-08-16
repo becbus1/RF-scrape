@@ -50,23 +50,121 @@ class ClaudePoweredRentalsSystem {
         console.log(`   🔒 Stabilized undervaluation threshold: ${this.stabilizedUndervaluationThreshold}%`);
     }
 
+  /**
+     * NEW: Run rented detection for undervalued_rent_stabilized listings in specific neighborhood
+     * MATCHES THE EXACT SAME FUNCTIONALITY AS biweekly-streeteasy-rentals.js
+     */
+    async runRentedDetectionForNeighborhood(searchResults, neighborhood) {
+        const currentTime = new Date().toISOString();
+        const currentListingIds = searchResults.map(r => r.id?.toString()).filter(Boolean);
+        
+        try {
+            const threeDaysAgo = new Date();
+            threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+
+            // Get rent-stabilized listings in this neighborhood that weren't in current search
+            const { data: missingRentStabilized, error: missingError } = await this.supabase
+                .from('undervalued_rent_stabilized')
+                .select('listing_id')
+                .eq('neighborhood', neighborhood)
+                .eq('display_status', 'active')
+                .not('listing_id', 'in', `(${currentListingIds.map(id => `"${id}"`).join(',')})`)
+                .lt('last_seen_in_search', threeDaysAgo.toISOString());
+
+            if (missingError) {
+                console.warn('⚠️ Error checking for missing rent-stabilized listings:', missingError.message);
+                return { markedRented: 0 };
+            }
+
+            // Mark corresponding entries in undervalued_rent_stabilized as likely rented
+            let markedRented = 0;
+            if (missingRentStabilized && missingRentStabilized.length > 0) {
+                const missingIds = missingRentStabilized.map(r => r.listing_id);
+                
+                const { error: markRentedError } = await this.supabase
+                    .from('undervalued_rent_stabilized')
+                    .update({
+                        display_status: 'rented',
+                        likely_rented: true,
+                        rented_detected_at: currentTime
+                    })
+                    .in('listing_id', missingIds)
+                    .eq('display_status', 'active');
+
+                if (!markRentedError) {
+                    markedRented = missingIds.length;
+                    console.log(`   🏠 Marked ${markedRented} rent-stabilized listings as likely rented (not seen in recent search)`);
+                } else {
+                    console.warn('⚠️ Error marking rent-stabilized listings as rented:', markRentedError.message);
+                }
+            }
+
+            return { markedRented };
+        } catch (error) {
+            console.warn('⚠️ Error in rent-stabilized rented detection for neighborhood:', error.message);
+            return { markedRented: 0 };
+        }
+    }
+
+    /**
+     * NEW: Update last_seen_in_search timestamps for rent-stabilized listings
+     * MATCHES THE EXACT SAME FUNCTIONALITY AS biweekly-streeteasy-rentals.js
+     */
+    async updateRentStabilizedTimestamps(searchResults, neighborhood) {
+        const currentTime = new Date().toISOString();
+        
+        try {
+            // Update search timestamps for listings we found
+            for (const listing of searchResults) {
+                if (!listing.id) continue;
+                
+                try {
+                    const { error } = await this.supabase
+                        .from('undervalued_rent_stabilized')
+                        .update({
+                            last_seen_in_search: currentTime,
+                            times_seen_in_search: 1  // Could be improved with increment logic
+                        })
+                        .eq('listing_id', listing.id.toString());
+
+                    if (error && !error.message.includes('0 rows')) {
+                        console.warn(`⚠️ Error updating search timestamp for rent-stabilized ${listing.id}:`, error.message);
+                    }
+                } catch (itemError) {
+                    console.warn(`⚠️ Error processing search timestamp for rent-stabilized ${listing.id}:`, itemError.message);
+                }
+            }
+
+            // Run rented detection for this neighborhood
+            const { markedRented } = await this.runRentedDetectionForNeighborhood(searchResults, neighborhood);
+            
+            console.log(`   💾 Updated rent-stabilized search timestamps: ${searchResults.length} listings, marked ${markedRented} as rented`);
+            return { updated: searchResults.length, markedRented };
+
+        } catch (error) {
+            console.warn('⚠️ Error updating rent-stabilized search timestamps:', error.message);
+            return { updated: 0, markedRented: 0 };
+        }
+    }
+
     /**
      * MAIN ANALYSIS FUNCTION - Analyze neighborhood for rent-stabilized opportunities
      */
-   async analyzeNeighborhoodForRentStabilized(neighborhood, options = {}) {
+    async analyzeNeighborhoodForRentStabilized(neighborhood, options = {}) {
     console.log(`\n🏘️ Analyzing ${neighborhood} for rent-stabilized opportunities...`);
     
     const results = {
-        neighborhood,
-        totalListings: 0,
-        totalAnalyzed: 0,
-        undervaluedCount: 0,
-        stabilizedCount: 0,
-        undervaluedStabilizedCount: 0,
-        savedCount: 0,
-        skippedCount: 0,
-        errors: []
-    };
+    neighborhood,
+    totalListings: 0,
+    totalAnalyzed: 0,
+    undervaluedCount: 0,
+    stabilizedCount: 0,
+    undervaluedStabilizedCount: 0,
+    savedCount: 0,
+    skippedCount: 0,
+    errors: [],
+    rentedDetection: { markedRented: 0, updated: 0 }
+};
     
     try {
         // FIXED STEP 1: Fetch current active listings from API first
@@ -90,6 +188,10 @@ class ClaudePoweredRentalsSystem {
         await this.markMissingListingsAsRented(activeListings.map(l => l.id), neighborhood);
         
         results.totalListings = activeListings.length;
+
+// NEW: Update timestamps and run rented detection for rent-stabilized listings
+console.log(`   🔍 Running rented detection for ${neighborhood}...`);
+results.rentedDetection = await this.updateRentStabilizedTimestamps(activeListings, neighborhood);
         
        // STEP 5: Fetch detailed listing data FIRST, then analyze with Claude
 console.log(`   🔍 Fetching detailed data for ${needFetch.length} properties...`);
