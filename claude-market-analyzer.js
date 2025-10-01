@@ -303,7 +303,7 @@ async analyzeSalesUndervaluation(targetProperty, comparableProperties, neighborh
         const targetBaths = targetProperty.bathrooms || 0;
         const targetAmenities = this.normalizeAmenities(targetProperty.amenities || []);
         
-        // Method 1: Try exact bed/bath/amenity match (minimum 300)
+        // Method 1: Try exact bed/bath/amenity/comprehensive building match (minimum 300)
         let exactMatches = allComparables.filter(comp => 
             comp.bedrooms === targetBeds && 
             Math.abs(comp.bathrooms - targetBaths) <= 0.5 &&
