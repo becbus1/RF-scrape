@@ -303,7 +303,7 @@ async analyzeSalesUndervaluation(targetProperty, comparableProperties, neighborh
         const targetBaths = targetProperty.bathrooms || 0;
         const targetAmenities = this.normalizeAmenities(targetProperty.amenities || []);
         
-        // Method 1: Try exact bed/bath/amenity match (minimum 3)
+        // Method 1: Try exact bed/bath/amenity match (minimum 300)
         let exactMatches = allComparables.filter(comp => 
             comp.bedrooms === targetBeds && 
             Math.abs(comp.bathrooms - targetBaths) <= 0.5 &&
@@ -318,7 +318,7 @@ async analyzeSalesUndervaluation(targetProperty, comparableProperties, neighborh
             };
         }
         
-        // Method 2: Same bed/bath with amenity adjustments (minimum 8)
+        // Method 2: Same bed/bath with amenity adjustments (minimum 150)
         let bedBathMatches = allComparables.filter(comp => 
             comp.bedrooms === targetBeds && 
             Math.abs(comp.bathrooms - targetBaths) <= 0.5
@@ -332,7 +332,7 @@ async analyzeSalesUndervaluation(targetProperty, comparableProperties, neighborh
             };
         }
         
-        // Method 3: Same bedrooms with bath/amenity adjustments (minimum 12)
+        // Method 3: Same bedrooms with bath/amenity adjustments (minimum 120)
         let bedroomMatches = allComparables.filter(comp => comp.bedrooms === targetBeds);
         
         if (bedroomMatches.length >= 12) {
@@ -374,7 +374,7 @@ async analyzeSalesUndervaluation(targetProperty, comparableProperties, neighborh
             };
         }
         
-        // Method 2: Same bed/bath with amenity adjustments (minimum 8)
+        // Method 2: Same bed/bath with amenity adjustments (minimum 80)
         let bedBathMatches = allComparables.filter(comp => 
             comp.bedrooms === targetBeds && 
             Math.abs(comp.bathrooms - targetBaths) <= 0.5
@@ -388,7 +388,7 @@ async analyzeSalesUndervaluation(targetProperty, comparableProperties, neighborh
             };
         }
         
-        // Method 3: Same bedrooms with bath/amenity adjustments (minimum 12)
+        // Method 3: Same bedrooms with bath/amenity adjustments (minimum 120)
         let bedroomMatches = allComparables.filter(comp => comp.bedrooms === targetBeds);
         
         if (bedroomMatches.length >= 12) {
