@@ -261,11 +261,11 @@ async function main() {
     
     // Environment variables for Supabase
     const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_ANON_KEY;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     
     if (!supabaseUrl || !supabaseKey) {
         console.error('❌ Missing Supabase environment variables:');
-        console.error('   SUPABASE_URL and SUPABASE_ANON_KEY must be set');
+        console.error('   SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set');
         console.error('\n📋 Setup instructions:');
         console.error('   1. Create .env file with:');
         console.error('      SUPABASE_URL=your_supabase_url');
